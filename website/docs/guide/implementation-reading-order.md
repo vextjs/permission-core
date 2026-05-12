@@ -4,6 +4,14 @@
 
 这页不是替代首页和介绍页里的“首次接入主路径”。更合适的用法是：你先按 [快速开始](/guide/quick-start) → [常见问题](/guide/faq) → [资源路径模型](/guide/resource-paths) → [角色与规则](/guide/roles-and-rules) → [权限鉴权](/guide/check-permission) → [接入检查清单](/guide/integration-checklist) 读完一遍，再回到这页开始真正落接入代码。
 
+当前仓库已经完成 v1 核心运行时。如果你希望一边接入、一边直接对照源码实现，推荐先按下面的顺序进入：
+
+1. `src/types/index.ts`、`src/core/errors.ts`
+2. `src/utils/validation.ts`、`src/utils/where.ts`、`src/utils/merge.ts`
+3. `src/check/wildcard.ts`、`src/check/resolver.ts`、`src/check/checker.ts`
+4. `src/cache/permission-cache.ts`、`src/storage/*.ts`、`src/rbac/*.ts`
+5. `src/core/permission-core.ts`、`src/core/context.ts`
+
 ## 这页适合什么时候看
 
 如果你已经满足下面这些条件，就可以开始看这页：

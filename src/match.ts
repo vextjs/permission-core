@@ -1,0 +1,1 @@
+export { matchResource } from "./check/wildcard";
