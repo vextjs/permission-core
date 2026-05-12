@@ -1,6 +1,6 @@
 {
     "name": "permission-core",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Fine-grained permission core for Node.js with unified action + resource semantics.",
     "license": "MIT",
     "type": "module",
