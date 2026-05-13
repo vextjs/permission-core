@@ -121,4 +121,11 @@ try {
 - 在自定义适配器里改写 `allow/deny` 或 `write` 语义
 - 把适配器和框架集成逻辑耦合到一起
 
+如果你现在要查具体构造参数或方法签名，可以直接继续看：
+
+- [StorageAdapter API](/api/storage-adapter)
+- [MemoryAdapter API](/api/memory-adapter)
+- [FileAdapter API](/api/file-adapter)
+- [MonSQLizeStorageAdapter API](/api/monsqlize-storage-adapter)
+
 下一篇继续看 [权限缓存](/guide/cache)。

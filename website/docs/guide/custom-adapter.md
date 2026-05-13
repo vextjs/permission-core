@@ -29,4 +29,8 @@
 2. 再实现自定义适配器
 3. 最后用同一组 `can/assert/filterFields` 示例再完整验一遍
 
-后续正式 API 约束见 [PermissionCore](/api/permission-core) 和 [RoleManager](/api/role-manager)。
+后续正式 API 约束见：
+
+- [StorageAdapter API](/api/storage-adapter)
+- [PermissionCore API](/api/permission-core)
+- [RoleManager API](/api/role-manager)

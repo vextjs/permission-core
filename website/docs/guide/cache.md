@@ -85,3 +85,5 @@ permission-core 默认通过 `cache-hub` 缓存“某个用户最后真正能用
 - 以为 `HTTP-only` 场景不需要缓存
 
 如果你想看运行时主入口怎么暴露缓存失效 API，可继续看 [PermissionCore](/api/permission-core)。
+
+如果你想直接查缓存构造参数和失效方法，可继续看 [PermissionCache API](/api/permission-cache)。

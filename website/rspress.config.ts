@@ -112,8 +112,13 @@ export default defineConfig({
                     items: [
                         { text: "PermissionCore", link: "/api/permission-core" },
                         { text: "PermissionCoreContext", link: "/api/context" },
+                        { text: "PermissionCache", link: "/api/permission-cache" },
                         { text: "RoleManager", link: "/api/role-manager" },
                         { text: "UserRoleManager", link: "/api/user-roles" },
+                        { text: "StorageAdapter", link: "/api/storage-adapter" },
+                        { text: "MemoryAdapter", link: "/api/memory-adapter" },
+                        { text: "FileAdapter", link: "/api/file-adapter" },
+                        { text: "MonSQLizeStorageAdapter", link: "/api/monsqlize-storage-adapter" },
                         { text: "matchResource", link: "/api/match-resource" },
                         { text: "错误码", link: "/api/errors" },
                     ],
