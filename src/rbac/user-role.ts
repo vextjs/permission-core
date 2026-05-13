@@ -4,14 +4,24 @@ import { assertNonEmptyString } from "../utils/validation";
 import type { PermissionCache } from "../cache";
 import type { StorageAdapter } from "../storage";
 
-// UserRoleManager 只处理用户与角色绑定，缓存失效尽量收窄到单个用户。
+/**
+ * 用户与角色绑定管理器。
+ */
 export class UserRoleManager {
+    /**
+     * @param storage 存储适配器。
+     * @param cache 规则缓存。
+     * @param ensureInitialized 初始化检查钩子。
+     */
     constructor(
         private readonly storage: StorageAdapter,
         private readonly cache: PermissionCache,
         private readonly ensureInitialized: () => void,
     ) { }
 
+    /**
+     * 给用户追加绑定一个角色。
+     */
     async assign(userId: string, roleId: string): Promise<void> {
         this.ensureInitialized();
         assertNonEmptyString(userId, "userId");
@@ -27,6 +37,9 @@ export class UserRoleManager {
         await this.cache.invalidate(userId);
     }
 
+    /**
+     * 从用户身上解绑一个角色。
+     */
     async revoke(userId: string, roleId: string): Promise<void> {
         this.ensureInitialized();
         assertNonEmptyString(userId, "userId");
@@ -38,12 +51,18 @@ export class UserRoleManager {
         await this.cache.invalidate(userId);
     }
 
+    /**
+     * 获取用户当前绑定的角色列表。
+     */
     async getUserRoles(userId: string): Promise<string[]> {
         this.ensureInitialized();
         assertNonEmptyString(userId, "userId");
         return this.storage.getUserRoles(userId);
     }
 
+    /**
+     * 覆盖写入用户角色列表。
+     */
     async setUserRoles(userId: string, roleIds: string[]): Promise<void> {
         this.ensureInitialized();
         assertNonEmptyString(userId, "userId");
@@ -58,6 +77,9 @@ export class UserRoleManager {
         await this.cache.invalidate(userId);
     }
 
+    /**
+     * 清空用户的全部角色绑定。
+     */
     async clearUserRoles(userId: string): Promise<void> {
         this.ensureInitialized();
         assertNonEmptyString(userId, "userId");
@@ -65,6 +87,9 @@ export class UserRoleManager {
         await this.cache.invalidate(userId);
     }
 
+    /**
+     * 断言角色存在。
+     */
     private async ensureRoleExists(roleId: string) {
         if (!(await this.storage.getRole(roleId))) {
             throw new PermissionCoreError(

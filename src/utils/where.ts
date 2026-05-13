@@ -1,5 +1,8 @@
 import type { RowCondition } from "../types";
 
+/**
+ * 读取当前条件的比较目标值。
+ */
 function readExpectedValue(
     condition: Extract<RowCondition, { field: string }>,
     context: Record<string, unknown>,
@@ -12,6 +15,9 @@ function readExpectedValue(
     return condition.value;
 }
 
+/**
+ * 将多个条件折叠成最小可执行的 `any` 结构。
+ */
 export function combineAnyConditions(conditions: RowCondition[]) {
     // 零个条件代表没有收口，单个条件则保留原结构，避免无意义嵌套。
     if (conditions.length === 0) {
@@ -25,6 +31,9 @@ export function combineAnyConditions(conditions: RowCondition[]) {
     return { any: conditions } satisfies RowCondition;
 }
 
+/**
+ * 执行单条行级条件或条件树求值。
+ */
 export function evaluateRowCondition(
     condition: RowCondition,
     row: Record<string, unknown>,

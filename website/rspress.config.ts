@@ -58,7 +58,7 @@ export default defineConfig({
                 activeMatch: "/examples/",
             },
             {
-                text: "v0.2.0",
+                text: "v1.0.0",
                 items: [
                     {
                         text: "GitHub 仓库",
@@ -99,6 +99,8 @@ export default defineConfig({
                     items: [
                         { text: "框架接入", link: "/guide/framework-integration" },
                         { text: "管理后台接入", link: "/guide/site-preview-release" },
+                        { text: "生产部署与监控", link: "/guide/production-deployment" },
+                        { text: "兼容性矩阵", link: "/guide/compatibility-matrix" },
                         { text: "错误处理与响应映射", link: "/guide/error-response-mapping" },
                         { text: "存储适配器", link: "/guide/adapters" },
                         { text: "自定义适配器", link: "/guide/custom-adapter" },

@@ -1,9 +1,15 @@
 import type { PermissionRule, RowCondition } from "../types";
 
+/**
+ * 稳定化序列化行级条件，供规则去重使用。
+ */
 function stableCondition(condition: RowCondition | undefined) {
     return condition ? JSON.stringify(condition) : "";
 }
 
+/**
+ * 按 `type + action + resource + where` 对规则去重。
+ */
 export function deduplicateRules(rules: PermissionRule[]) {
     const deduplicated = new Map<string, PermissionRule>();
 

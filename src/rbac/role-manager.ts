@@ -5,6 +5,9 @@ import { assertNonEmptyString, assertValidAction, assertValidResource, assertVal
 import type { PermissionCache } from "../cache";
 import type { StorageAdapter } from "../storage";
 
+/**
+ * 归一化规则动作列表。
+ */
 function normalizeActions(actions: string | string[]) {
     const values = Array.isArray(actions) ? actions : [actions];
     values.forEach((action) => {
@@ -14,22 +17,38 @@ function normalizeActions(actions: string | string[]) {
     return Array.from(new Set(values));
 }
 
+/**
+ * 返回当前时间戳。
+ */
 function now() {
     return Date.now();
 }
 
+/**
+ * 判断两条规则的 `where` 条件是否等价。
+ */
 function sameWhere(left: PermissionRule["where"], right: PermissionRule["where"]) {
     return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
-// RoleManager 负责角色元数据和规则集合管理，所有写操作都会同步清缓存。
+/**
+ * 角色元数据与规则集合管理器。
+ */
 export class RoleManager {
+    /**
+     * @param storage 存储适配器。
+     * @param cache 规则缓存。
+     * @param ensureInitialized 初始化检查钩子。
+     */
     constructor(
         private readonly storage: StorageAdapter,
         private readonly cache: PermissionCache,
         private readonly ensureInitialized: () => void,
     ) { }
 
+    /**
+     * 创建角色。
+     */
     async create(id: string, options: RoleCreateOptions): Promise<void> {
         this.ensureInitialized();
         assertNonEmptyString(id, "roleId");
@@ -62,6 +81,9 @@ export class RoleManager {
         await this.cache.invalidateAll();
     }
 
+    /**
+     * 更新角色元数据。
+     */
     async update(id: string, options: RoleUpdateOptions): Promise<void> {
         this.ensureInitialized();
         const currentRole = await this.get(id);
@@ -84,16 +106,21 @@ export class RoleManager {
         await this.cache.invalidateAll();
     }
 
+    /**
+     * 删除角色及其直接绑定关系。
+     */
     async delete(id: string): Promise<void> {
         this.ensureInitialized();
         await this.get(id);
         const roles = await this.storage.getRoles();
         // 有子角色时禁止删除，避免把继承链留在半断裂状态。
-        const hasChildRole = Array.from(roles.values()).some((role) => role.parent === id);
-        if (hasChildRole) {
+        const childRoleIds = Array.from(roles.values())
+            .filter((role) => role.parent === id)
+            .map((role) => role.id);
+        if (childRoleIds.length > 0) {
             throw new PermissionCoreError(
                 PermissionCoreErrorCode.INVALID_ARGUMENT,
-                `Cannot delete role '${id}' while child roles still exist`,
+                `Cannot delete role '${id}' while child roles still exist: ${childRoleIds.join(", ")}`,
             );
         }
 
@@ -109,6 +136,9 @@ export class RoleManager {
         await this.cache.invalidateAll();
     }
 
+    /**
+     * 获取单个角色。
+     */
     async get(id: string): Promise<RoleData> {
         this.ensureInitialized();
         assertNonEmptyString(id, "roleId");
@@ -123,12 +153,18 @@ export class RoleManager {
         return role;
     }
 
+    /**
+     * 列出全部角色。
+     */
     async list(): Promise<RoleData[]> {
         this.ensureInitialized();
         const roles = await this.storage.getRoles();
         return Array.from(roles.values());
     }
 
+    /**
+     * 为角色添加 allow 规则。
+     */
     async allow(
         roleId: string,
         actions: string | string[],
@@ -139,6 +175,9 @@ export class RoleManager {
         await this.addRules("allow", roleId, actions, resource, options);
     }
 
+    /**
+     * 为角色添加 deny 规则。
+     */
     async deny(
         roleId: string,
         actions: string | string[],
@@ -149,6 +188,9 @@ export class RoleManager {
         await this.addRules("deny", roleId, actions, resource, options);
     }
 
+    /**
+     * 撤销角色上的某条规则。
+     */
     async revokeRule(
         roleId: string,
         actions: string | string[],
@@ -169,6 +211,9 @@ export class RoleManager {
         await this.cache.invalidateAll();
     }
 
+    /**
+     * 清空角色上的全部规则。
+     */
     async clearRules(roleId: string): Promise<void> {
         this.ensureInitialized();
         await this.get(roleId);
@@ -176,12 +221,18 @@ export class RoleManager {
         await this.cache.invalidateAll();
     }
 
+    /**
+     * 获取角色规则集合。
+     */
     async getRules(roleId: string): Promise<PermissionRule[]> {
         this.ensureInitialized();
         await this.get(roleId);
         return this.storage.getRules(roleId);
     }
 
+    /**
+     * 统一写入 allow/deny 规则。
+     */
     private async addRules(
         type: PermissionRule["type"],
         roleId: string,
@@ -218,6 +269,9 @@ export class RoleManager {
         await this.cache.invalidateAll();
     }
 
+    /**
+     * 断言角色存在。
+     */
     private async ensureRoleExists(roleId: string) {
         if (!(await this.storage.getRole(roleId))) {
             throw new PermissionCoreError(
@@ -227,6 +281,9 @@ export class RoleManager {
         }
     }
 
+    /**
+     * 断言新的父角色不会引入循环继承。
+     */
     private async assertNoCircularParent(roleId: string, parentRoleId: string) {
         if (roleId === parentRoleId) {
             throw new PermissionCoreError(

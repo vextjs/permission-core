@@ -1,3 +1,6 @@
+/**
+ * 主包公开入口。
+ */
 export * from "./types";
 export * from "./core";
 export * from "./cache";

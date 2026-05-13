@@ -57,6 +57,8 @@ const visibleOrders = await pc.filterRows('user-001', 'read', 'db:orders', order
 
 如果你手头已经拿到了结果列表，`filterRows()` 通常是最直接的做法。
 
+如果你额外传了 `context`，它会作为 `valueFrom` 的补充变量参与求值；但当前主体的 `userId` 始终以 API 参数为准，不会被 `context.userId` 覆盖。
+
 ## 再往下才是字段过滤
 
 推荐把三层能力按下面顺序理解：

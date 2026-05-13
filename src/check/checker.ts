@@ -13,26 +13,44 @@ import type { StorageAdapter } from "../storage";
 import { Resolver } from "./resolver";
 import { matchAction, matchResource, matchRule } from "./wildcard";
 
+/**
+ * 归一化行级权限求值上下文。
+ *
+ * 外部 `context` 只用于补充附加变量，不能覆盖当前鉴权主体的 `userId`。
+ */
 function buildEvaluationContext(
     userId: string,
     context?: Record<string, unknown>,
 ) {
     // userId 是 row DSL 最常用的 valueFrom 来源，统一注入避免每个调用点手写。
     return {
-        userId,
         ...(context ?? {}),
+        userId,
     };
 }
 
+/**
+ * 核心鉴权执行器。
+ *
+ * 它负责规则匹配、strict 优先级处理、行级范围收口、字段过滤与资源列表推导。
+ */
 export class Checker {
     private readonly resolver = new Resolver();
 
+    /**
+     * @param storage 规则与角色存储。
+     * @param cache 用户规则集合缓存。
+     * @param strict 是否启用 strict 模式。
+     */
     constructor(
         private readonly storage: StorageAdapter,
         private readonly cache: PermissionCache,
         private readonly strict: boolean,
     ) { }
 
+    /**
+     * 判断用户是否拥有指定资源权限。
+     */
     async can(userId: string, action: string, resource: string): Promise<boolean> {
         assertNonEmptyString(userId, "userId");
         assertValidAction(action);
@@ -48,10 +66,16 @@ export class Checker {
         return this.canSingle(userId, action, resource);
     }
 
+    /**
+     * 判断用户是否不拥有指定资源权限。
+     */
     async cannot(userId: string, action: string, resource: string): Promise<boolean> {
         return !(await this.can(userId, action, resource));
     }
 
+    /**
+     * 对指定资源执行断言式鉴权。
+     */
     async assert(userId: string, action: string, resource: string): Promise<void> {
         const allowed = await this.can(userId, action, resource);
         if (!allowed) {
@@ -62,11 +86,20 @@ export class Checker {
         }
     }
 
+    /**
+     * 获取用户合并后的全部权限规则。
+     */
     async getPermissions(userId: string): Promise<PermissionRule[]> {
         assertNonEmptyString(userId, "userId");
         return this.getRules(userId);
     }
 
+    /**
+        * 获取用户在某个动作维度下可见的资源集合。
+        *
+        * strict 模式下，被 deny 规则覆盖的 allow 资源会从结果中剔除，因此它适合菜单/按钮预显隐，
+        * 不应替代最终的 `can()` 判断。
+     */
     async getResources(userId: string, action = "invoke"): Promise<string[]> {
         assertNonEmptyString(userId, "userId");
         assertValidAction(action);
@@ -93,6 +126,9 @@ export class Checker {
         return Array.from(resources);
     }
 
+    /**
+     * 计算用户在指定 `db:` 资源上的行级访问范围。
+     */
     async getRowScope(
         userId: string,
         action: string,
@@ -136,6 +172,9 @@ export class Checker {
         return exclude ? { mode: "conditional", include, exclude } : { mode: "conditional", include };
     }
 
+    /**
+     * 判断用户是否可以访问某一行数据。
+     */
     async canRow(
         userId: string,
         action: string,
@@ -171,6 +210,9 @@ export class Checker {
         return included && !excluded;
     }
 
+    /**
+     * 判断用户是否不能访问某一行数据。
+     */
     async cannotRow(
         userId: string,
         action: string,
@@ -181,6 +223,9 @@ export class Checker {
         return !(await this.canRow(userId, action, resource, row, context));
     }
 
+    /**
+     * 对某一行数据执行断言式鉴权。
+     */
     async assertRow(
         userId: string,
         action: string,
@@ -196,6 +241,9 @@ export class Checker {
         }
     }
 
+    /**
+     * 过滤出用户可见的数据行。
+     */
     async filterRows<T extends Record<string, unknown>>(
         userId: string,
         action: string,
@@ -221,6 +269,11 @@ export class Checker {
         return visibleRows;
     }
 
+    /**
+     * 过滤出用户可见的数据字段。
+     *
+     * 字段级 `where` 求值时会继续传入整条对象作为 row，这样字段规则可以复用同一行中的兄弟字段做判断。
+     */
     async filterFields<T extends Record<string, unknown>>(
         userId: string,
         action: string,
@@ -248,6 +301,9 @@ export class Checker {
         return filteredData;
     }
 
+    /**
+     * 计算单个动作的资源级权限结果。
+     */
     private async canSingle(userId: string, action: string, resource: string) {
         const rules = await this.getRules(userId);
         const matchedRules = rules.filter((rule) => matchRule(rule, action, resource));
@@ -276,6 +332,9 @@ export class Checker {
         return result || matchedRules.some((rule) => rule.type === "allow");
     }
 
+    /**
+     * 获取用户合并后的规则，并在缓存 miss 时展开角色链后写回缓存。
+     */
     private async getRules(userId: string): Promise<PermissionRule[]> {
         const cachedRules = await this.cache.get(userId);
         if (cachedRules !== null) {

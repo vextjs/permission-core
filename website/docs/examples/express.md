@@ -12,7 +12,7 @@
 最常见的接入顺序是：
 
 1. 先完成登录态解析，拿到 `req.userId`
-2. 用 `req.method + req.path` 构造接口资源
+2. 优先用命中的模板路由构造接口资源，拿不到时再退回 `req.path`
 3. 在中间件里统一调用 `assert()`
 4. 进入 Service / DAO 层后再做 `db:` 权限判断和字段过滤
 
@@ -43,7 +43,10 @@ function requireInvokePermission() {
         return;
       }
 
-      const resource = `${req.method}:${req.path}`;
+      const routePath = typeof req.route?.path === 'string'
+        ? `${req.baseUrl ?? ''}${req.route.path}`
+        : req.path;
+      const resource = `${req.method}:${routePath}`;
       await pc.assert(req.userId, 'invoke', resource);
       next();
     } catch (error) {
@@ -61,6 +64,8 @@ app.get('/api/orders/:id', requireInvokePermission(), async (req, res, next) => 
   }
 });
 ```
+
+如果当前接口是 `DELETE /api/orders/123`，而命中的模板是 `/api/orders/:id`，那这里构造出来的资源应当是 `DELETE:/api/orders/:id`，而不是把实际 URL `DELETE:/api/orders/123` 直接写进权限系统。
 
 这个中间件只做一件事：判断当前用户是否能调用这个接口。它不负责数据读写权限，也不负责字段过滤。
 

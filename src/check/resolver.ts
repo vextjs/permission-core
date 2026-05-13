@@ -3,7 +3,13 @@ import { PermissionCoreErrorCode, type PermissionRule } from "../types";
 import { deduplicateRules } from "../utils";
 import type { StorageAdapter } from "../storage";
 
+/**
+ * 角色继承链展开与规则合并器。
+ */
 export class Resolver {
+    /**
+     * 解析某个角色的继承链。
+     */
     async resolveRoleChain(roleId: string, storage: StorageAdapter): Promise<string[]> {
         const visited = new Set<string>();
         const chain: string[] = [];
@@ -28,6 +34,9 @@ export class Resolver {
         return chain;
     }
 
+    /**
+     * 合并多个角色及其父链上的规则。
+     */
     async mergeRules(
         roleIds: string[],
         storage: StorageAdapter,

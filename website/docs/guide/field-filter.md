@@ -25,6 +25,8 @@
 - 行级权限决定“哪些记录还能继续进入后续流程”
 - 字段权限决定“对象里哪些字段还能继续保留”
 
+这也意味着：字段规则不能脱离集合权限单独工作。只有 `db:users:email` 但没有 `db:users` 时，`filterFields()` 不会因为字段规则存在就跳过集合门禁。
+
 ## 基本用法
 
 ```typescript
@@ -38,6 +40,8 @@ const safe = await pc.filterFields('user-002', 'read', 'db:users', user);
 - `db:users:salary`
 
 然后逐字段复用同一套鉴权逻辑。
+
+这里还有一个实现细节：字段级 `where` 求值时，运行时会继续把整条对象作为 row 传入。也就是说，字段规则不仅能看当前字段名，还能引用同一对象里的其他字段，例如 `ownerId`、`departmentId`。
 
 ## 一个更完整的读场景
 

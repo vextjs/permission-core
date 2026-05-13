@@ -97,6 +97,17 @@ await pc.filterFields('user-001', 'write', 'db:articles', payload);
 
 最后才轮到 `filterFields()` 去处理字段级收口。
 
+字段过滤还有两个容易忽略的点：
+
+- 字段规则仍然依赖集合权限；只有 `db:orders:amount` 但没有 `db:orders` 时，字段不会单独放行
+- 字段级 `where` 求值时，运行时会把整条对象继续作为 row 传入，这样字段规则可以引用同一行里的其他字段
+
+### `context` 只补充变量，不覆盖当前 `userId`
+
+`getRowScope()`、`canRow()`、`assertRow()`、`filterRows()`、`filterFields()` 都允许你传 `context`，供 `valueFrom` 读取额外变量。
+
+但运行时始终以 API 参数里的 `userId` 作为当前主体；即使你在 `context` 里也传了 `userId`，最终参与求值的仍然是外层那个 `userId`。
+
 ## `getPermissions()` 和 `getResources()` 的区别
 
 | API | 返回内容 | 更适合谁用 |
@@ -105,6 +116,8 @@ await pc.filterFields('user-001', 'write', 'db:articles', payload);
 | `getResources()` | 前端可先参考的资源路径列表 | 前端菜单、按钮、路由显隐 |
 
 需要特别注意：`getResources()` 适合做入口显隐，但它不是最终鉴权结果。存在通配 allow 配合精确 deny 时，前端仍应以 `can()` 为最终判断依据。
+
+在 strict 模式下，`getResources()` 还会主动剔除“已经被 deny 覆盖”的 allow 资源，所以它天然偏保守，更适合 UI 预显隐而不是最终放行判定。
 
 ## 常见返回结果示例
 

@@ -29,10 +29,16 @@ const VALID_OPERATORS = new Set([
     "exists",
 ]);
 
+/**
+ * 判断一个值是否为普通对象。
+ */
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * 断言某个值是非空字符串。
+ */
 export function assertNonEmptyString(value: unknown, name: string): asserts value is string {
     if (typeof value !== "string" || value.trim() === "") {
         throw new PermissionCoreError(
@@ -42,6 +48,9 @@ export function assertNonEmptyString(value: unknown, name: string): asserts valu
     }
 }
 
+/**
+ * 断言 action 属于公开支持范围。
+ */
 export function assertValidAction(action: string) {
     if (!VALID_ACTIONS.has(action)) {
         throw new PermissionCoreError(
@@ -51,6 +60,9 @@ export function assertValidAction(action: string) {
     }
 }
 
+/**
+ * 断言资源字符串格式合法。
+ */
 export function assertValidResource(resource: string) {
     assertNonEmptyString(resource, "resource");
 
@@ -89,6 +101,9 @@ export function assertValidResource(resource: string) {
     }
 }
 
+/**
+ * 断言资源必须是 `db:` 资源。
+ */
 export function assertDbResource(resource: string) {
     assertValidResource(resource);
     if (!resource.startsWith("db:")) {
@@ -99,6 +114,9 @@ export function assertDbResource(resource: string) {
     }
 }
 
+/**
+ * 断言行级权限 DSL 合法。
+ */
 export function assertValidWhereCondition(condition: RowCondition): void {
     if ("all" in condition) {
         // all/any/not 递归组成逻辑树，空数组会导致语义不明确。
@@ -161,6 +179,9 @@ export function assertValidWhereCondition(condition: RowCondition): void {
     }
 }
 
+/**
+ * 判断一个对象是否满足最小缓存鸭子类型。
+ */
 export function isCacheLike(value: unknown): value is {
     get(key: string): unknown;
     set(key: string, data: unknown, ttl?: number): unknown;

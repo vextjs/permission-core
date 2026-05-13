@@ -81,6 +81,7 @@ resources; // string[]
 - `for(userId)` 不是新的运行时实例，只是上下文包装
 - `init()` 仍然必须在主类实例上先执行
 - 上下文不负责身份鉴别，`userId` 的合法性仍由调用方保证
+- 上下文只保留“按当前用户做鉴权”的方法；`invalidate()`、`invalidateAll()`、`roles`、`users` 这些运行时/管理能力仍在主类实例上
 
 ## 什么时候不需要它
 

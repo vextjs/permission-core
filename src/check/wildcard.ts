@@ -1,5 +1,8 @@
 import type { PermissionRule } from "../types";
 
+/**
+ * 将 HTTP 资源拆解成 method 与 path。
+ */
 function splitHttpResource(value: string) {
     const separatorIndex = value.indexOf(":");
 
@@ -13,6 +16,9 @@ function splitHttpResource(value: string) {
     };
 }
 
+/**
+ * 将路径拆为可逐段比较的 segment 数组。
+ */
 function normalizePathSegments(path: string) {
     if (path === "*") {
         return ["*"];
@@ -21,6 +27,9 @@ function normalizePathSegments(path: string) {
     return path.split("/").filter(Boolean);
 }
 
+/**
+ * 比较 HTTP 路径模式与具体路径是否匹配。
+ */
 function matchPathPattern(patternPath: string, resourcePath: string) {
     if (patternPath === "*") {
         return true;
@@ -63,6 +72,9 @@ function matchPathPattern(patternPath: string, resourcePath: string) {
     return resourceIndex === resourceSegments.length;
 }
 
+/**
+ * 匹配 HTTP 资源。
+ */
 function matchHttpResource(pattern: string, resource: string) {
     const patternResource = splitHttpResource(pattern);
     const concreteResource = splitHttpResource(resource);
@@ -81,18 +93,13 @@ function matchHttpResource(pattern: string, resource: string) {
     return matchPathPattern(patternResource.path, concreteResource.path);
 }
 
+/**
+ * 匹配 `db:` 资源。
+ */
 function matchDbResource(pattern: string, resource: string) {
     // db 资源的匹配层级固定为 db:collection[:field]。
     const patternParts = pattern.split(":");
     const resourceParts = resource.split(":");
-
-    if (patternParts[0] !== "db" || resourceParts[0] !== "db") {
-        return false;
-    }
-
-    if (patternParts.length < 2 || resourceParts.length < 2) {
-        return false;
-    }
 
     if (patternParts[1] !== "*" && patternParts[1] !== resourceParts[1]) {
         return false;
@@ -109,6 +116,9 @@ function matchDbResource(pattern: string, resource: string) {
     return patternParts[2] === "*" || patternParts[2] === resourceParts[2];
 }
 
+/**
+ * 匹配规则动作与请求动作。
+ */
 export function matchAction(pattern: string, requestAction: string) {
     if (pattern === "*") {
         return true;
@@ -122,6 +132,9 @@ export function matchAction(pattern: string, requestAction: string) {
     return pattern === requestAction;
 }
 
+/**
+ * 匹配规则资源与请求资源。
+ */
 export function matchResource(pattern: string, resource: string) {
     if (pattern === "*") {
         return true;
@@ -139,6 +152,9 @@ export function matchResource(pattern: string, resource: string) {
     return matchHttpResource(pattern, resource);
 }
 
+/**
+ * 同时匹配规则动作与规则资源。
+ */
 export function matchRule(
     rule: Pick<PermissionRule, "action" | "resource">,
     action: string,
