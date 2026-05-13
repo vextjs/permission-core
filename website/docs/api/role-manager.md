@@ -13,6 +13,7 @@
 | `delete` | `(id)` | 删除角色；有子角色时应拒绝 |
 | `get` | `(id)` | 读取单个角色 |
 | `list` | `()` | 读取所有角色 |
+| `getRoleChain` | `(roleId)` | 读取当前角色到更高父角色的继承链 |
 
 ### 规则操作
 
@@ -23,6 +24,8 @@
 | `revokeRule` | `(roleId, actions, resource, options?)` | 精确删除匹配规则 |
 | `clearRules` | `(roleId)` | 清空角色自身规则 |
 | `getRules` | `(roleId)` | 读取角色自身规则，不含继承链 |
+| `getEffectiveRules` | `(roleId)` | 读取角色连同父链展开后的有效规则 |
+| `inspect` | `(roleId)` | 一次返回 `role`、`ownRules`、`effectiveRules`、`roleChain` |
 
 ## 关键行为
 
@@ -36,7 +39,15 @@
 
 ### `getRules()` 不含继承链
 
-这个方法返回的是角色自身规则，而不是最终展开后的有效规则。若你需要某个用户最终拥有的完整规则，应看运行时 API `getPermissions()`。
+这个方法返回的是角色自身规则，而不是最终展开后的有效规则。
+
+如果你需要按角色维度查看“这个角色最终生效了什么”，应该改用：
+
+- `getRoleChain()`：看继承链
+- `getEffectiveRules()`：看展开后的有效规则
+- `inspect()`：一次把角色详情页常用数据都拿回来
+
+如果你需要某个用户最终拥有的完整规则，则继续看运行时 API `getPermissions()`。
 
 ### 后台保存角色规则时，不要把最小示例当成页面交互设计
 
@@ -212,6 +223,103 @@ const rules = await pc.roles.getRules('editor');
 ]
 ```
 
+### `getRoleChain()` 返回从当前角色到父角色的继承链
+
+```typescript
+const chain = await pc.roles.getRoleChain('editor');
+```
+
+返回结果结构如下：
+
+```json
+[
+	{
+		"id": "editor",
+		"label": "编辑角色",
+		"parent": "viewer",
+		"ruleCount": 3
+	},
+	{
+		"id": "viewer",
+		"label": "只读角色",
+		"parent": null,
+		"ruleCount": 1
+	}
+]
+```
+
+### `getEffectiveRules()` 返回角色展开后的有效规则
+
+```typescript
+const effectiveRules = await pc.roles.getEffectiveRules('editor');
+```
+
+这里返回的是当前角色自身规则与父链规则合并后的去重结果，顺序按“当前角色 -> 父角色”展开：
+
+```json
+[
+	{
+		"type": "allow",
+		"action": "write",
+		"resource": "db:articles"
+	},
+	{
+		"type": "allow",
+		"action": "invoke",
+		"resource": "GET:/api/articles"
+	}
+]
+```
+
+### `inspect()` 适合角色详情页或联调接口
+
+```typescript
+const inspection = await pc.roles.inspect('editor');
+```
+
+返回结果结构如下：
+
+```json
+{
+	"role": {
+		"id": "editor",
+		"label": "编辑角色",
+		"parent": "viewer"
+	},
+	"ownRules": [
+		{
+			"type": "allow",
+			"action": "write",
+			"resource": "db:articles"
+		}
+	],
+	"effectiveRules": [
+		{
+			"type": "allow",
+			"action": "write",
+			"resource": "db:articles"
+		},
+		{
+			"type": "allow",
+			"action": "invoke",
+			"resource": "GET:/api/articles"
+		}
+	],
+	"roleChain": [
+		{
+			"id": "editor",
+			"parent": "viewer",
+			"ruleCount": 1
+		},
+		{
+			"id": "viewer",
+			"parent": null,
+			"ruleCount": 1
+		}
+	]
+}
+```
+
 ## 更适合谁看
 
 - 管理后台实现者
@@ -221,6 +329,7 @@ const rules = await pc.roles.getRules('editor');
 ## 常见误区
 
 - 以为 `getRules()` 会返回继承后的完整规则
+- 角色详情页还在手动展开父链，而没有直接使用 `inspect()`
 - 角色规则变化后只失效当前角色的直接用户缓存
 - 在首版里按多继承去设计后台数据结构
 

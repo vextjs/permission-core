@@ -1,7 +1,19 @@
 {
     "name": "permission-core",
     "version": "1.0.0",
-    "description": "Fine-grained permission core for Node.js with unified action + resource semantics.",
+    "description": "Fine-grained RBAC and resource permission core for Node.js, with route permissions, data scopes, role inheritance, and wildcard matching.",
+    "keywords": [
+        "rbac",
+        "permissions",
+        "authorization",
+        "access-control",
+        "nodejs",
+        "typescript",
+        "route-permissions",
+        "data-permissions",
+        "role-inheritance",
+        "wildcard-matching"
+    ],
     "license": "MIT",
     "type": "module",
     "main": "./dist/index.cjs",

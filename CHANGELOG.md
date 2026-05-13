@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Type | Key Theme |
 |---------|------|------|-----------|
-| [1.0.0] | 2026-05-14 | Major | 正式发布：25项 HTTP 集成验证 100% 通过、覆盖率 100%、角色继承与行级权限、GitHub Pages 自动部署 [查看](./changelogs/v1.0.0.md) |
+| [1.0.0] | 2026-05-14 | Major | 正式发布：26项 HTTP 集成验证 100% 通过、角色 inspect API、覆盖率 100%、GitHub Pages 自动部署 [查看](./changelogs/v1.0.0.md) |
 | [0.2.0] | 2026-05-13 | Minor | 首次可发布运行时基线：统一 `action + resource`、三类存储适配器、行级权限与独立文档站 [查看](./changelogs/v0.2.0.md) |
 
 ---

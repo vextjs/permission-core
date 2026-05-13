@@ -1,5 +1,6 @@
 import { PermissionCoreError } from "../core/errors";
-import { PermissionCoreErrorCode, type PermissionRule, type RoleCreateOptions, type RoleData, type RoleUpdateOptions, type RowRuleOptions } from "../types";
+import { Resolver } from "../check/resolver";
+import { PermissionCoreErrorCode, type PermissionRule, type RoleChainEntry, type RoleCreateOptions, type RoleData, type RoleInspection, type RoleUpdateOptions, type RowRuleOptions } from "../types";
 import { deduplicateRules } from "../utils";
 import { assertNonEmptyString, assertValidAction, assertValidResource, assertValidWhereCondition } from "../utils/validation";
 import type { PermissionCache } from "../cache";
@@ -35,6 +36,8 @@ function sameWhere(left: PermissionRule["where"], right: PermissionRule["where"]
  * 角色元数据与规则集合管理器。
  */
 export class RoleManager {
+    private readonly resolver = new Resolver();
+
     /**
      * @param storage 存储适配器。
      * @param cache 规则缓存。
@@ -228,6 +231,55 @@ export class RoleManager {
         this.ensureInitialized();
         await this.get(roleId);
         return this.storage.getRules(roleId);
+    }
+
+    /**
+     * 获取角色的继承链。
+     */
+    async getRoleChain(roleId: string): Promise<RoleChainEntry[]> {
+        this.ensureInitialized();
+        await this.get(roleId);
+
+        const roleIds = await this.resolver.resolveRoleChain(roleId, this.storage);
+        return Promise.all(roleIds.map(async (currentRoleId) => {
+            const role = await this.get(currentRoleId);
+            const ruleCount = (await this.storage.getRules(currentRoleId)).length;
+
+            return {
+                ...role,
+                ruleCount,
+            };
+        }));
+    }
+
+    /**
+     * 获取角色连同父链展开后的有效规则集合。
+     */
+    async getEffectiveRules(roleId: string): Promise<PermissionRule[]> {
+        this.ensureInitialized();
+        await this.get(roleId);
+        return this.resolver.mergeRules([roleId], this.storage, false);
+    }
+
+    /**
+     * 读取角色详情页常用的聚合检查结果。
+     */
+    async inspect(roleId: string): Promise<RoleInspection> {
+        this.ensureInitialized();
+        const role = await this.get(roleId);
+
+        const [ownRules, effectiveRules, roleChain] = await Promise.all([
+            this.storage.getRules(roleId),
+            this.getEffectiveRules(roleId),
+            this.getRoleChain(roleId),
+        ]);
+
+        return {
+            role,
+            ownRules,
+            effectiveRules,
+            roleChain,
+        };
     }
 
     /**

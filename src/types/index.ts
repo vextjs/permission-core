@@ -81,6 +81,28 @@ export interface RoleData {
 }
 
 /**
+ * 角色继承链节点。
+ */
+export interface RoleChainEntry extends RoleData {
+    /** 当前节点自身直接声明的规则数量。 */
+    ruleCount: number;
+}
+
+/**
+ * 角色检查结果。
+ */
+export interface RoleInspection {
+    /** 当前角色元数据。 */
+    role: RoleData;
+    /** 当前角色自身直接声明的规则。 */
+    ownRules: PermissionRule[];
+    /** 当前角色连同父链展开后的有效规则集合。 */
+    effectiveRules: PermissionRule[];
+    /** 从当前角色到更高父角色的继承链。 */
+    roleChain: RoleChainEntry[];
+}
+
+/**
  * 写入带行级条件规则时的附加参数。
  */
 export interface RowRuleOptions {

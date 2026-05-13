@@ -18,9 +18,16 @@
 
 1. 角色基本信息：`roles.get()` / `roles.update()`
 2. 角色自身规则：`roles.getRules()`
+3. 角色最终生效规则与继承链：`roles.inspect()`
 3. 删除角色：`roles.delete()`
 
 这里最容易忽略的一点是：`getRules()` 返回的是角色自身规则，不含继承链。后台详情页展示时，要把它理解成“这个角色自己配置了什么”，而不是“这个角色最终生效了什么”。
+
+如果页面同时还要展示继承链或 effective rules，就直接加上：
+
+```typescript
+const inspection = await pc.roles.inspect('operator');
+```
 
 最小加载片段可以先记成：
 
@@ -117,7 +124,7 @@ const rules: RoleRuleInput[] = [
 - 相同的 `type + action + resource` 应视为重复项，提交前应先去重
 - `allow` 和 `deny` 针对同一 `action + resource` 可以同时存在
 - 一旦同时存在，运行时仍按现有规则解释：`deny` 优先于 `allow`
-- `getRules()` 更适合用来展示角色自身规则，不适合当成用户最终权限结果
+- `getRules()` 更适合用来展示角色自身规则；若要看角色最终生效结果，应改用 `inspect()` 或 `getEffectiveRules()`
 
 换句话说，后台页真正要维护的是“角色自己的规则集”，而不是把所有继承后的最终权限都摊平成一张编辑表。
 
@@ -140,7 +147,7 @@ await pc.users.setUserRoles('user-001', ['viewer', 'auditor']);
 
 如果你的页面是多选框、穿梭框或批量选择角色，`setUserRoles()` 往往比多次 `assign()` / `revoke()` 更贴近页面语义。
 
-如果你想直接看一段把 `roles.getRules()`、`getUserRoles()`、`setUserRoles()`、`getResources()` 串起来的后台代码，可继续看 [管理后台保存示例](/examples/management-backend)。
+如果你想直接看一段把 `roles.getRules()`、`roles.inspect()`、`getUserRoles()`、`setUserRoles()`、`getResources()` 串起来的后台代码，可继续看 [管理后台保存示例](/examples/management-backend)。
 
 如果保存后还要刷新菜单或调试视图，通常会继续调用：
 

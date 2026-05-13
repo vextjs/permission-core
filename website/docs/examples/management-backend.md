@@ -8,6 +8,7 @@
 const roles = await pc.roles.list();
 const role = await pc.roles.get('operator');
 const rules = await pc.roles.getRules('operator');
+const inspection = await pc.roles.inspect('operator');
 ```
 
 这三步分别对应：
@@ -15,6 +16,7 @@ const rules = await pc.roles.getRules('operator');
 - `list()`：给下拉框、列表页或角色树提供基础数据
 - `get()`：加载当前角色的基础信息
 - `getRules()`：加载角色自身规则，不含继承链
+- `inspect()`：加载角色详情页常用的完整检查结果（含 effective rules 和继承链）
 
 ## 保存角色基本信息和规则
 
@@ -83,14 +85,14 @@ const permissions = await pc.getPermissions('user-001');
 
 ## 这个示例真正说明了什么
 
-- 角色页和用户角色页的加载动作并不相同：前者更依赖 `getRules()`，后者更依赖 `getUserRoles()`
+- 角色页和用户角色页的加载动作并不相同：前者更依赖 `getRules()` / `inspect()`，后者更依赖 `getUserRoles()`
 - 角色规则保存更接近“维护规则数组”，用户角色保存更接近“整体覆盖角色集合”
 - `getResources()` 可以帮助后台刷新菜单显隐，但它不是最终鉴权结果
 - `getPermissions()` 更适合做调试和审计视图，不适合作为直接保存输入
 
 ## 常见误区
 
-- 用 `getRules()` 当成用户最终权限结果
+- 用 `getRules()` 当成角色最终生效结果，而不是只看角色自身规则
 - 用多次 `assign()` / `revoke()` 代替整页 `setUserRoles()` 保存
 - 让前端直接逐条调用 `allow()` / `deny()`，而没有自己的后端保存层
 

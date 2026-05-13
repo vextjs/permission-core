@@ -94,6 +94,53 @@ describe("RoleManager", () => {
         expect(cache.invalidateAll).toHaveBeenCalled();
     });
 
+    it("exposes role inspection helpers for own and inherited rules", async () => {
+        const storage = new MemoryAdapter();
+        await storage.init();
+        const roles = new RoleManager(storage, { invalidateAll: vi.fn(async () => undefined) } as never, () => undefined);
+
+        await roles.create("viewer", { label: "查看者" });
+        await roles.allow("viewer", "invoke", "GET:/api/posts");
+        await roles.allow("viewer", "invoke", "GET:/api/users");
+
+        await roles.create("editor", { label: "编辑者", parent: "viewer" });
+        await roles.allow("editor", "invoke", "POST:/api/posts");
+
+        await roles.create("auditor", { label: "审计员", parent: "editor" });
+        await roles.deny("auditor", "invoke", "DELETE:/api/posts");
+
+        await expect(roles.getRoleChain("auditor")).resolves.toEqual([
+            expect.objectContaining({ id: "auditor", parent: "editor", ruleCount: 1 }),
+            expect.objectContaining({ id: "editor", parent: "viewer", ruleCount: 1 }),
+            expect.objectContaining({ id: "viewer", parent: null, ruleCount: 2 }),
+        ]);
+
+        await expect(roles.getEffectiveRules("auditor")).resolves.toEqual([
+            { type: "deny", action: "invoke", resource: "DELETE:/api/posts" },
+            { type: "allow", action: "invoke", resource: "POST:/api/posts" },
+            { type: "allow", action: "invoke", resource: "GET:/api/posts" },
+            { type: "allow", action: "invoke", resource: "GET:/api/users" },
+        ]);
+
+        await expect(roles.inspect("auditor")).resolves.toMatchObject({
+            role: { id: "auditor", parent: "editor" },
+            ownRules: [
+                { type: "deny", action: "invoke", resource: "DELETE:/api/posts" },
+            ],
+            effectiveRules: [
+                { type: "deny", action: "invoke", resource: "DELETE:/api/posts" },
+                { type: "allow", action: "invoke", resource: "POST:/api/posts" },
+                { type: "allow", action: "invoke", resource: "GET:/api/posts" },
+                { type: "allow", action: "invoke", resource: "GET:/api/users" },
+            ],
+            roleChain: [
+                { id: "auditor", parent: "editor", ruleCount: 1 },
+                { id: "editor", parent: "viewer", ruleCount: 1 },
+                { id: "viewer", parent: null, ruleCount: 2 },
+            ],
+        });
+    });
+
     it("guards self and transitive circular inheritance updates", async () => {
         const storage = new MemoryAdapter();
         await storage.init();

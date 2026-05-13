@@ -120,11 +120,37 @@ await pc.roles.deny('editor', 'read', 'db:articles:internalNotes');
 - 子角色叠加写入能力
 - `deny` 用来切掉不希望继承下来的敏感字段
 
+## 想看某个角色最终生效了什么
+
+角色页和调试面板里，最容易混淆的是“角色自身规则”和“角色最终生效规则”不是一回事。
+
+如果你只想看角色自己直接配置了什么，继续用：
+
+```typescript
+const ownRules = await pc.roles.getRules('editor');
+```
+
+如果你想看这个角色连同父角色一起展开后的结果，可以直接用：
+
+```typescript
+const chain = await pc.roles.getRoleChain('editor');
+const effectiveRules = await pc.roles.getEffectiveRules('editor');
+
+const inspection = await pc.roles.inspect('editor');
+```
+
+这里三者分别适合：
+
+- `getRoleChain()`：做继承链展示
+- `getEffectiveRules()`：做最终规则调试
+- `inspect()`：做角色详情页一次性加载
+
 ## 常见误区
 
 - 把角色当成用户分组标签，而不是权限职责边界
 - 把所有差异都留给 `deny`，导致角色体系不可读
 - 先绑定用户，再反过来推角色职责
+- 把 `getRules()` 当成角色最终生效权限，而不是角色自身规则
 
 想继续看运行时判断逻辑，下一篇看 [权限鉴权](/guide/check-permission)。
 
