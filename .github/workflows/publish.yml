@@ -42,9 +42,6 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
-      - name: Build
-        run: npm run build
-
       - name: Preview package contents
         run: npm pack --dry-run
 
