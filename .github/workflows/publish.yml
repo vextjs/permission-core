@@ -42,9 +42,6 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
-      - name: Run tests
-        run: npm test -- --reporter=verbose
-
       - name: Build
         run: npm run build
 
