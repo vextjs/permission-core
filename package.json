@@ -1,6 +1,6 @@
 {
     "name": "permission-core",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "description": "Fine-grained RBAC and resource permission core for Node.js, with route permissions, data scopes, role inheritance, and wildcard matching.",
     "keywords": [
         "rbac",
@@ -14,7 +14,7 @@
         "role-inheritance",
         "wildcard-matching"
     ],
-    "license": "MIT",
+    "license": "Apache-2.0",
     "type": "module",
     "main": "./dist/index.cjs",
     "module": "./dist/index.js",
@@ -41,7 +41,7 @@
     },
     "repository": {
         "type": "git",
-        "url": "https://github.com/vextjs/permission-core.git"
+        "url": "git+https://github.com/vextjs/permission-core.git"
     },
     "engines": {
         "node": ">=18.0.0"
