@@ -1,6 +1,6 @@
 {
     "name": "permission-core",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "description": "Fine-grained RBAC and resource permission core for Node.js, with route permissions, data scopes, role inheritance, and wildcard matching.",
     "keywords": [
         "rbac",
@@ -55,7 +55,8 @@
         "example:http": "npm run build && node ./examples/http-only.mjs",
         "example:db": "npm run build && node ./examples/db-only.mjs",
         "example:complete": "npm run build && node ./examples/complete-flow.mjs",
-        "example:all": "npm run build && node ./examples/http-only.mjs && node ./examples/db-only.mjs && node ./examples/complete-flow.mjs"
+        "example:all": "npm run build && node ./examples/http-only.mjs && node ./examples/db-only.mjs && node ./examples/complete-flow.mjs",
+        "prepublishOnly": "npm run typecheck && npm run build"
     },
     "dependencies": {
         "cache-hub": "1.0.0",

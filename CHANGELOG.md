@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Type | Key Theme |
 |---------|------|------|-----------|
+| [1.0.7] | 2026-06-09 | Patch | Fixed publish workflow to build package output before npm publish [查看](./changelogs/v1.0.7.md) |
 | [1.0.6] | 2026-06-09 | Patch | Pinned direct runtime and development dependencies to exact package-lock resolved versions [查看](./changelogs/v1.0.6.md) |
 | [1.0.5] | 2026-06-04 | Patch | License metadata and package distribution updated to Apache-2.0 [查看](./changelogs/v1.0.5.md) |
 | [1.0.0] | 2026-05-14 | Major | 正式发布：26项 HTTP 集成验证 100% 通过、角色 inspect API、覆盖率 100%、GitHub Pages 自动部署 [查看](./changelogs/v1.0.0.md) |
@@ -26,7 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [GitHub Repository](https://github.com/vextjs/permission-core)
 - [Detailed Changelogs](./changelogs/)
 
-[1.0.5]: https://github.com/vextjs/permission-core/compare/v1.0.4...v1.0.5
 [1.0.6]: https://github.com/vextjs/permission-core/compare/v1.0.5...v1.0.6
+[1.0.7]: https://github.com/vextjs/permission-core/compare/v1.0.6...v1.0.7
+[1.0.5]: https://github.com/vextjs/permission-core/compare/v1.0.4...v1.0.5
 [1.0.0]: https://github.com/vextjs/permission-core/compare/v0.2.0...v1.0.0
 [0.2.0]: https://github.com/vextjs/permission-core/releases/tag/v0.2.0
