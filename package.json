@@ -1,6 +1,6 @@
 {
     "name": "permission-core",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "description": "Fine-grained RBAC and resource permission core for Node.js, with route permissions, data scopes, role inheritance, and wildcard matching.",
     "keywords": [
         "rbac",
