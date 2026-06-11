@@ -19,7 +19,9 @@
   --pc-cyan: #32b7ff;
   --pc-gold: #f0b84f;
   --pc-magenta: #d95cc8;
-  --pc-code-bg: #101716;
+  --pc-code-bg: #f4f9f7;
+  --pc-code-border: rgba(0, 116, 94, 0.18);
+  --pc-code-shadow: 0 16px 34px rgba(18, 46, 42, 0.07);
   --pc-page-bg:
     linear-gradient(180deg, rgba(246, 248, 247, 0.97), rgba(236, 242, 240, 0.9)),
     repeating-linear-gradient(90deg, transparent 0 86px, rgba(0, 184, 138, 0.05) 86px 88px, transparent 88px 172px),
@@ -47,6 +49,8 @@
   --pc-border: rgba(219, 240, 234, 0.12);
   --pc-border-strong: rgba(40, 232, 183, 0.34);
   --pc-code-bg: #0c1211;
+  --pc-code-border: rgba(40, 232, 183, 0.2);
+  --pc-code-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
   --pc-page-bg:
     linear-gradient(180deg, rgba(16, 23, 22, 0.98), rgba(10, 16, 15, 1)),
     repeating-linear-gradient(90deg, transparent 0 86px, rgba(40, 232, 183, 0.055) 86px 88px, transparent 88px 172px),
@@ -382,9 +386,10 @@ body::after {
 
 .rspress-doc :where(pre),
 .rp-doc :where(pre) {
-  border: 1px solid rgba(0, 184, 138, 0.2);
+  border: 1px solid var(--pc-code-border);
   border-radius: 8px;
   background: var(--pc-code-bg) !important;
+  box-shadow: var(--pc-code-shadow);
 }
 
 @media (max-width: 1080px) {
