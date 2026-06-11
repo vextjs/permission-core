@@ -1,21 +1,19 @@
-# 迁移指南
+# Migration Guide
 
-这页用于版本升级时快速确认兼容边界。如果你当前还没有跨版本迁移需求，可以先跳过，等需要升级时再回来对照。
+Use this page when moving from scattered permission checks to permission-core.
 
-## 升级时优先确认什么
+## Suggested migration path
 
-- `action + resource` 核心模型是否保持一致
-- `write` 的双向语义是否仍然清晰
-- `permission-core/match` 子路径导出是否保持稳定
-- 三条官方接入路径是否仍然按相同口径组织
+1. Inventory route permissions and data permissions separately.
+2. Convert route guards to `<METHOD>:<path>` resources.
+3. Convert data checks to `db:<collection>[:<field>]` resources.
+4. Start with one role group and one integration path.
+5. Add management APIs only after the runtime path is clear.
+6. Add cache invalidation to every rule or binding change.
 
-## 升级时建议先看哪些页面
+## Avoid during migration
 
-如果后续版本发生变化，建议按以下顺序先看文档：
-
-1. `guide/quick-start`
-2. `guide/resource-paths`
-3. `api/permission-core`
-4. `examples/*`
-
-这样可以确保接入者先看到最新入口，再去看细节。
+- Do not encode real record IDs into route resources.
+- Do not move authentication responsibilities into permission-core.
+- Do not use `getResources()` as the final server-side authorization result.
+- Do not introduce broad wildcards for payment or ledger mutation without review.
