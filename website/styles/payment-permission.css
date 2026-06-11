@@ -274,15 +274,15 @@ body::after {
 .rp-home-hero .rp-home-hero__image::before {
   content: "";
   position: absolute;
-  inset: -24% -18% -26% -18%;
+  inset: -18% -12% -22% -12%;
   z-index: -1;
   background:
-    linear-gradient(112deg, rgba(0, 184, 138, 0.14), rgba(50, 183, 255, 0.06) 46%, rgba(240, 184, 79, 0.06) 72%, transparent),
-    repeating-linear-gradient(90deg, transparent 0 88px, rgba(0, 184, 138, 0.08) 88px 89px, transparent 89px 176px),
-    repeating-linear-gradient(0deg, transparent 0 64px, rgba(50, 183, 255, 0.06) 64px 65px, transparent 65px 128px);
-  opacity: 0.74;
-  mask-image: radial-gradient(ellipse 72% 62% at 54% 50%, #000 0 44%, rgba(0, 0, 0, 0.78) 62%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 72% 62% at 54% 50%, #000 0 44%, rgba(0, 0, 0, 0.78) 62%, transparent 100%);
+    linear-gradient(112deg, rgba(0, 184, 138, 0.12), rgba(50, 183, 255, 0.07) 46%, rgba(240, 184, 79, 0.06) 72%, transparent),
+    repeating-linear-gradient(90deg, transparent 0 88px, rgba(0, 184, 138, 0.07) 88px 89px, transparent 89px 176px),
+    repeating-linear-gradient(0deg, transparent 0 64px, rgba(50, 183, 255, 0.05) 64px 65px, transparent 65px 128px);
+  opacity: 0.68;
+  mask-image: radial-gradient(ellipse 68% 56% at 54% 50%, #000 0 34%, rgba(0, 0, 0, 0.68) 58%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 68% 56% at 54% 50%, #000 0 34%, rgba(0, 0, 0, 0.68) 58%, transparent 100%);
 }
 
 .rp-home-hero .rp-home-hero__image::after {
@@ -299,17 +299,17 @@ body::after {
 .rp-home-hero .rp-home-hero__image-img {
   width: 100%;
   max-width: 600px;
-  border-radius: 18px;
-  opacity: 0.86;
-  filter: saturate(1.04) drop-shadow(0 26px 46px rgba(5, 20, 18, 0.2));
-  mask-image: radial-gradient(ellipse 74% 70% at 56% 50%, #000 0 58%, rgba(0, 0, 0, 0.82) 72%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 74% 70% at 56% 50%, #000 0 58%, rgba(0, 0, 0, 0.82) 72%, transparent 100%);
+  border-radius: 0;
+  opacity: 1;
+  filter: drop-shadow(0 26px 42px rgba(5, 20, 18, 0.14));
+  mask-image: none;
+  -webkit-mask-image: none;
 }
 
 :root.rp-dark .rp-home-hero .rp-home-hero__image-img,
 :root.dark .rp-home-hero .rp-home-hero__image-img {
-  opacity: 0.92;
-  filter: saturate(1.08) drop-shadow(0 28px 52px rgba(0, 0, 0, 0.28));
+  opacity: 1;
+  filter: drop-shadow(0 28px 48px rgba(0, 0, 0, 0.22));
 }
 
 .rp-home-feature {
@@ -431,7 +431,7 @@ body::after {
   .rp-home-hero .rp-home-hero__container::before {
     inset-inline: 0;
     top: 52px;
-    height: 16px;
+    height: 2px;
   }
 
   .rp-home-hero .rp-home-hero__content {

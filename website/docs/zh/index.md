@@ -7,8 +7,8 @@ hero:
   text: 细粒度权限控制内核
   tagline: 用统一规则控制接口权限、数据权限和字段过滤的 Node.js 权限库
   image:
-    src: /permission-console.png
-    alt: 支付权限控制台
+    src: /permission-authorization-visual.svg
+    alt: 支付权限控制流程图
   actions:
     - theme: brand
       text: 快速开始

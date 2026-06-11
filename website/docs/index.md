@@ -7,8 +7,8 @@ hero:
   text: Authorization Core
   tagline: Payment-grade route, data, row, and field permissions for Node.js services.
   image:
-    src: /permission-console.png
-    alt: Payment authorization control console
+    src: /permission-authorization-visual.svg
+    alt: Payment authorization flow diagram
   actions:
     - theme: brand
       text: Quick Start
