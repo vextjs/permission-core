@@ -16,7 +16,7 @@ Use this after changing one user's role bindings.
 await pc.invalidateAll();
 ```
 
-Use this after changing role rules, role inheritance, or shared policy data.
+Use this after changing role rules, role inheritance, or shared policy data. The method only removes permission-core rule keys (`permission-core:rules:*`) from a shared `cache-hub` instance, so MonSQLize query cache entries that use the same cache backend are left intact.
 
 ## Production guidance
 

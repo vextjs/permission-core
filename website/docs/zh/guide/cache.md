@@ -53,6 +53,8 @@ permission-core 默认通过 `cache-hub` 缓存“某个用户最后真正能用
 
 你可以把它理解成：宁可多清一点缓存，也先保证结果正确。
 
+如果 `PermissionCore` 复用的是 `msq.getCache()` 返回的共享缓存，`invalidateAll()` 只会清理 `permission-core:rules:*` 前缀下的权限规则缓存，不会调用底层 `cache.clear()` 去清空 MonSQLize 查询缓存。
+
 ## 对接入者的意义
 
 - `HTTP-only` 场景依然受益于缓存，因为接口权限同样依赖角色继承和规则合并

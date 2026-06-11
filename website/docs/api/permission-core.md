@@ -53,7 +53,7 @@ new PermissionCore(options?: PermissionCoreOptions)
 | `getResources()` | `Promise<string[]>` | Read visible resource strings |
 | `for(userId)` | `PermissionCoreContext` | Create a user-bound context |
 | `invalidate(userId)` | `Promise<void>` | Clear one user's cache |
-| `invalidateAll()` | `Promise<void>` | Clear all permission cache |
+| `invalidateAll()` | `Promise<void>` | Clear all permission-core rule cache entries |
 | `roles` | `RoleManager` | Role and rule management |
 | `users` | `UserRoleManager` | User-role bindings |
 

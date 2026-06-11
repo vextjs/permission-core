@@ -62,8 +62,12 @@ export class PermissionCore {
      * 关闭底层存储并释放运行时资源。
      */
     async close(): Promise<void> {
-        await this.storage.close();
-        this.initialized = false;
+        try {
+            await this.storage.close();
+        } finally {
+            await this.cache.close();
+            this.initialized = false;
+        }
     }
 
     /**

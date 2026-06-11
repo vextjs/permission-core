@@ -2,7 +2,7 @@
 pageType: home
 
 hero:
-  badge: v1.0.9 支付级权限控制版本
+  badge: v1.0.10 支付级权限控制版本
   name: permission-core
   text: 细粒度权限控制内核
   tagline: 用统一规则控制接口权限、数据权限和字段过滤的 Node.js 权限库

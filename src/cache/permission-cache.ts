@@ -35,6 +35,7 @@ export class PermissionCache {
     private readonly enabled: boolean;
     private readonly ttl: number;
     private readonly cache: CacheLike;
+    private readonly ownsCache: boolean;
 
     /**
      * @param options 缓存开关、TTL 和底层缓存实例。
@@ -42,8 +43,8 @@ export class PermissionCache {
     constructor(options: PermissionCacheOptions = {}) {
         this.enabled = options.enabled ?? true;
         this.ttl = options.ttl ?? DEFAULT_TTL;
-        this.cache =
-            options.cache ??
+        this.ownsCache = options.cache === undefined;
+        this.cache = options.cache ??
             new MemoryCache({
                 enabled: this.enabled,
                 defaultTtl: this.ttl,
@@ -86,6 +87,22 @@ export class PermissionCache {
      * 全量失效所有规则缓存。
      */
     async invalidateAll(): Promise<void> {
+        if (typeof this.cache.delPattern === "function") {
+            await this.cache.delPattern(`${KEY_PREFIX}*`);
+            return;
+        }
+
         await this.cache.clear();
+    }
+
+    /**
+     * 释放由 PermissionCache 自己创建的底层缓存资源。
+     */
+    async close(): Promise<void> {
+        if (!this.ownsCache) {
+            return;
+        }
+
+        this.cache.destroy?.();
     }
 }

@@ -2,7 +2,7 @@
 pageType: home
 
 hero:
-  badge: v1.0.9 payment authorization release
+  badge: v1.0.10 payment authorization release
   name: permission-core
   text: Authorization Core
   tagline: Payment-grade route, data, row, and field permissions for Node.js services.

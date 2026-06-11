@@ -48,7 +48,7 @@ new PermissionCache(options?: PermissionCacheOptions)
 | `get(userId)` | `Promise<PermissionRule[] \| null>` | 读取当前用户已缓存的完整规则集 |
 | `set(userId, rules)` | `Promise<void>` | 写入当前用户规则集 |
 | `invalidate(userId)` | `Promise<void>` | 精确清掉单个用户缓存 |
-| `invalidateAll()` | `Promise<void>` | 清空全部缓存 |
+| `invalidateAll()` | `Promise<void>` | 清理 `permission-core:rules:*` 前缀下的权限规则缓存 |
 
 ## 必须单独记住的约束
 
@@ -65,6 +65,10 @@ new PermissionCache(options?: PermissionCacheOptions)
 - `get()` 会直接返回 `null`
 - `set()` 不做任何写入
 - `invalidate()` / `invalidateAll()` 仍会调用底层清理语义
+
+### 共享 `cache-hub` 实例时不会清掉 MonSQLize 查询缓存
+
+`invalidateAll()` 只删除 `permission-core:rules:*` 前缀下的权限规则缓存。即使你把 `msq.getCache()` 同时交给 MonSQLize 查询缓存和 `PermissionCore`，全量权限失效也不会调用底层 `cache.clear()` 去清空整个共享缓存。
 
 ## 更适合从哪里继续看
 

@@ -22,6 +22,8 @@ await pc.invalidateAll();
 
 Call this after changing a role rule, parent role, or shared permission definition that can affect many users.
 
+When `PermissionCore` shares the cache returned by `msq.getCache()`, this only removes `permission-core:rules:*` entries. It does not clear unrelated MonSQLize query cache entries from the same backend.
+
 ## Production note
 
 The recommended production stack uses `cache-hub`. Choose a backend and TTL that match your deployment topology. Multi-instance services should use a shared cache or a cache invalidation strategy that reaches every instance.

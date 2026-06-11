@@ -1,6 +1,6 @@
 {
     "name": "permission-core",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "description": "Fine-grained RBAC and resource permission core for Node.js, with route permissions, data scopes, role inheritance, and wildcard matching.",
     "keywords": [
         "rbac",
@@ -43,6 +43,10 @@
         "type": "git",
         "url": "git+https://github.com/vextjs/permission-core.git"
     },
+    "homepage": "https://vextjs.github.io/permission-core",
+    "bugs": {
+        "url": "https://github.com/vextjs/permission-core/issues"
+    },
     "engines": {
         "node": ">=18.0.0"
     },
@@ -56,7 +60,10 @@
         "example:db": "npm run build && node ./examples/db-only.mjs",
         "example:complete": "npm run build && node ./examples/complete-flow.mjs",
         "example:all": "npm run build && node ./examples/http-only.mjs && node ./examples/db-only.mjs && node ./examples/complete-flow.mjs",
-        "prepublishOnly": "npm run typecheck && npm run build"
+        "test:audit": "npm audit --omit=dev --registry=https://registry.npmjs.org/",
+        "test:all": "npm run typecheck && npm run test:coverage && npm run build && npm run example:all",
+        "test:all:with-audit": "npm run test:all && npm run test:audit",
+        "prepublishOnly": "npm run test:all:with-audit"
     },
     "dependencies": {
         "cache-hub": "2.2.4",

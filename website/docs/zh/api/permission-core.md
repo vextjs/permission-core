@@ -55,7 +55,7 @@ new PermissionCore(options?: PermissionCoreOptions)
 | `getResources()` | `Promise<string[]>` | 读取用户可用资源列表 |
 | `for(userId)` | `PermissionCoreContext` | 绑定 `userId` 的链式上下文 |
 | `invalidate(userId)` | `Promise<void>` | 精确清理单用户缓存 |
-| `invalidateAll()` | `Promise<void>` | 全量清理缓存 |
+| `invalidateAll()` | `Promise<void>` | 清理全部 permission-core 规则缓存 |
 | `roles` | `RoleManager` | 角色和规则管理入口 |
 | `users` | `UserRoleManager` | 用户与角色绑定入口 |
 
@@ -290,6 +290,8 @@ await pc.invalidateAll();
 ```
 
 这两个方法成功时同样没有返回 payload：
+
+如果运行时复用 `msq.getCache()` 这类共享 `cache-hub` 实例，`invalidateAll()` 只会清理 `permission-core:rules:*` 前缀下的规则缓存，不会清空 MonSQLize 查询缓存。
 
 ```typescript
 // Promise<void>

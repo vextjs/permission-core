@@ -119,7 +119,8 @@ describe("PermissionCore additional APIs", () => {
         expect(cacheLike.get).toHaveBeenCalled();
         expect(cacheLike.set).toHaveBeenCalled();
         expect(cacheLike.del).toHaveBeenCalled();
-        expect(cacheLike.clear).toHaveBeenCalled();
+        expect(cacheLike.delPattern).toHaveBeenCalledWith("permission-core:rules:*");
+        expect(cacheLike.clear).not.toHaveBeenCalled();
 
         await pc.close();
 

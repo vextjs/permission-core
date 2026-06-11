@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Type | Key Theme |
 |---------|------|------|-----------|
+| [1.0.10] | 2026-06-11 | Patch | Shared cache invalidation safety, release gate hardening, bilingual docs, and verified MonSQLize/cache-hub line [查看](./changelogs/v1.0.10.md) |
 | [1.0.9] | 2026-06-09 | Patch | Refreshed package lock with npm 11 so Node 24 publish workflow can install optional native packages [查看](./changelogs/v1.0.9.md) |
 | [1.0.8] | 2026-06-09 | Patch | Updated npm publish workflow to Node 24 actions while keeping build-before-publish guard [查看](./changelogs/v1.0.8.md) |
 | [1.0.7] | 2026-06-09 | Patch | Fixed publish workflow to build package output before npm publish [查看](./changelogs/v1.0.7.md) |
@@ -29,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [GitHub Repository](https://github.com/vextjs/permission-core)
 - [Detailed Changelogs](./changelogs/)
 
+[1.0.10]: https://github.com/vextjs/permission-core/compare/v1.0.9...v1.0.10
 [1.0.6]: https://github.com/vextjs/permission-core/compare/v1.0.5...v1.0.6
 [1.0.7]: https://github.com/vextjs/permission-core/compare/v1.0.6...v1.0.7
 [1.0.8]: https://github.com/vextjs/permission-core/compare/v1.0.7...v1.0.8
