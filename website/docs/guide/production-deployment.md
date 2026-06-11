@@ -5,7 +5,6 @@ Production deployment should make permissions explicit, observable, and easy to 
 ## Recommended stack
 
 ```typescript
-import { MemoryCache } from 'cache-hub';
 import MonSQLize from 'monsqlize';
 import { MonSQLizeStorageAdapter, PermissionCore } from 'permission-core';
 
@@ -13,6 +12,7 @@ const msq = new MonSQLize({
   type: 'mongodb',
   databaseName: 'permission_core',
   config: { uri: process.env.MONGO_URI! },
+  cache: { defaultTtl: 300_000, maxEntries: 1000 },
 });
 
 await msq.connect();
@@ -23,9 +23,7 @@ const pc = new PermissionCore({
     namespace: 'permission_core',
     ownsConnection: true,
   }),
-  cache: new MemoryCache({
-    defaultTtl: 300_000,
-  }),
+  cache: msq.getCache(),
 });
 
 await pc.init();

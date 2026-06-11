@@ -173,14 +173,13 @@ const scope = await pc.getRowScope('u-2', 'read', 'db:reports');
 ### 最小可运行示例
 
 ```typescript
-import { MemoryCache } from 'cache-hub';
 import { MonSQLizeStorageAdapter, PermissionCore } from 'permission-core';
 
 const msq = /* 已 connect() 的 MonSQLize 实例 */;
 
 const pc = new PermissionCore({
   storage: new MonSQLizeStorageAdapter({ msq, namespace: 'permission_core' }),
-  cache: new MemoryCache({ defaultTtl: 300_000, maxEntries: 1000 }),
+  cache: msq.getCache(),
 });
 
 await pc.init();

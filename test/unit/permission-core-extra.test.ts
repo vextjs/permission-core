@@ -1,9 +1,30 @@
 import type { CacheLike } from "cache-hub";
+import MonSQLize from "monsqlize";
 import { describe, expect, it, vi } from "vitest";
 
 import { PermissionCore, PermissionCoreErrorCode } from "../../src";
 
 describe("PermissionCore additional APIs", () => {
+    it("accepts the cache instance exposed by MonSQLize", async () => {
+        const msq = new MonSQLize({
+            type: "mongodb",
+            databaseName: "permission_core_test",
+            config: { uri: "mongodb://127.0.0.1:27017" },
+            cache: { defaultTtl: 300_000, maxEntries: 1000 },
+        });
+
+        const pc = new PermissionCore({ cache: msq.getCache() });
+        await pc.init();
+
+        await pc.roles.create("viewer", { label: "查看者" });
+        await pc.roles.allow("viewer", "invoke", "GET:/api/orders");
+        await pc.users.assign("user-msq-cache", "viewer");
+
+        await expect(pc.can("user-msq-cache", "invoke", "GET:/api/orders")).resolves.toBe(true);
+
+        await pc.close();
+    });
+
     it("supports cache-like instances and exposes remaining public helpers", async () => {
         const store = new Map<string, unknown>();
         const cacheLike: CacheLike = {

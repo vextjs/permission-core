@@ -9,7 +9,7 @@ permission-core is a fine-grained authorization core for Node.js. It uses one `a
 - The full user documentation is published at [https://vextjs.github.io/permission-core](https://vextjs.github.io/permission-core).
 - The runtime has implemented the core engine, three storage adapters, RBAC managers, role inheritance, row-level checks, and field filtering.
 - Role management can inspect a role's own rules, effective inherited rules, and role chain.
-- The current implementation passes `typecheck`, 60 tests, package build, example smoke tests, and 100% statement / branch / function / line coverage.
+- The current implementation passes `typecheck`, 61 tests, package build, example smoke tests, and 100% statement / branch / function / line coverage.
 - The root `examples/` directory includes runnable `HTTP-only`, `DB-only`, and complete integration flows.
 - This README keeps the entry path short. Use the documentation site for the complete guide, API reference, and examples.
 
@@ -36,6 +36,7 @@ Use this path when authorization belongs in your Service / DAO layer and you nee
 Use this path when you need route permissions, data permissions, row scopes, field filtering, and management APIs together.
 
 - The recommended production stack is `cache-hub + monsqlize`.
+- The current verified dependency line is `cache-hub@2.2.4 + monsqlize@2.0.3`.
 - Route resources and `db:` resources can be enabled together.
 - This path is a good fit for payment, finance, SaaS, and admin-console authorization flows where permissions must be auditable and centrally managed.
 
@@ -51,6 +52,7 @@ Use this path when you need route permissions, data permissions, row scopes, fie
 
 - Cache backend: `cache-hub`
 - Production storage: `MonSQLizeStorageAdapter`
+- Verified dependency line: `cache-hub@2.2.4 + monsqlize@2.0.3`
 - Lightweight fallback storage: `FileAdapter` and `MemoryAdapter`
 - Design principle: keep `StorageAdapter` abstract. permission-core is not tied to MongoDB even though the official production adapter uses monsqlize.
 

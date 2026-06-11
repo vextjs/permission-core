@@ -8,6 +8,7 @@ const msq = new MonSQLize({
   type: 'mongodb',
   databaseName: 'permission_core',
   config: { uri: process.env.MONGO_URI! },
+  cache: { defaultTtl: 300_000, maxEntries: 1000 },
 });
 
 await msq.connect();
@@ -18,6 +19,7 @@ const pc = new PermissionCore({
     namespace: 'permission_core',
     ownsConnection: true,
   }),
+  cache: msq.getCache(),
 });
 
 await pc.init();
