@@ -9,14 +9,18 @@ import MonSQLize from 'monsqlize';
 import { MonSQLizeStorageAdapter, PermissionCore } from 'permission-core';
 
 const msq = new MonSQLize({
-	uri: process.env.MONGO_URI!,
-	dbName: 'permission_core_demo',
+	type: 'mongodb',
+	databaseName: 'permission_core_demo',
+	config: { uri: process.env.MONGO_URI! },
 });
+
+await msq.connect();
 
 const pc = new PermissionCore({
 	storage: new MonSQLizeStorageAdapter({
 		msq,
 		namespace: 'permission_core',
+		ownsConnection: true,
 	}),
 });
 

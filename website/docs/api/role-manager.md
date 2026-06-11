@@ -77,7 +77,7 @@ await pc.roles.allow('sales', 'read', 'db:orders', {
 
 管理后台里最好先按下面这组边界理解角色规则：
 
-- 相同的 `type + action + resource` 应视为重复项，提交前先去重
+- 相同的 `type + action + resource + where` 应视为重复项，提交前先去重
 - `allow` 与 `deny` 针对同一 `action + resource` 可以同时存在
 - 一旦同时存在，运行时仍按现有语义解释：`deny` 优先于 `allow`
 - `getRules()` 更适合展示角色自身规则，不适合直接当成用户最终权限结果

@@ -6,7 +6,7 @@
 
 - `permission-core` 自身声明的最低 Node.js 版本是 `>=18`
 - 当前仓库内的主包构建、类型检查、单测、覆盖率和示例脚本都已经在**当前本地环境**通过
-- 当前运行时依赖固定为 `cache-hub@^1.0.0` 与 `monsqlize@^1.3.0`
+- 当前运行时依赖固定为 `cache-hub@1.0.0` 与 `monsqlize@1.3.0`
 - 主包同时提供 ESM 和 CJS 入口
 
 ## 二、版本矩阵
@@ -14,11 +14,11 @@
 | 组件 | 当前声明 / 当前安装 | 当前状态 | 说明 |
 |------|----------------------|----------|------|
 | Node.js | `>=18`（来自 `package.json`） | ✅ 支持 | permission-core 自身的最低运行时要求 |
-| TypeScript | `^5.8.3` | ✅ 已验证 | 用于开发、类型检查和 DTS 生成 |
-| Vitest | `^3.2.4` | ✅ 已验证 | 用于单元测试与覆盖率验证 |
-| `@vitest/coverage-v8` | `^3.2.4` | ✅ 已验证 | 当前 `100%` 覆盖率基于该 provider 生成 |
-| `cache-hub` | `^1.0.0` / `1.0.0` | ✅ 已验证 | 当前缓存底座；`PermissionCache` 和 example 已验证 |
-| `monsqlize` | `^1.3.0` / `1.3.0` | ✅ 已验证 | `MonSQLizeStorageAdapter` 当前官方持久化路径 |
+| TypeScript | `5.9.3` | ✅ 已验证 | 用于开发、类型检查和 DTS 生成 |
+| Vitest | `3.2.4` | ✅ 已验证 | 用于单元测试与覆盖率验证 |
+| `@vitest/coverage-v8` | `3.2.4` | ✅ 已验证 | 当前 `100%` 覆盖率基于该 provider 生成 |
+| `cache-hub` | `1.0.0` | ✅ 已验证 | 当前缓存底座；`PermissionCache` 和 example 已验证 |
+| `monsqlize` | `1.3.0` | ✅ 已验证 | `MonSQLizeStorageAdapter` 当前官方持久化路径 |
 
 ## 三、当前仓库里实际验证过什么
 
@@ -52,7 +52,7 @@
 |--------|----------|------------|
 | `MemoryAdapter` | 开发、测试、示例 | 不依赖外部存储 |
 | `FileAdapter` | 本地、单机、回退 | 依赖 Node.js 文件系统；不适合多实例共享写入 |
-| `MonSQLizeStorageAdapter` | 正式持久化路径 | 依赖 `monsqlize@^1.3.0`；数据库边界由 monsqlize 侧负责 |
+| `MonSQLizeStorageAdapter` | 正式持久化路径 | 依赖 `monsqlize@1.3.0`；数据库边界由 monsqlize 侧负责 |
 
 ### 3. 浏览器环境
 

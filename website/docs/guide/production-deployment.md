@@ -48,12 +48,22 @@ permission-core 缓存的是“用户最终规则集合”，不是某一次 `ca
 
 ```typescript
 import { MemoryCache } from 'cache-hub';
+import MonSQLize from 'monsqlize';
 import { MonSQLizeStorageAdapter, PermissionCore } from 'permission-core';
+
+const msq = new MonSQLize({
+  type: 'mongodb',
+  databaseName: 'permission_core',
+  config: { uri: process.env.MONGO_URI! },
+});
+
+await msq.connect();
 
 const pc = new PermissionCore({
   storage: new MonSQLizeStorageAdapter({
     msq,
     namespace: 'permission_core',
+    ownsConnection: true,
   }),
   cache: new MemoryCache({
     defaultTtl: 300_000,

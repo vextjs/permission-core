@@ -58,7 +58,7 @@ export default defineConfig({
                 activeMatch: "/examples/",
             },
             {
-                text: "v1.0.0",
+                text: "v1.0.9",
                 items: [
                     {
                         text: "GitHub 仓库",
