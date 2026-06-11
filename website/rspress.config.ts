@@ -67,8 +67,8 @@ const navSource: LocalizedNavItem[] = [
         activeMatch: "/examples/",
     },
     {
-        en: "v1.0.9",
-        zh: "v1.0.9",
+        en: "v1.0.10",
+        zh: "v1.0.10",
         items: [
             {
                 en: "GitHub",
