@@ -285,6 +285,8 @@ body::after {
     repeating-linear-gradient(90deg, transparent 0 88px, rgba(0, 184, 138, 0.07) 88px 89px, transparent 89px 176px),
     repeating-linear-gradient(0deg, transparent 0 64px, rgba(50, 183, 255, 0.05) 64px 65px, transparent 65px 128px);
   opacity: 0.68;
+  background-position: 0 0, 0 0, 0 0;
+  animation: pc-hero-field-drift 14s linear infinite;
   mask-image: radial-gradient(ellipse 68% 56% at 54% 50%, #000 0 34%, rgba(0, 0, 0, 0.68) 58%, transparent 100%);
   -webkit-mask-image: radial-gradient(ellipse 68% 56% at 54% 50%, #000 0 34%, rgba(0, 0, 0, 0.68) 58%, transparent 100%);
 }
@@ -306,8 +308,26 @@ body::after {
   border-radius: 0;
   opacity: 1;
   filter: drop-shadow(0 26px 42px rgba(5, 20, 18, 0.14));
+  transform-origin: center;
+  animation: pc-hero-visual-breathe 7.2s ease-in-out infinite;
   mask-image: none;
   -webkit-mask-image: none;
+}
+
+@keyframes pc-hero-visual-breathe {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, -7px, 0) scale(1.008);
+  }
+}
+
+@keyframes pc-hero-field-drift {
+  to {
+    background-position: 0 0, 176px 0, 0 128px;
+  }
 }
 
 :root.rp-dark .rp-home-hero .rp-home-hero__image-img,
@@ -599,5 +619,12 @@ body::after {
 
   .pc-footer__grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-home-hero .rp-home-hero__image::before,
+  .rp-home-hero .rp-home-hero__image-img {
+    animation: none;
   }
 }
