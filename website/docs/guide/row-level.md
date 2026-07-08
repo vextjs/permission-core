@@ -6,9 +6,11 @@ Row-level permissions restrict which records a user can read or operate on.
 
 ```typescript
 await pc.roles.allow('merchant-auditor', 'read', 'db:transactions', {
-  field: 'merchantId',
-  op: 'eq',
-  valueFrom: 'merchantId',
+  where: {
+    field: 'merchantId',
+    op: 'eq',
+    valueFrom: 'merchantId',
+  },
 });
 ```
 

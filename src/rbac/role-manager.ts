@@ -1,7 +1,7 @@
 import { PermissionCoreError } from "../core/errors";
 import { Resolver } from "../check/resolver";
 import { PermissionCoreErrorCode, type PermissionRule, type RoleChainEntry, type RoleCreateOptions, type RoleData, type RoleInspection, type RoleUpdateOptions, type RowRuleOptions } from "../types";
-import { deduplicateRules } from "../utils";
+import { deduplicateRules, stableCondition } from "../utils";
 import { assertNonEmptyString, assertValidAction, assertValidResource, assertValidWhereCondition } from "../utils/validation";
 import type { PermissionCache } from "../cache";
 import type { StorageAdapter } from "../storage";
@@ -29,7 +29,7 @@ function now() {
  * 判断两条规则的 `where` 条件是否等价。
  */
 function sameWhere(left: PermissionRule["where"], right: PermissionRule["where"]) {
-    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+    return stableCondition(left) === stableCondition(right);
 }
 
 /**

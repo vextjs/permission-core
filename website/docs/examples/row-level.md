@@ -1,11 +1,13 @@
 # Row-level Example
 
 ```typescript
-await pc.roles.create('merchant-auditor');
+await pc.roles.create('merchant-auditor', { label: 'Merchant Auditor' });
 await pc.roles.allow('merchant-auditor', 'read', 'db:transactions', {
-  field: 'merchantId',
-  op: 'eq',
-  valueFrom: 'merchantId',
+  where: {
+    field: 'merchantId',
+    op: 'eq',
+    valueFrom: 'merchantId',
+  },
 });
 await pc.users.setUserRoles('u-1', ['merchant-auditor']);
 

@@ -17,9 +17,13 @@ const rules = dedupeByTypeActionResourceWhere(inputRules);
 await pc.roles.clearRules('refund-reviewer');
 for (const rule of rules) {
   if (rule.type === 'allow') {
-    await pc.roles.allow('refund-reviewer', rule.action, rule.resource, rule.where);
+    await pc.roles.allow('refund-reviewer', rule.action, rule.resource, {
+      where: rule.where,
+    });
   } else {
-    await pc.roles.deny('refund-reviewer', rule.action, rule.resource, rule.where);
+    await pc.roles.deny('refund-reviewer', rule.action, rule.resource, {
+      where: rule.where,
+    });
   }
 }
 

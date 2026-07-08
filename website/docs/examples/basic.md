@@ -11,7 +11,7 @@ const pc = new PermissionCore({
 
 await pc.init();
 
-await pc.roles.create('operator');
+await pc.roles.create('operator', { label: 'Operator' });
 await pc.roles.allow('operator', 'invoke', 'GET:/api/orders');
 await pc.users.setUserRoles('u-1', ['operator']);
 

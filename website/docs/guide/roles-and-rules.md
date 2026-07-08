@@ -33,8 +33,10 @@ Rules can be `allow` or `deny`. Deny rules take priority over allow rules.
 Child roles inherit parent role rules. Use inheritance for stable organizational roles, not for every temporary exception.
 
 ```typescript
-await pc.roles.create('finance-admin');
-await pc.roles.setParent('finance-admin', 'finance-ops');
+await pc.roles.create('finance-admin', {
+  label: 'Finance Admin',
+  parent: 'finance-ops',
+});
 ```
 
 ## Inspecting effective permissions

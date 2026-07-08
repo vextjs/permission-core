@@ -94,6 +94,45 @@ describe("RoleManager", () => {
         expect(cache.invalidateAll).toHaveBeenCalled();
     });
 
+    it("deduplicates and revokes row rules with stable where key order", async () => {
+        const storage = new MemoryAdapter();
+        await storage.init();
+        const roles = new RoleManager(
+            storage,
+            { invalidateAll: vi.fn(async () => undefined) } as never,
+            () => undefined,
+        );
+
+        await roles.create("sales", { label: "销售" });
+
+        const where = { field: "ownerId", op: "eq", valueFrom: "userId" } as const;
+        const sameWhereDifferentKeyOrder = { op: "eq", valueFrom: "userId", field: "ownerId" } as const;
+
+        await roles.allow("sales", "read", "db:orders", { where });
+        await roles.allow("sales", "read", "db:orders", { where: sameWhereDifferentKeyOrder });
+
+        await expect(roles.getRules("sales")).resolves.toEqual([
+            {
+                type: "allow",
+                action: "read",
+                resource: "db:orders",
+                where,
+            },
+        ]);
+
+        await roles.revokeRule("sales", "read", "db:orders", { where: sameWhereDifferentKeyOrder });
+        await expect(roles.getRules("sales")).resolves.toEqual([]);
+
+        const paid = { field: "status", op: "eq", value: "paid" } as const;
+        await roles.allow("sales", "read", "db:orders", { where: { all: [where, paid] } });
+        await roles.allow("sales", "read", "db:orders", { where: { all: [paid, where] } });
+
+        await expect(roles.getRules("sales")).resolves.toHaveLength(1);
+
+        await roles.revokeRule("sales", "read", "db:orders", { where: { all: [paid, where] } });
+        await expect(roles.getRules("sales")).resolves.toEqual([]);
+    });
+
     it("exposes role inspection helpers for own and inherited rules", async () => {
         const storage = new MemoryAdapter();
         await storage.init();

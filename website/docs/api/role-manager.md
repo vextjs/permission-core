@@ -22,9 +22,11 @@ await pc.roles.deny('support', 'invoke', 'POST:/api/payouts');
 
 ```typescript
 await pc.roles.allow('merchant-auditor', 'read', 'db:transactions', {
-  field: 'merchantId',
-  op: 'eq',
-  valueFrom: 'merchantId',
+  where: {
+    field: 'merchantId',
+    op: 'eq',
+    valueFrom: 'merchantId',
+  },
 });
 ```
 
@@ -38,7 +40,10 @@ await pc.roles.clearRules('support');
 ## Inheritance
 
 ```typescript
-await pc.roles.setParent('finance-admin', 'finance-ops');
+await pc.roles.create('finance-admin', {
+  label: 'Finance Admin',
+  parent: 'finance-ops',
+});
 const chain = await pc.roles.getRoleChain('finance-admin');
 const effectiveRules = await pc.roles.getEffectiveRules('finance-admin');
 ```

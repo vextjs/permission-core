@@ -1,7 +1,7 @@
 # Field Permission Example
 
 ```typescript
-await pc.roles.create('refund-support');
+await pc.roles.create('refund-support', { label: 'Refund Support' });
 await pc.roles.allow('refund-support', 'read', 'db:refunds');
 await pc.roles.allow('refund-support', 'read', 'db:refunds:id');
 await pc.roles.allow('refund-support', 'read', 'db:refunds:status');

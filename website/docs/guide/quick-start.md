@@ -63,11 +63,13 @@ const pc = new PermissionCore({
 
 await pc.init();
 
-await pc.roles.create('auditor');
+await pc.roles.create('auditor', { label: 'Auditor' });
 await pc.roles.allow('auditor', 'read', 'db:transactions', {
-  field: 'merchantId',
-  op: 'eq',
-  valueFrom: 'merchantId',
+  where: {
+    field: 'merchantId',
+    op: 'eq',
+    valueFrom: 'merchantId',
+  },
 });
 await pc.roles.allow('auditor', 'read', 'db:transactions:id');
 await pc.roles.allow('auditor', 'read', 'db:transactions:status');

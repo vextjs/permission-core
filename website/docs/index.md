@@ -52,7 +52,7 @@ permission-core is a framework-neutral fine-grained authorization core for Node.
 - role inheritance and rule merging
 - permission cache invalidation
 
-The current repository has implemented the core runtime and passes `typecheck`, 60 tests, package build, runnable examples, and 100% statement / branch / function / line coverage.
+The current repository has implemented the core runtime and passes `typecheck`, 66 tests, package build, runnable examples, and 100% statement / branch / function / line coverage.
 
 ## Start with one path
 
