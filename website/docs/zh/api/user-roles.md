@@ -14,13 +14,15 @@
 
 ## 关键行为
 
-### 用户绑定变化只触发 `invalidate(userId)`
+### 公开写入方法会自动触发 `invalidate(userId)`
 
 这和 `RoleManager` 的全量失效不同。因为用户绑定变化只影响当前用户，所以首版设计选择精确失效，保证权限立即生效，同时避免无意义的全量清缓存。
 
 ### `setUserRoles()` 更适合后台保存操作
 
 如果你的管理后台是“表单整体保存用户角色”，那么 `setUserRoles()` 会比多次 `assign/revoke` 更稳定，因为它代表的是一次明确的整体覆盖。
+
+它覆盖的是某一个用户的角色绑定，不是角色规则批量 API。角色内部规则仍然归 `RoleManager` 管。
 
 ### `setUserRoles()` 应先全量校验
 
@@ -102,6 +104,7 @@ const roles = await pc.users.getUserRoles('user-002');
 ## 常见误区
 
 - 因为用户绑定变化而直接 `invalidateAll()`
+- 调完 `assign()`、`revoke()`、`setUserRoles()` 或 `clearUserRoles()` 后又重复手工 `invalidate(userId)`
 - 用多次 `assign/revoke` 替代“整表保存”式的 `setUserRoles()`
 - 把角色规则管理逻辑混进用户绑定入口
 

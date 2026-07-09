@@ -62,7 +62,7 @@ const rules = await pc.roles.getRules('operator');
 - `clearRules()`
 - `getRules()`
 
-也就是说，公开层还没有把“整表覆盖角色规则”收口成一个单独方法。对于后台场景，更合理的做法通常不是让前端直接逐条调公开 API，而是由后端封装一层保存服务：
+也就是说，公开层还没有把“整表覆盖角色规则”收口成一个单独方法。`allow()` / `deny()` 的数组参数只表示同一资源下多个动作，不是通用角色规则批量 API。对于后台场景，更合理的做法通常不是让前端直接逐条调公开 API，而是由后端封装一层保存服务：
 
 ```typescript
 type RoleRuleInput = {
@@ -93,6 +93,8 @@ async function saveRoleRules(roleId: string, rules: RoleRuleInput[]) {
 ```
 
 如果你想进一步减少写入次数，可以在自己的服务层先做差异计算，再分别调用 `allow()`、`deny()` 和 `revokeRule()`。这更适合规则量较大或保存频率较高的后台。
+
+不要把 `StorageAdapter.setRules()` 直接暴露给业务前端当批量保存接口。它是低层覆盖写契约，会绕过 `RoleManager` 的输入校验、冲突处理和缓存失效。除非你自己的后端服务明确承担这些职责，否则规则保存应继续收口到 `RoleManager`。
 
 ## 五、行级权限在后台里应该怎么存
 
@@ -160,13 +162,14 @@ const permissions = await pc.getPermissions('user-001');
 
 大多数情况下，不需要再额外手工清缓存，因为管理 API 本身已经带了失效语义：
 
-- 角色规则变化：`invalidateAll()`
-- 用户角色绑定变化：`invalidate(userId)`
+- `pc.roles` 写角色、规则或继承关系：内部触发 `invalidateAll()`
+- `pc.users` 写用户角色绑定：内部触发 `invalidate(userId)`
 
 这两者要区分开理解：
 
 - 角色规则会影响继承链和多个用户，所以默认更偏向全量失效
 - 用户绑定只影响单个用户，所以更适合精确失效
+- 只有绕过这些 manager、直接写适配器或接外部同步时，才需要手工调用失效 API
 
 ## 九、管理后台常见错误怎么回
 

@@ -1,6 +1,6 @@
 # Management Console
 
-Management consoles usually edit roles, role rules, user-role bindings, and cache invalidation together. Keep that workflow explicit.
+Management consoles usually edit roles, role rules, and user-role bindings together. Public manager APIs already handle permission cache invalidation; keep manual invalidation for direct storage writes, external synchronization, or cross-instance invalidation strategy.
 
 ## Role detail page
 
@@ -15,22 +15,25 @@ Use these APIs:
 
 ## Save role rules
 
+permission-core v1 does not expose a generic role-rule batch API. `roles.allow()` and `roles.deny()` can accept several actions for the same resource, but they are still explicit rule operations, not a `setRules()` replacement.
+
 Before saving from a UI:
 
 - validate every `action`
 - validate every `resource`
 - deduplicate by `type + action + resource + where`
 - keep `allow` and `deny` visible when both exist
-- invalidate affected users or all permissions after rule changes
+- save through your own backend service, then call the public `RoleManager` methods
+
+Avoid binding a browser form directly to many remote `allow()` / `deny()` calls. A backend save service can validate the submitted rule array, reject partial input, compute a diff, and avoid unnecessary cache churn. Do not call `StorageAdapter.setRules()` from business code unless you intentionally own the missing validation and invalidation behavior.
 
 ## User-role bindings
 
 ```typescript
 await pc.users.setUserRoles('u-1', ['support', 'refund-reviewer']);
-await pc.invalidate('u-1');
 ```
 
-Use `setUserRoles()` for full replacement saves from an admin form. Use `grant()` and `revoke()` for small targeted changes.
+Use `setUserRoles()` for full replacement saves from an admin form. Use `assign()` and `revoke()` for small targeted changes. These methods invalidate the affected user's cache automatically.
 
 ## Error mapping
 

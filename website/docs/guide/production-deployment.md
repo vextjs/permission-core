@@ -34,8 +34,8 @@ await pc.init();
 - Call `await pc.init()` during service startup.
 - Call `await pc.close()` during graceful shutdown.
 - Use matched route templates for route resources.
-- Invalidate user cache after user-role binding changes.
-- Invalidate all cache after role rules or inheritance changes.
+- Send user-role binding changes through `pc.users`, or call `pc.invalidate(userId)` when you bypass it.
+- Send role-rule and inheritance changes through `pc.roles`, or call `pc.invalidateAll()` when you bypass it.
 - Keep permission-denied logs searchable, but do not log sensitive values.
 - Treat `getResources()` as UI visibility, not final authorization.
 

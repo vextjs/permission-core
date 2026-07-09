@@ -26,7 +26,7 @@ Handle them before calling permission-core. The public API expects a string `use
 
 ## Can I build an admin console on top?
 
-Yes. Use `roles` for role and rule management, `users` for user-role bindings, and call `invalidate(userId)` or `invalidateAll()` after changes that affect cached permissions.
+Yes. Use `roles` for role and rule management, and `users` for user-role bindings. Public manager APIs invalidate permission cache entries for their own writes. Call `invalidate(userId)` or `invalidateAll()` yourself only when you bypass those managers, write storage directly, synchronize permissions from another system, or need deployment-level cache coordination.
 
 ## What should I run before release?
 

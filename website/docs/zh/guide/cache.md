@@ -2,6 +2,8 @@
 
 permission-core 默认通过 `cache-hub` 缓存“某个用户最后真正能用的规则”，这样就不用每次判断权限都重新展开继承链、重新合并规则。
 
+正常通过 `pc.roles` 和 `pc.users` 修改权限数据时，公开 manager 会自动失效对应缓存。手工调用 `invalidate()` / `invalidateAll()` 主要用于直接写存储适配器、外部同步或跨实例缓存协调。
+
 ## 它缓存的不是某一次 `can()` 的结果
 
 它缓存的是“某个用户最后可用的规则集合”，而不是某次 `can()` 返回的 true/false。
@@ -48,8 +50,9 @@ permission-core 默认通过 `cache-hub` 缓存“某个用户最后真正能用
 
 因为角色规则变化可能影响一整条继承链上的多个用户，而不仅仅是直接绑定该角色的用户。首版方案选择“最简单、最安全”的默认策略：
 
-- 规则变更：`invalidateAll()`
-- 用户绑定变更：`invalidate(userId)`
+- 通过 `pc.roles` 写规则、继承或角色信息：内部触发 `invalidateAll()`
+- 通过 `pc.users` 写用户绑定：内部触发 `invalidate(userId)`
+- 绕过 manager 直接写存储或接外部同步：调用方需要按同样边界手工失效缓存
 
 你可以把它理解成：宁可多清一点缓存，也先保证结果正确。
 

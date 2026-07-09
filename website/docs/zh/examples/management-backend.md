@@ -55,6 +55,8 @@ async function saveRoleRules(roleId: string, nextRules: RoleRuleInput[]) {
 
 如果你的后台会先算差异，再做增量保存，也可以把删除部分拆成 `revokeRule()`，而不是每次都 `clearRules()` 后重建。
 
+这些 `RoleManager` 写入方法会自动失效权限规则缓存。不要把 `StorageAdapter.setRules()` 直接暴露成业务批量保存接口；如果确实要直接写适配器，你自己的后端服务必须同时承担校验、冲突处理和缓存失效。
+
 ## 加载和保存用户所属角色
 
 ```typescript
@@ -70,6 +72,8 @@ await pc.users.setUserRoles('user-001', ['viewer', 'auditor']);
 - `assign()` / `revoke()` 更适合单点变更，不一定适合整页保存
 
 如果你的页面是多选框、穿梭框或批量选择角色，`setUserRoles()` 通常会比多次 `assign()` / `revoke()` 更贴近页面语义。
+
+`setUserRoles()` 会自动失效这个用户的权限缓存。它覆盖的是用户绑定的角色集合，不是角色内部规则批量 API。
 
 ## 保存后刷新菜单资源和调试视图
 

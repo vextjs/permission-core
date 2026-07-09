@@ -4,6 +4,8 @@
 
 如果你只是正常使用 `PermissionCore`，通常不需要直接 new 它。但当你要接自定义 `cache-hub` 实例，或者想显式关闭缓存、调 TTL、限最大条目数时，这个 API 页就是最直接的参考。
 
+正常通过 `pc.roles` 和 `pc.users` 写入权限数据时，公开 manager 会自动处理对应缓存失效。只有你绕过这些 manager、直接写存储适配器、接外部同步任务，或需要跨实例缓存协调时，才需要主动调用 `PermissionCore.invalidate()` 或 `PermissionCore.invalidateAll()`。
+
 ## 最简单示例
 
 ```typescript
@@ -49,6 +51,8 @@ new PermissionCache(options?: PermissionCacheOptions)
 | `set(userId, rules)` | `Promise<void>` | 写入当前用户规则集 |
 | `invalidate(userId)` | `Promise<void>` | 精确清掉单个用户缓存 |
 | `invalidateAll()` | `Promise<void>` | 清理 `permission-core:rules:*` 前缀下的权限规则缓存 |
+
+`invalidate(userId)` 适合在绕过 `pc.users` 修改某个用户绑定后使用。`invalidateAll()` 适合在绕过 `pc.roles` 修改角色规则、继承关系或共享权限定义后使用。
 
 ## 必须单独记住的约束
 
