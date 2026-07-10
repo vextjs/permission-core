@@ -28,6 +28,20 @@ Handle them before calling permission-core. The public API expects a string `use
 
 Yes. Use `roles` for role and rule management, and `users` for user-role bindings. Public manager APIs invalidate permission cache entries for their own writes. Call `invalidate(userId)` or `invalidateAll()` yourself only when you bypass those managers, write storage directly, synchronize permissions from another system, or need deployment-level cache coordination.
 
+For menu/page/button state, API bindings, authorization trees, revisions, and audit events, use `permission-core/menu`. Persist that module separately with `FileMenuStorageAdapter` for one process or `MonSQLizeMenuStorageAdapter` for shared production storage.
+
+## Can one button require multiple APIs?
+
+Yes. Bind multiple API records to one button and use `permissionGroup` plus `permissionMode: "any" | "all"`. UI visibility remains an experience layer; every backend route still needs `assertSubject()` or an equivalent framework guard.
+
+## How does tenant isolation work?
+
+Use `PermissionSubject` and `pc.scope({ tenantId, ... })`. Roles, rules, user bindings, cache keys, and scoped menu assets stay separated. A missing tenant or conflicting subject/bound scope fails with `INVALID_ARGUMENT`; it does not silently reuse the default scope.
+
+## Should Vext applications write their own permission middleware?
+
+Normally no. Use `createVextPermissionPlugin()` from `permission-core/adapters/vext`, run authentication first, enable `tenantRequired` for tenant-aware routes, and keep `guardRoutePermissions` enabled so native route `auth.permissions` is enforced.
+
 ## What should I run before release?
 
 Run:
@@ -35,7 +49,9 @@ Run:
 ```bash
 npm run typecheck
 npm run test:coverage
+npm run test:docs
 npm run build
 npm run example:all
+npm run test:package
 cd website && npm run build
 ```

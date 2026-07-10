@@ -93,6 +93,42 @@ function matchHttpResource(pattern: string, resource: string) {
     return matchPathPattern(patternResource.path, concreteResource.path);
 }
 
+function matchNamespacedResource(pattern: string, resource: string) {
+    const patternParts = pattern.split(":");
+    const resourceParts = resource.split(":");
+    if (patternParts[0] !== resourceParts[0]) {
+        return false;
+    }
+
+    for (let index = 1; index < patternParts.length; index += 1) {
+        const patternPart = patternParts[index];
+        const resourcePart = resourceParts[index];
+        if (patternPart === "*" && index === patternParts.length - 1) {
+            return resourcePart !== undefined;
+        }
+        if (resourcePart === undefined || (patternPart !== "*" && patternPart !== resourcePart)) {
+            return false;
+        }
+    }
+
+    return patternParts.length === resourceParts.length;
+}
+
+function getResourceKind(resource: string) {
+    if (resource.startsWith("db:")) {
+        return "db";
+    }
+    if (resource.startsWith("api:")) {
+        return "api";
+    }
+    if (/^[A-Z*]+:/.test(resource)) {
+        return "http";
+    }
+
+    const scheme = resource.match(/^([a-z][a-z0-9_-]*):/i)?.[1];
+    return scheme ? `namespace:${scheme}` : "invalid";
+}
+
 /**
  * 匹配 `db:` 资源。
  */
@@ -140,16 +176,26 @@ export function matchResource(pattern: string, resource: string) {
         return true;
     }
 
-    // HTTP 与 db 资源不能跨模型匹配，避免错误放大授权范围。
-    if (pattern.startsWith("db:") || resource.startsWith("db:")) {
-        if (!(pattern.startsWith("db:") && resource.startsWith("db:"))) {
-            return false;
-        }
-
-        return matchDbResource(pattern, resource);
+    const patternKind = getResourceKind(pattern);
+    const resourceKind = getResourceKind(resource);
+    if (patternKind !== resourceKind) {
+        return false;
     }
 
-    return matchHttpResource(pattern, resource);
+    if (patternKind === "db") {
+        return matchDbResource(pattern, resource);
+    }
+    if (patternKind === "api") {
+        return matchHttpResource(pattern.slice("api:".length), resource.slice("api:".length));
+    }
+    if (patternKind === "http") {
+        return matchHttpResource(pattern, resource);
+    }
+    if (patternKind.startsWith("namespace:")) {
+        return matchNamespacedResource(pattern, resource);
+    }
+
+    return false;
 }
 
 /**

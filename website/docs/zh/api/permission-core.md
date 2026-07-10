@@ -322,6 +322,23 @@ const safe = await pc.filterFields('user-001', 'read', 'db:orders', visibleOrder
 - [matchResource](/zh/api/match-resource)
 - [错误码](/zh/api/errors)
 
+## 1.1.0 scoped 与资源 scheme API
+
+多租户调用使用显式 subject 或 scope context：
+
+```typescript
+await pc.canSubject(subject, action, resource);
+await pc.assertSubject(subject, action, resource);
+await pc.invalidateSubject(subject);
+await pc.invalidateScope(scope);
+
+const tenant = pc.scope(scope);
+```
+
+`defaultScope` 只供旧 `userId` API 和根 `roles/users` 使用；subject API 不会在缺少 `tenantId` 时静默回退。`resourceSchemes` 可在构造器传入，也可通过 `pc.resourceSchemes.register()` 注册；角色写入、运行时鉴权、菜单校验和授权树共享同一个 registry。
+
+缺少/冲突 scope 返回 `INVALID_ARGUMENT`，断言失败返回 `PERMISSION_DENIED`，关闭后调用返回 `NOT_INITIALIZED`。完整签名见 [Scoped Permissions API](/zh/api/scoped-permissions)。
+
 ## 下一步看什么
 
 - 想在真正接入前做一次完整确认：看 [接入检查清单](/zh/guide/integration-checklist)

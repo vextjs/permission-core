@@ -145,4 +145,53 @@ describe("MonSQLizeStorageAdapter", () => {
             { type: "allow", action: "write", resource: "db:articles" },
         ]);
     });
+
+    it("stores scoped roles, bindings and rules without tenant bleed", async () => {
+        const msq = new FakeMonSQLize();
+        const adapter = new MonSQLizeStorageAdapter({
+            msq: msq as never,
+            namespace: "permission_core",
+        });
+
+        await adapter.init();
+
+        await adapter.setScopedRole({ tenantId: "tenant-a" }, "manager", {
+            id: "manager",
+            label: "Manager A",
+            parent: null,
+            description: "",
+            createdAt: 1,
+            updatedAt: 1,
+        });
+        await adapter.setScopedRole({ tenantId: "tenant-b" }, "manager", {
+            id: "manager",
+            label: "Manager B",
+            parent: null,
+            description: "",
+            createdAt: 2,
+            updatedAt: 2,
+        });
+        await adapter.setScopedUserRoles({ tenantId: "tenant-a" }, "user-001", ["manager"]);
+        await adapter.setScopedRules({ tenantId: "tenant-a" }, "manager", [
+            { type: "allow", action: "read", resource: "ui:menu:tenant-a" },
+        ]);
+        await adapter.setScopedRules({ tenantId: "tenant-b" }, "manager", [
+            { type: "allow", action: "read", resource: "ui:menu:tenant-b" },
+        ]);
+
+        await expect(adapter.getScopedRole({ tenantId: "tenant-a" }, "manager")).resolves.toMatchObject({
+            label: "Manager A",
+        });
+        await expect(adapter.getScopedRole({ tenantId: "tenant-b" }, "manager")).resolves.toMatchObject({
+            label: "Manager B",
+        });
+        await expect(adapter.getScopedUserRoles({ tenantId: "tenant-a" }, "user-001")).resolves.toEqual(["manager"]);
+        await expect(adapter.getScopedUserRoles({ tenantId: "tenant-b" }, "user-001")).resolves.toEqual([]);
+        await expect(adapter.getScopedRules({ tenantId: "tenant-a" }, "manager")).resolves.toEqual([
+            { type: "allow", action: "read", resource: "ui:menu:tenant-a" },
+        ]);
+        await expect(adapter.getScopedRules({ tenantId: "tenant-b" }, "manager")).resolves.toEqual([
+            { type: "allow", action: "read", resource: "ui:menu:tenant-b" },
+        ]);
+    });
 });

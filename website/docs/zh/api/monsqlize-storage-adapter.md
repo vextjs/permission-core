@@ -78,6 +78,12 @@ new MonSQLizeStorageAdapter(options: MonSQLizeStorageAdapterOptions)
 - 你已经在用 `monsqlize`
 - 你希望和 `cache-hub` 搭配使用官方默认路径
 
+## scope、共享连接与菜单存储
+
+每条角色、规则和用户绑定文档都携带完整 scope 字段与稳定 `scopeKey`；adapter 的 `namespace` 只是物理 collection 前缀，不是 tenant boundary。
+
+如果菜单模块共享同一个 MonSQLize 实例，使用独立 `MonSQLizeMenuStorageAdapter` namespace，并保证只有一个 adapter 设置 `ownsConnection:true`。关闭时先 menu 后 core；备份和迁移同时覆盖两套 collection。
+
 ## 更适合从哪里继续看
 
 - 如果你想看一个完整接入示例：继续看 [MonSQLize 适配器示例](/zh/examples/monsqlize-adapter)

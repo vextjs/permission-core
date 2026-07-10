@@ -30,6 +30,10 @@ afterEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();
     vi.unmock("node:fs/promises");
+    if (process.env.PERMISSION_CORE_RETAIN_TEST_ARTIFACTS === "1") {
+        tempDirs.length = 0;
+        return;
+    }
     await Promise.all(tempDirs.splice(0).map((dirPath) => realFs.rm(dirPath, { recursive: true, force: true })));
 });
 
@@ -145,6 +149,65 @@ describe("FileAdapter additional flows", () => {
         });
     });
 
+    it("keeps the last successful snapshot when atomic replacement fails", async () => {
+        const filePath = await createTempFilePath();
+        await realFs.writeFile(filePath, JSON.stringify({
+            schemaVersion: 2,
+            scopes: {
+                "tenant:default|app:-|module:-|ns:-": {
+                    roles: {
+                        viewer: {
+                            id: "viewer",
+                            label: "Viewer",
+                            parent: null,
+                            description: "",
+                            createdAt: 1,
+                            updatedAt: 1,
+                        },
+                    },
+                    userRoles: {},
+                    rules: {},
+                },
+            },
+        }, null, 2), "utf-8");
+
+        vi.resetModules();
+        vi.doMock("node:fs/promises", async () => {
+            const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+            return {
+                ...actual,
+                rename: vi.fn().mockRejectedValue(new Error("rename denied")),
+            };
+        });
+
+        const { FileAdapter: RenameFailingFileAdapter } = await import("../../src");
+        const adapter = new RenameFailingFileAdapter({ path: filePath });
+        await adapter.init();
+        await adapter.setRole("editor", {
+            id: "editor",
+            label: "Editor",
+            parent: null,
+            description: "",
+            createdAt: 1,
+            updatedAt: 1,
+        });
+
+        const internal = adapter as any;
+        if (internal.debounceTimer) {
+            clearTimeout(internal.debounceTimer);
+            internal.debounceTimer = null;
+        }
+        await expect(internal.writeToDisk()).rejects.toMatchObject({
+            code: PermissionCoreErrorCode.STORAGE_ERROR,
+        });
+
+        const persisted = JSON.parse(await realFs.readFile(filePath, "utf-8")) as {
+            scopes: Record<string, { roles: Record<string, unknown> }>;
+        };
+        expect(Object.keys(persisted.scopes["tenant:default|app:-|module:-|ns:-"].roles)).toEqual(["viewer"]);
+        expect(await realFs.readdir(path.dirname(filePath))).toEqual([path.basename(filePath)]);
+    });
+
     it("flushes a pending write after the in-flight write completes", async () => {
         const filePath = await createTempFilePath();
         const actualWriteFile = realFs.writeFile as (...args: any[]) => Promise<void>;
@@ -212,8 +275,10 @@ describe("FileAdapter additional flows", () => {
 
         const mockedFs = await import("node:fs/promises");
         expect((mockedFs.writeFile as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2);
-        const persisted = JSON.parse(await realFs.readFile(filePath, "utf-8")) as { roles: Record<string, unknown> };
-        expect(Object.keys(persisted.roles).sort()).toEqual(["editor", "viewer"]);
+        const persisted = JSON.parse(await realFs.readFile(filePath, "utf-8")) as {
+            scopes: Record<string, { roles: Record<string, unknown> }>;
+        };
+        expect(Object.keys(persisted.scopes["tenant:default|app:-|module:-|ns:-"].roles).sort()).toEqual(["editor", "viewer"]);
     });
 
     it("executes the debounced write callback when updates settle", async () => {

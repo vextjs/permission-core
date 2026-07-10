@@ -1,6 +1,7 @@
 import { MemoryCache, type CacheLike } from "cache-hub";
 
-import type { PermissionRule } from "../types";
+import { DEFAULT_PERMISSION_SCOPE, getPermissionScopeKey } from "../scope/scope";
+import type { PermissionRule, PermissionScope } from "../types";
 
 /**
  * PermissionCache 构造参数。
@@ -22,8 +23,12 @@ const KEY_PREFIX = "permission-core:rules:";
 /**
  * 生成用户规则缓存键。
  */
-function getCacheKey(userId: string) {
-    return `${KEY_PREFIX}${userId}`;
+function getScopePrefix(scope: PermissionScope = DEFAULT_PERMISSION_SCOPE) {
+    return `${KEY_PREFIX}${getPermissionScopeKey(scope)}:`;
+}
+
+function getCacheKey(userId: string, scope: PermissionScope = DEFAULT_PERMISSION_SCOPE) {
+    return `${getScopePrefix(scope)}${userId}`;
 }
 
 /**
@@ -36,6 +41,7 @@ export class PermissionCache {
     private readonly ttl: number;
     private readonly cache: CacheLike;
     private readonly ownsCache: boolean;
+    private readonly knownKeys = new Set<string>();
 
     /**
      * @param options 缓存开关、TTL 和底层缓存实例。
@@ -55,32 +61,63 @@ export class PermissionCache {
     /**
      * 读取某个用户的已合并规则。
      */
-    async get(userId: string): Promise<PermissionRule[] | null> {
+    async get(userId: string, scope: PermissionScope = DEFAULT_PERMISSION_SCOPE): Promise<PermissionRule[] | null> {
         if (!this.enabled) {
             return null;
         }
 
-        const rules = await this.cache.get<PermissionRule[]>(getCacheKey(userId));
-        return rules ?? null;
+        const rules = await this.cache.get<PermissionRule[]>(getCacheKey(userId, scope));
+        return rules ? structuredClone(rules) : null;
     }
 
     /**
      * 写入某个用户的已合并规则。
      */
-    async set(userId: string, rules: PermissionRule[]): Promise<void> {
+    async set(
+        userId: string,
+        rules: PermissionRule[],
+        scope: PermissionScope = DEFAULT_PERMISSION_SCOPE,
+    ): Promise<void> {
         if (!this.enabled) {
             return;
         }
 
+        const key = getCacheKey(userId, scope);
+        this.knownKeys.add(key);
         // 缓存前做 structuredClone，避免外部继续修改同一份规则数组。
-        await this.cache.set(getCacheKey(userId), structuredClone(rules), this.ttl);
+        await this.cache.set(key, structuredClone(rules), this.ttl);
     }
 
     /**
      * 失效某个用户的规则缓存。
      */
-    async invalidate(userId: string): Promise<void> {
-        await this.cache.del(getCacheKey(userId));
+    async invalidate(userId: string, scope: PermissionScope = DEFAULT_PERMISSION_SCOPE): Promise<void> {
+        const key = getCacheKey(userId, scope);
+        this.knownKeys.delete(key);
+        await this.cache.del(key);
+    }
+
+    /**
+     * 失效某个 scope 下的全部用户规则缓存。
+     */
+    async invalidateScope(scope: PermissionScope = DEFAULT_PERMISSION_SCOPE): Promise<void> {
+        const prefix = getScopePrefix(scope);
+        if (typeof this.cache.delPattern === "function") {
+            await this.cache.delPattern(`${prefix}*`);
+            for (const key of Array.from(this.knownKeys)) {
+                if (key.startsWith(prefix)) {
+                    this.knownKeys.delete(key);
+                }
+            }
+            return;
+        }
+
+        for (const key of Array.from(this.knownKeys)) {
+            if (key.startsWith(prefix)) {
+                await this.cache.del(key);
+                this.knownKeys.delete(key);
+            }
+        }
     }
 
     /**
@@ -89,10 +126,20 @@ export class PermissionCache {
     async invalidateAll(): Promise<void> {
         if (typeof this.cache.delPattern === "function") {
             await this.cache.delPattern(`${KEY_PREFIX}*`);
+            this.knownKeys.clear();
             return;
         }
 
-        await this.cache.clear();
+        if (this.ownsCache) {
+            await this.cache.clear();
+            this.knownKeys.clear();
+            return;
+        }
+
+        for (const key of Array.from(this.knownKeys)) {
+            await this.cache.del(key);
+            this.knownKeys.delete(key);
+        }
     }
 
     /**

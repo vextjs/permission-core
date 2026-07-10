@@ -1,6 +1,6 @@
 {
     "name": "permission-core",
-    "version": "1.0.10",
+    "version": "1.1.0",
     "description": "Fine-grained RBAC and resource permission core for Node.js, with route permissions, data scopes, role inheritance, and wildcard matching.",
     "keywords": [
         "rbac",
@@ -29,6 +29,16 @@
             "types": "./dist/match.d.ts",
             "import": "./dist/match.js",
             "require": "./dist/match.cjs"
+        },
+        "./menu": {
+            "types": "./dist/menu.d.ts",
+            "import": "./dist/menu.js",
+            "require": "./dist/menu.cjs"
+        },
+        "./adapters/vext": {
+            "types": "./dist/adapters/vext.d.ts",
+            "import": "./dist/adapters/vext.js",
+            "require": "./dist/adapters/vext.cjs"
         }
     },
     "files": [
@@ -53,15 +63,20 @@
     "scripts": {
         "build": "tsup",
         "test": "vitest run",
-        "test:coverage": "vitest run --coverage",
+        "test:coverage": "vitest run --coverage && node ./scripts/check-coverage.mjs",
+    "test:package": "node ./scripts/package-install-smoke.mjs",
+    "test:docs": "node ./scripts/check-docs.mjs",
         "test:watch": "vitest",
         "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
         "example:http": "npm run build && node ./examples/http-only.mjs",
         "example:db": "npm run build && node ./examples/db-only.mjs",
         "example:complete": "npm run build && node ./examples/complete-flow.mjs",
-        "example:all": "npm run build && node ./examples/http-only.mjs && node ./examples/db-only.mjs && node ./examples/complete-flow.mjs",
+        "example:menu": "npm run build && node ./examples/menu-permissions.mjs",
+        "example:multi-tenant": "npm run build && node ./examples/multi-tenant.mjs",
+        "example:vext": "npm run build && node ./examples/vext-adapter/index.mjs",
+        "example:all": "npm run build && node ./examples/http-only.mjs && node ./examples/db-only.mjs && node ./examples/complete-flow.mjs && node ./examples/menu-permissions.mjs && node ./examples/multi-tenant.mjs && node ./examples/vext-adapter/index.mjs",
         "test:audit": "npm audit --omit=dev --registry=https://registry.npmjs.org/",
-        "test:all": "npm run typecheck && npm run test:coverage && npm run build && npm run example:all",
+    "test:all": "npm run typecheck && npm run test:coverage && npm run test:docs && npm run build && npm run example:all && npm run test:package",
         "test:all:with-audit": "npm run test:all && npm run test:audit",
         "prepublishOnly": "npm run test:all:with-audit"
     },
@@ -69,11 +84,20 @@
         "cache-hub": "2.2.4",
         "monsqlize": "2.0.3"
     },
+    "peerDependencies": {
+        "vextjs": ">=0.3.26"
+    },
+    "peerDependenciesMeta": {
+        "vextjs": {
+            "optional": true
+        }
+    },
     "devDependencies": {
         "@types/node": "22.19.19",
         "@vitest/coverage-v8": "3.2.6",
         "tsup": "8.5.1",
         "typescript": "5.9.3",
+        "vextjs": "0.3.26",
         "vitest": "3.2.6"
     }
 }

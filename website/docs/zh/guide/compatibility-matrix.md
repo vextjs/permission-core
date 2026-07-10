@@ -16,7 +16,7 @@
 | Node.js | `>=18`（来自 `package.json`） | ✅ 支持 | permission-core 自身的最低运行时要求 |
 | TypeScript | `5.9.3` | ✅ 已验证 | 用于开发、类型检查和 DTS 生成 |
 | Vitest | `3.2.6` | ✅ 已验证 | 用于单元测试与覆盖率验证 |
-| `@vitest/coverage-v8` | `3.2.6` | ✅ 已验证 | 当前 `100%` 覆盖率基于该 provider 生成 |
+| `@vitest/coverage-v8` | `3.2.6` | ✅ 已验证 | `1.1.0` 未发布门禁强制全局及高风险模块阈值 |
 | `cache-hub` | `2.2.4` | ✅ 已验证 | 当前缓存底座；`PermissionCache`、`msq.getCache()` 和 example 已验证 |
 | `monsqlize` | `2.0.3` | ✅ 已验证 | `MonSQLizeStorageAdapter` 当前官方持久化路径 |
 
@@ -75,5 +75,7 @@ permission-core 当前是 Node.js 权限内核，不是浏览器端 SDK。
 1. 固定一条你自己的 Node.js 运行时线。
 2. 固定一条你自己的 `cache-hub` / `monsqlize` 版本线。
 3. 在升级前复跑本页列出的 5 个关键命令。
+
+`1.1.0` 未发布门禁的全局最低阈值为：语句 92%、分支 89.5%、函数 95%、行 92%；`menu`、`scope`、`adapters/vext` 另有独立阈值。
 
 如果你已经准备进入生产落地，再继续看 [生产部署与监控](/zh/guide/production-deployment)。

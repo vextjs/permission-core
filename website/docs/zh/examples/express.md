@@ -124,3 +124,5 @@ app.use((error, req, res, next) => {
 - 想先确认真实接入前有没有漏项：看 [接入检查清单](/zh/guide/integration-checklist)
 - 想回到更通用的分层说明：看 [框架接入](/zh/guide/framework-integration)
 - 想继续看 vext 版本的接法：看 [vext 接入](/zh/examples/vext)
+
+应用启动时只创建一个共享 runtime 并执行 `await pc.init()`；优雅退出时执行 `await pc.close()`。不要每个请求创建/关闭一次 core，也不要把 storage 或 `NOT_INITIALIZED` 统一吞成 403。

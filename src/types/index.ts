@@ -15,7 +15,36 @@ export type PermissionAction =
     | "update"
     | "delete"
     | "write"
+    | "manage"
     | "*";
+
+/**
+ * 权限隔离范围。
+ *
+ * `tenantId` 是真实租户边界；`appId`、`moduleId` 和 `namespace` 用于同一租户内继续拆分应用、模块或权限域。
+ */
+export interface PermissionScope {
+    /** 真实租户 ID。 */
+    tenantId: string;
+    /** 可选应用 ID。 */
+    appId?: string;
+    /** 可选模块 ID。 */
+    moduleId?: string;
+    /** 可选权限域命名空间。 */
+    namespace?: string;
+}
+
+/**
+ * 发起鉴权的主体。
+ */
+export interface PermissionSubject extends PermissionScope {
+    /** 当前用户 ID。 */
+    userId: string;
+    /** 可选角色快照，保留给 adapter 或后续外部身份源扩展。 */
+    roles?: string[];
+    /** 可选 claims，便于框架 adapter 传递认证上下文。 */
+    claims?: Record<string, unknown>;
+}
 
 /**
  * 行级权限 DSL 支持的比较操作符。
@@ -173,4 +202,18 @@ export enum PermissionCoreErrorCode {
     INVALID_ARGUMENT = "INVALID_ARGUMENT",
     STORAGE_ERROR = "STORAGE_ERROR",
     NOT_INITIALIZED = "NOT_INITIALIZED",
+}
+
+/**
+ * 自定义资源 scheme 定义。
+ *
+ * `validate` 和 `match` 都接收完整资源字符串，便于扩展自行保留层级、通配符或命名空间语义。
+ */
+export interface ResourceSchemeDefinition {
+    /** scheme 名称，例如 `urn`，不包含尾随冒号。 */
+    scheme: string;
+    /** 校验完整资源或规则资源是否合法。 */
+    validate(resource: string): boolean;
+    /** 判断规则资源是否覆盖请求资源。 */
+    match(pattern: string, resource: string): boolean;
 }

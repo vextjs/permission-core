@@ -1,5 +1,6 @@
 import { PermissionCoreError } from "../core/errors";
-import { PermissionCoreErrorCode } from "../types";
+import { PermissionCoreErrorCode, type PermissionScope } from "../types";
+import { DEFAULT_PERMISSION_SCOPE, normalizePermissionScope } from "../scope/scope";
 import { assertNonEmptyString } from "../utils/validation";
 import type { PermissionCache } from "../cache";
 import type { StorageAdapter } from "../storage";
@@ -8,6 +9,8 @@ import type { StorageAdapter } from "../storage";
  * 用户与角色绑定管理器。
  */
 export class UserRoleManager {
+    private readonly scope: PermissionScope;
+
     /**
      * @param storage 存储适配器。
      * @param cache 规则缓存。
@@ -17,7 +20,10 @@ export class UserRoleManager {
         private readonly storage: StorageAdapter,
         private readonly cache: PermissionCache,
         private readonly ensureInitialized: () => void,
-    ) { }
+        scope: PermissionScope = DEFAULT_PERMISSION_SCOPE,
+    ) {
+        this.scope = normalizePermissionScope(scope);
+    }
 
     /**
      * 给用户追加绑定一个角色。
@@ -34,7 +40,7 @@ export class UserRoleManager {
         }
 
         // 绑定变化只影响当前用户，无需全量清缓存。
-        await this.cache.invalidate(userId);
+        await this.cache.invalidate(userId, this.scope);
     }
 
     /**
@@ -48,7 +54,7 @@ export class UserRoleManager {
             (currentRoleId) => currentRoleId !== roleId,
         );
         await this.storage.setUserRoles(userId, nextRoleIds);
-        await this.cache.invalidate(userId);
+        await this.cache.invalidate(userId, this.scope);
     }
 
     /**
@@ -74,7 +80,7 @@ export class UserRoleManager {
         }
 
         await this.storage.setUserRoles(userId, uniqueRoleIds);
-        await this.cache.invalidate(userId);
+        await this.cache.invalidate(userId, this.scope);
     }
 
     /**
@@ -84,7 +90,7 @@ export class UserRoleManager {
         this.ensureInitialized();
         assertNonEmptyString(userId, "userId");
         await this.storage.setUserRoles(userId, []);
-        await this.cache.invalidate(userId);
+        await this.cache.invalidate(userId, this.scope);
     }
 
     /**

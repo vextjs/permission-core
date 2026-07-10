@@ -66,6 +66,16 @@ const visible = resources.some((item) => matchResource(item, 'GET:/api/orders/12
 
 这类用法是合理的，但它仍然只是“先做页面显示/隐藏”。真正敏感的后端操作仍然应以服务端 `can/assert` 为准。
 
+## scheme-aware 匹配与最终鉴权
+
+```typescript
+matchResource('GET:/api/*', 'GET:/api/orders'); // true
+matchResource('GET:/api/*', 'POST:/api/orders'); // false
+matchResource('db:*', 'api:GET:/api/orders'); // false
+```
+
+通配符不会跨 scheme；`GET:/api/*/items` 也不是任意中段 glob。自定义 scheme 应注册到 `pc.resourceSchemes`，使写规则、`can()` / `assert()`、菜单校验和授权树使用同一 matcher。`matchResource()` 适合测试和诊断，不能替代最终 `can()` / `assert()`。
+
 ## 常见误区
 
 - 把 `matchResource()` 当成完整鉴权函数

@@ -143,6 +143,18 @@
 
 如果你想看完整边界说明，包括“为什么默认推荐 MonSQLize”以及“为什么这不等于 MongoDB 专属权限模型”，直接看 [存储适配器](/zh/guide/adapters)。
 
+## 12. 菜单、按钮和一个按钮多个接口怎么处理？
+
+使用 `permission-core/menu` 建模 menu/page/button 与 API binding。同一个按钮可以绑定多个接口，通过 `permissionGroup` 与 `permissionMode: "any" | "all"` 明确组合语义；敏感操作建议开启 `strictApiBindings`。前端显隐不能替代后端 `assertSubject()` 或框架 route guard。
+
+生产环境还要单独持久化菜单数据：单进程可用 `FileMenuStorageAdapter`，共享生产环境使用 `MonSQLizeMenuStorageAdapter`。
+
+## 13. 多租户和 Vext 应该从哪里开始？
+
+多租户从 [多租户权限](/zh/guide/multi-tenant) 开始，确保每个 subject 都有显式 `tenantId`，并用跨租户拒绝反例验证。Vext 使用 `createVextPermissionPlugin()`，认证先于权限中间件；tenant 场景启用 `tenantRequired`，并保持 `guardRoutePermissions` 消费 route `auth.permissions`。
+
+维护者在声明接入可用前应执行 `npm run test:docs`、`npm run example:all` 与 `npm run test:package`。
+
 ## 还不确定先看哪一页？
 
 你可以直接按下面这个顺序继续：

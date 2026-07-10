@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import coverageThresholds from "./scripts/coverage-thresholds.json";
 
 export default defineConfig({
     test: {
@@ -9,7 +10,12 @@ export default defineConfig({
             provider: "v8",
             all: true,
             include: ["src/**/*.ts"],
-            reporter: ["text", "json-summary", "html"]
+            reporter: ["text", "json-summary", "html"],
+            thresholds: {
+                ...coverageThresholds.global,
+                ...Object.fromEntries(Object.entries(coverageThresholds.groups)
+                    .map(([prefix, values]) => [`${prefix}**`, values])),
+            },
         }
     }
 });

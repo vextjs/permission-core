@@ -16,6 +16,9 @@ npm install
 npm run example:http
 npm run example:db
 npm run example:complete
+npm run example:menu
+npm run example:multi-tenant
+npm run example:vext
 ```
 
 一次性跑完全部示例：
@@ -31,6 +34,9 @@ npm run example:all
 - `http-only.mjs`：最小接口权限闭环
 - `db-only.mjs`：集合权限 + 行级范围 + 字段过滤
 - `complete-flow.mjs`：把接口权限、数据权限、角色继承、缓存和管理 API 串成一段完整流程
+- `menu-permissions.mjs`：菜单、页面、按钮和一个按钮多个接口的权限闭环
+- `multi-tenant.mjs`：同一个 `userId` 在不同 tenant 下的角色和规则隔离
+- `vext-adapter/index.mjs`：真实 Vext TestApp 上的 `req.auth.can/assert`、原生 route guard、200/403 与 route manifest normalize
 
 ## 为什么完整示例仍然使用 MemoryAdapter
 

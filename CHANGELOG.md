@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - Unreleased
+
+### Added
+
+- Added scoped multi-tenant permission APIs, tenant-aware storage/cache semantics, `permission-core/menu`, and `permission-core/adapters/vext`.
+- Added menu permissions, multi-tenant, and vext adapter examples and documentation pages.
+- Added persistent File and MonSQLize menu storage, manifest replacement and audit diffs, versioned menu snapshots, resource and manifest extension registries, and real Vext route guard integration.
+- Added enforced global and high-risk module coverage thresholds plus tarball consumer verification requirements.
+
+---
+
 ## Version History
 
 | Version | Date | Type | Key Theme |
@@ -31,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [Detailed Changelogs](./changelogs/)
 
 [1.0.10]: https://github.com/vextjs/permission-core/compare/v1.0.9...v1.0.10
+[1.1.0]: https://github.com/vextjs/permission-core/compare/v1.0.10...HEAD
 [1.0.6]: https://github.com/vextjs/permission-core/compare/v1.0.5...v1.0.6
 [1.0.7]: https://github.com/vextjs/permission-core/compare/v1.0.6...v1.0.7
 [1.0.8]: https://github.com/vextjs/permission-core/compare/v1.0.7...v1.0.8

@@ -67,6 +67,12 @@ new FileAdapter(options?: FileAdapterOptions)
 - 高并发写入场景
 - 需要数据库级索引、审计或并发控制的生产环境
 
+## 写盘一致性与菜单边界
+
+FileAdapter 使用 schema-versioned JSON 和 atomic 原子替换，写入会串行化；`close()` 会等待 pending write。一次写盘失败后，后续读写继续返回 `STORAGE_ERROR`，避免把未持久化内存状态伪装成成功。
+
+它原生按 scope 分区，但仍只适合一个进程/写者。菜单资产使用独立的 `FileMenuStorageAdapter`，核心文件不会自动保存 menu node、API binding、revision 或 audit。
+
 ## 更适合从哪里继续看
 
 - 如果你只需要最轻验证：继续看 [MemoryAdapter](/zh/api/memory-adapter)

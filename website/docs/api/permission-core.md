@@ -33,6 +33,8 @@ new PermissionCore(options?: PermissionCoreOptions)
 | `storage` | Storage implementation for roles, rules, and user bindings |
 | `cache` | cache-hub compatible cache instance or cache config |
 | `strict` | Strict mode; deny rules take priority over allow rules |
+| `defaultScope` | Scope used by legacy `userId` APIs and root managers |
+| `resourceSchemes` | Custom resource validators and matchers registered at startup |
 
 ## API overview
 
@@ -56,6 +58,9 @@ new PermissionCore(options?: PermissionCoreOptions)
 | `invalidateAll()` | `Promise<void>` | Clear all permission-core rule cache entries |
 | `roles` | `RoleManager` | Role and rule management |
 | `users` | `UserRoleManager` | User-role bindings |
+| `canSubject()` / `assertSubject()` | subject-aware result | Exact-scope authorization |
+| `scope(scope)` | `PermissionCoreScopeContext` | Scope-bound roles, users, and checks |
+| `resourceSchemes` | `ResourceSchemeRegistry` | Shared custom resource registry |
 
 ## Integration paths
 
@@ -70,3 +75,49 @@ new PermissionCore(options?: PermissionCoreOptions)
 - Request-side `write` means `create && update`.
 - Row permissions and field filtering are separate layers.
 - `context` provides variables for rules, but does not override the API-level `userId`.
+
+## Decision and assertion results
+
+```typescript
+const allowed = await pc.can(userId, 'invoke', 'GET:/api/orders');
+const denied = await pc.cannot(userId, 'invoke', 'POST:/api/payouts');
+
+try {
+  await pc.assert(userId, 'invoke', 'POST:/api/payouts');
+} catch (error) {
+  // PermissionCoreError with code PERMISSION_DENIED
+}
+```
+
+`getPermissions()` returns the effective merged rule objects, including deny and row conditions. `getResources(action?)` returns visible allow resource strings after strict deny filtering and is suitable for UI hints, not final authorization.
+
+## Row and field results
+
+```typescript
+const scope = await pc.getRowScope(userId, 'read', 'db:orders', { merchantId });
+const oneAllowed = await pc.canRow(userId, 'read', 'db:orders', order, { merchantId });
+const visibleRows = await pc.filterRows(userId, 'read', 'db:orders', orders, { merchantId });
+const visibleFields = await pc.filterFields(userId, 'read', 'db:orders', order);
+```
+
+Row scope and field filtering are independent. Apply the row scope to the database query when datasets are large, then use `canRow()`/`filterRows()` as a final check. Field filtering only handles top-level fields in v1.
+
+## Scoped and subject APIs
+
+```typescript
+const scope = { tenantId: 'tenant-a', appId: 'admin' };
+const subject = { ...scope, userId: 'u-1' };
+const tenant = pc.scope(scope);
+
+await tenant.roles.create('operator', { label: 'Operator' });
+await tenant.users.assign(subject.userId, 'operator');
+await pc.assertSubject(subject, 'invoke', 'api:GET:/api/orders');
+await pc.invalidateSubject(subject);
+await pc.invalidateScope(scope);
+```
+
+Missing tenants and subject/bound-scope conflicts fail with `INVALID_ARGUMENT`. See [Scoped Permissions API](/api/scoped-permissions) for the full contract.
+
+## Cache and lifecycle
+
+`invalidate(userId)` removes one default-scope user result. `invalidateAll()` removes permission-core rule-cache keys without clearing unrelated entries from a shared cache-hub instance. `close()` closes the storage and the internally created cache; after close, public calls fail with `NOT_INITIALIZED` until `init()` runs again.

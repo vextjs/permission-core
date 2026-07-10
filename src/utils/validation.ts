@@ -12,8 +12,11 @@ const VALID_ACTIONS = new Set([
     "update",
     "delete",
     "write",
+    "manage",
     "*",
 ]);
+
+const VALID_UI_RESOURCE_TYPES = new Set(["menu", "page", "button"]);
 
 // RowCondition DSL 当前支持的全部操作符。
 const VALID_OPERATORS = new Set([
@@ -82,6 +85,43 @@ export function assertValidResource(resource: string) {
             throw new PermissionCoreError(
                 PermissionCoreErrorCode.INVALID_RESOURCE_PATH,
                 `Invalid db resource '${resource}'`,
+            );
+        }
+
+        return;
+    }
+
+    if (resource.startsWith("ui:")) {
+        const parts = resource.split(":");
+        const resourceType = parts[1];
+        const id = parts.slice(2).join(":");
+        const isValidUiResource =
+            parts.length >= 3 &&
+            VALID_UI_RESOURCE_TYPES.has(resourceType) &&
+            id.length > 0 &&
+            !id.includes("?") &&
+            !id.includes("|");
+
+        if (!isValidUiResource) {
+            throw new PermissionCoreError(
+                PermissionCoreErrorCode.INVALID_RESOURCE_PATH,
+                `Invalid ui resource '${resource}'`,
+            );
+        }
+
+        return;
+    }
+
+    if (resource.startsWith("api:")) {
+        const rest = resource.slice("api:".length);
+        const separatorIndex = rest.indexOf(":");
+        const method = separatorIndex > 0 ? rest.slice(0, separatorIndex) : "";
+        const path = separatorIndex > 0 ? rest.slice(separatorIndex + 1) : "";
+
+        if (!/^[A-Z*]+$/.test(method) || (path !== "*" && !path.startsWith("/")) || path.includes("?")) {
+            throw new PermissionCoreError(
+                PermissionCoreErrorCode.INVALID_RESOURCE_PATH,
+                `Invalid api resource '${resource}'`,
             );
         }
 

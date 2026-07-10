@@ -25,4 +25,17 @@ describe("matchResource", () => {
         expect(matchResource("*", "db:orders:status")).toBe(true);
         expect(matchResource("*", "POST:/api/orders")).toBe(true);
     });
+
+    it("matches API and UI resources within their own schemes", () => {
+        expect(matchResource("api:*:/api/users", "api:GET:/api/users")).toBe(true);
+        expect(matchResource("api:GET:/api/users/:id", "api:GET:/api/users/42")).toBe(true);
+        expect(matchResource("ui:menu:*", "ui:menu:system.user")).toBe(true);
+        expect(matchResource("ui:*", "ui:button:system.user.create")).toBe(true);
+    });
+
+    it("does not match resources across schemes", () => {
+        expect(matchResource("api:*:/api/users", "GET:/api/users")).toBe(false);
+        expect(matchResource("ui:*", "api:GET:/api/users")).toBe(false);
+        expect(matchResource("db:*", "ui:menu:orders")).toBe(false);
+    });
 });

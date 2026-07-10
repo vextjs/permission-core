@@ -40,6 +40,7 @@ describe("validation utils", () => {
     it("accepts supported actions and rejects unsupported ones", () => {
         expect(() => assertValidAction("invoke")).not.toThrow();
         expect(() => assertValidAction("write")).not.toThrow();
+        expect(() => assertValidAction("manage")).not.toThrow();
         expect(() => assertValidAction("*")).not.toThrow();
         expectPermissionError(() => assertValidAction("publish"), PermissionCoreErrorCode.INVALID_ACTION);
     });
@@ -50,10 +51,19 @@ describe("validation utils", () => {
         expect(() => assertValidResource("*:/api/orders/*")).not.toThrow();
         expect(() => assertValidResource("db:orders")).not.toThrow();
         expect(() => assertValidResource("db:orders:status")).not.toThrow();
+        expect(() => assertValidResource("ui:menu:system.user")).not.toThrow();
+        expect(() => assertValidResource("ui:page:system.user.list")).not.toThrow();
+        expect(() => assertValidResource("ui:button:system.user.delete")).not.toThrow();
+        expect(() => assertValidResource("api:GET:/api/users/:id")).not.toThrow();
+        expect(() => assertValidResource("api:*:/api/users")).not.toThrow();
 
         expectPermissionError(() => assertValidResource("db:"), PermissionCoreErrorCode.INVALID_RESOURCE_PATH);
         expectPermissionError(() => assertValidResource("db:orders::status"), PermissionCoreErrorCode.INVALID_RESOURCE_PATH);
         expectPermissionError(() => assertValidResource("db:orders:status:extra"), PermissionCoreErrorCode.INVALID_RESOURCE_PATH);
+        expectPermissionError(() => assertValidResource("ui:tab:system.user"), PermissionCoreErrorCode.INVALID_RESOURCE_PATH);
+        expectPermissionError(() => assertValidResource("ui:menu:"), PermissionCoreErrorCode.INVALID_RESOURCE_PATH);
+        expectPermissionError(() => assertValidResource("api:get:/api/users"), PermissionCoreErrorCode.INVALID_RESOURCE_PATH);
+        expectPermissionError(() => assertValidResource("api:GET:/api/users?debug=true"), PermissionCoreErrorCode.INVALID_RESOURCE_PATH);
         expectPermissionError(() => assertValidResource("orders"), PermissionCoreErrorCode.INVALID_RESOURCE_PATH);
         expectPermissionError(() => assertValidResource("get:/api/orders"), PermissionCoreErrorCode.INVALID_RESOURCE_PATH);
         expectPermissionError(() => assertValidResource("GET:api/orders"), PermissionCoreErrorCode.INVALID_RESOURCE_PATH);

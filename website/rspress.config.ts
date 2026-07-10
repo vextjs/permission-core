@@ -67,8 +67,8 @@ const navSource: LocalizedNavItem[] = [
         activeMatch: "/examples/",
     },
     {
-        en: "v1.0.10",
-        zh: "v1.0.10",
+        en: "v1.1.0 Unreleased",
+        zh: "v1.1.0 未发布",
         items: [
             {
                 en: "GitHub",
@@ -102,6 +102,8 @@ const sidebarSource: Record<"guide" | "api" | "examples", SidebarGroup[]> = {
             zh: "核心概念",
             items: [
                 { en: "Resource Paths", zh: "资源路径模型", link: "/guide/resource-paths" },
+                { en: "Menu Permissions", zh: "菜单权限", link: "/guide/menu-permissions" },
+                { en: "Multi-tenant Permissions", zh: "多租户权限", link: "/guide/multi-tenant" },
                 { en: "Roles and Rules", zh: "角色与规则", link: "/guide/roles-and-rules" },
                 { en: "Permission Checks", zh: "权限鉴权", link: "/guide/check-permission" },
                 { en: "Row-level Permissions", zh: "行级权限", link: "/guide/row-level" },
@@ -110,10 +112,11 @@ const sidebarSource: Record<"guide" | "api" | "examples", SidebarGroup[]> = {
             ],
         },
         {
-            en: "Advanced",
-            zh: "进阶",
+            en: "Integration & Production",
+            zh: "集成与生产",
             items: [
                 { en: "Framework Integration", zh: "框架接入", link: "/guide/framework-integration" },
+                { en: "vext Adapter", zh: "vext 适配器", link: "/guide/vext-adapter" },
                 { en: "Management Console", zh: "管理后台接入", link: "/guide/site-preview-release" },
                 { en: "Production Deployment", zh: "生产部署与监控", link: "/guide/production-deployment" },
                 { en: "Compatibility Matrix", zh: "兼容性矩阵", link: "/guide/compatibility-matrix" },
@@ -130,6 +133,9 @@ const sidebarSource: Record<"guide" | "api" | "examples", SidebarGroup[]> = {
             zh: "API 参考",
             items: [
                 { en: "PermissionCore", zh: "PermissionCore", link: "/api/permission-core" },
+                { en: "Scoped Permissions", zh: "Scoped Permissions", link: "/api/scoped-permissions" },
+                { en: "Menu Module", zh: "Menu Module", link: "/api/menu" },
+                { en: "vext Adapter", zh: "vext Adapter", link: "/api/vext-adapter" },
                 { en: "PermissionCoreContext", zh: "PermissionCoreContext", link: "/api/context" },
                 { en: "PermissionCache", zh: "PermissionCache", link: "/api/permission-cache" },
                 { en: "RoleManager", zh: "RoleManager", link: "/api/role-manager" },

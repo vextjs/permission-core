@@ -1,7 +1,7 @@
-import type MonSQLize from "monsqlize";
-
 import { PermissionCoreError } from "../core/errors";
-import { PermissionCoreErrorCode, type PermissionRule, type RoleData } from "../types";
+import { PermissionCoreErrorCode, type PermissionRule, type PermissionScope, type RoleData } from "../types";
+import { DEFAULT_PERMISSION_SCOPE, getPermissionScopeKey, normalizePermissionScope } from "../scope/scope";
+import type { ScopedStorageAdapter } from "../scope/scoped-storage";
 
 import { StorageAdapter } from "./adapter";
 
@@ -24,32 +24,46 @@ interface MonSQLizeWithCollections {
     close?(): Promise<void>;
 }
 
+/** permission-core 对 MonSQLize 实例要求的公开最小结构。 */
+export interface MonSQLizeCollectionSource {
+    collection(name: string): unknown;
+    close?(): Promise<void>;
+}
+
 /**
  * MonSQLizeStorageAdapter 构造参数。
  */
 export interface MonSQLizeStorageAdapterOptions {
     /** 已初始化的 MonSQLize 实例。 */
-    msq: MonSQLize;
+    msq: MonSQLizeCollectionSource;
     /** collection 命名空间前缀。 */
     namespace?: string;
     /** 关闭适配器时是否顺带关闭连接。 */
     ownsConnection?: boolean;
 }
 
+interface ScopeDocumentFields {
+    scopeKey: string;
+    tenantId: string;
+    appId?: string;
+    moduleId?: string;
+    namespace?: string;
+}
+
 /** 角色文档结构。 */
-interface RoleDocument extends RoleData {
+interface RoleDocument extends RoleData, ScopeDocumentFields {
     _id: string;
 }
 
 /** 用户角色绑定文档结构。 */
-interface UserRolesDocument {
+interface UserRolesDocument extends ScopeDocumentFields {
     _id: string;
     userId: string;
     roleIds: string[];
 }
 
 /** 角色规则文档结构。 */
-interface RulesDocument {
+interface RulesDocument extends ScopeDocumentFields {
     _id: string;
     roleId: string;
     rules: PermissionRule[];
@@ -58,7 +72,7 @@ interface RulesDocument {
 /**
  * 基于 MonSQLize 的官方持久化适配器。
  */
-export class MonSQLizeStorageAdapter extends StorageAdapter {
+export class MonSQLizeStorageAdapter extends StorageAdapter implements ScopedStorageAdapter {
     private readonly msq: MonSQLizeWithCollections;
     private readonly namespace: string;
     private readonly ownsConnection: boolean;
@@ -89,9 +103,12 @@ export class MonSQLizeStorageAdapter extends StorageAdapter {
 
             await Promise.all([
                 this.rolesCollection.createIndex({ _id: 1 }, { unique: true }),
+                this.rolesCollection.createIndex({ scopeKey: 1, id: 1 }, { unique: true }),
                 this.userRolesCollection.createIndex({ _id: 1 }, { unique: true }),
-                this.userRolesCollection.createIndex({ roleIds: 1 }),
+                this.userRolesCollection.createIndex({ scopeKey: 1, userId: 1 }, { unique: true }),
+                this.userRolesCollection.createIndex({ scopeKey: 1, roleIds: 1 }),
                 this.rulesCollection.createIndex({ _id: 1 }, { unique: true }),
+                this.rulesCollection.createIndex({ scopeKey: 1, roleId: 1 }, { unique: true }),
             ]);
         } catch (error) {
             throw new PermissionCoreError(
@@ -122,26 +139,42 @@ export class MonSQLizeStorageAdapter extends StorageAdapter {
 
     /** 获取全部角色。 */
     async getRoles(): Promise<Map<string, RoleData>> {
+        return this.getScopedRoles(DEFAULT_PERMISSION_SCOPE);
+    }
+
+    /** 获取 scope 内全部角色。 */
+    async getScopedRoles(scope: PermissionScope): Promise<Map<string, RoleData>> {
         return this.withStorageError("get roles", async () => {
-            const docs = await this.rolesCollection.find({});
-            return new Map(docs.map((doc) => [doc._id, this.stripId(doc)]));
+            const docs = await this.rolesCollection.find({ scopeKey: getPermissionScopeKey(scope) });
+            return new Map(docs.map((doc) => [doc.id, this.stripRoleDocument(doc)]));
         });
     }
 
     /** 获取单个角色。 */
     async getRole(id: string): Promise<RoleData | null> {
+        return this.getScopedRole(DEFAULT_PERMISSION_SCOPE, id);
+    }
+
+    /** 获取 scope 内单个角色。 */
+    async getScopedRole(scope: PermissionScope, id: string): Promise<RoleData | null> {
         return this.withStorageError(`get role '${id}'`, async () => {
-            const doc = await this.rolesCollection.findOne({ _id: id });
-            return doc ? this.stripId(doc) : null;
+            const doc = await this.rolesCollection.findOne({ _id: this.getDocumentId(scope, id) });
+            return doc ? this.stripRoleDocument(doc) : null;
         });
     }
 
     /** 写入角色。 */
     async setRole(id: string, roleData: RoleData): Promise<void> {
+        await this.setScopedRole(DEFAULT_PERMISSION_SCOPE, id, roleData);
+    }
+
+    /** 写入 scope 内角色。 */
+    async setScopedRole(scope: PermissionScope, id: string, roleData: RoleData): Promise<void> {
         await this.withStorageError(`set role '${id}'`, async () => {
+            const documentId = this.getDocumentId(scope, id);
             await this.rolesCollection.replaceOne(
-                { _id: id },
-                { _id: id, ...structuredClone(roleData) },
+                { _id: documentId },
+                { _id: documentId, ...this.getScopeFields(scope), ...structuredClone(roleData) },
                 { upsert: true },
             );
         });
@@ -149,25 +182,41 @@ export class MonSQLizeStorageAdapter extends StorageAdapter {
 
     /** 删除角色。 */
     async deleteRole(id: string): Promise<void> {
+        await this.deleteScopedRole(DEFAULT_PERMISSION_SCOPE, id);
+    }
+
+    /** 删除 scope 内角色。 */
+    async deleteScopedRole(scope: PermissionScope, id: string): Promise<void> {
         await this.withStorageError(`delete role '${id}'`, async () => {
-            await this.rolesCollection.deleteOne({ _id: id });
+            await this.rolesCollection.deleteOne({ _id: this.getDocumentId(scope, id) });
         });
     }
 
     /** 获取某个用户绑定的角色列表。 */
     async getUserRoles(userId: string): Promise<string[]> {
+        return this.getScopedUserRoles(DEFAULT_PERMISSION_SCOPE, userId);
+    }
+
+    /** 获取 scope 内某个用户绑定的角色列表。 */
+    async getScopedUserRoles(scope: PermissionScope, userId: string): Promise<string[]> {
         return this.withStorageError(`get user roles '${userId}'`, async () => {
-            const doc = await this.userRolesCollection.findOne({ _id: userId });
+            const doc = await this.userRolesCollection.findOne({ _id: this.getDocumentId(scope, userId) });
             return structuredClone(doc?.roleIds ?? []);
         });
     }
 
     /** 覆盖写入某个用户的角色列表。 */
     async setUserRoles(userId: string, roleIds: string[]): Promise<void> {
+        await this.setScopedUserRoles(DEFAULT_PERMISSION_SCOPE, userId, roleIds);
+    }
+
+    /** 覆盖写入 scope 内某个用户的角色列表。 */
+    async setScopedUserRoles(scope: PermissionScope, userId: string, roleIds: string[]): Promise<void> {
         await this.withStorageError(`set user roles '${userId}'`, async () => {
+            const documentId = this.getDocumentId(scope, userId);
             await this.userRolesCollection.replaceOne(
-                { _id: userId },
-                { _id: userId, userId, roleIds: structuredClone(roleIds) },
+                { _id: documentId },
+                { _id: documentId, ...this.getScopeFields(scope), userId, roleIds: structuredClone(roleIds) },
                 { upsert: true },
             );
         });
@@ -175,26 +224,42 @@ export class MonSQLizeStorageAdapter extends StorageAdapter {
 
     /** 获取某个角色直接绑定的用户列表。 */
     async getUsersByRole(roleId: string): Promise<string[]> {
+        return this.getScopedUsersByRole(DEFAULT_PERMISSION_SCOPE, roleId);
+    }
+
+    /** 获取 scope 内某个角色直接绑定的用户列表。 */
+    async getScopedUsersByRole(scope: PermissionScope, roleId: string): Promise<string[]> {
         return this.withStorageError(`get users by role '${roleId}'`, async () => {
-            const docs = await this.userRolesCollection.find({ roleIds: roleId });
+            const docs = await this.userRolesCollection.find({ scopeKey: getPermissionScopeKey(scope), roleIds: roleId });
             return docs.map((doc) => doc.userId);
         });
     }
 
     /** 获取某个角色的规则集合。 */
     async getRules(roleId: string): Promise<PermissionRule[]> {
+        return this.getScopedRules(DEFAULT_PERMISSION_SCOPE, roleId);
+    }
+
+    /** 获取 scope 内某个角色的规则集合。 */
+    async getScopedRules(scope: PermissionScope, roleId: string): Promise<PermissionRule[]> {
         return this.withStorageError(`get rules '${roleId}'`, async () => {
-            const doc = await this.rulesCollection.findOne({ _id: roleId });
+            const doc = await this.rulesCollection.findOne({ _id: this.getDocumentId(scope, roleId) });
             return structuredClone(doc?.rules ?? []);
         });
     }
 
     /** 覆盖写入某个角色的规则集合。 */
     async setRules(roleId: string, rules: PermissionRule[]): Promise<void> {
+        await this.setScopedRules(DEFAULT_PERMISSION_SCOPE, roleId, rules);
+    }
+
+    /** 覆盖写入 scope 内某个角色的规则集合。 */
+    async setScopedRules(scope: PermissionScope, roleId: string, rules: PermissionRule[]): Promise<void> {
         await this.withStorageError(`set rules '${roleId}'`, async () => {
+            const documentId = this.getDocumentId(scope, roleId);
             await this.rulesCollection.replaceOne(
-                { _id: roleId },
-                { _id: roleId, roleId, rules: structuredClone(rules) },
+                { _id: documentId },
+                { _id: documentId, ...this.getScopeFields(scope), roleId, rules: structuredClone(rules) },
                 { upsert: true },
             );
         });
@@ -202,8 +267,13 @@ export class MonSQLizeStorageAdapter extends StorageAdapter {
 
     /** 删除某个角色的规则集合。 */
     async deleteRules(roleId: string): Promise<void> {
+        await this.deleteScopedRules(DEFAULT_PERMISSION_SCOPE, roleId);
+    }
+
+    /** 删除 scope 内某个角色的规则集合。 */
+    async deleteScopedRules(scope: PermissionScope, roleId: string): Promise<void> {
         await this.withStorageError(`delete rules '${roleId}'`, async () => {
-            await this.rulesCollection.deleteOne({ _id: roleId });
+            await this.rulesCollection.deleteOne({ _id: this.getDocumentId(scope, roleId) });
         });
     }
 
@@ -226,8 +296,31 @@ export class MonSQLizeStorageAdapter extends StorageAdapter {
     /**
      * 去掉数据库文档里的 `_id` 字段。
      */
-    private stripId<TDocument extends { _id: string }>(doc: TDocument): Omit<TDocument, "_id"> {
-        const { _id: _ignored, ...rest } = doc;
+    private stripRoleDocument(doc: RoleDocument): RoleData {
+        const {
+            _id: _ignored,
+            scopeKey: _scopeKey,
+            tenantId: _tenantId,
+            appId: _appId,
+            moduleId: _moduleId,
+            namespace: _namespace,
+            ...rest
+        } = doc;
         return structuredClone(rest);
+    }
+
+    private getDocumentId(scope: PermissionScope, id: string) {
+        return `${getPermissionScopeKey(scope)}::${id}`;
+    }
+
+    private getScopeFields(scope: PermissionScope): ScopeDocumentFields {
+        const normalized = normalizePermissionScope(scope);
+        return {
+            scopeKey: getPermissionScopeKey(normalized),
+            tenantId: normalized.tenantId,
+            ...(normalized.appId ? { appId: normalized.appId } : {}),
+            ...(normalized.moduleId ? { moduleId: normalized.moduleId } : {}),
+            ...(normalized.namespace ? { namespace: normalized.namespace } : {}),
+        };
     }
 }

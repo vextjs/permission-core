@@ -63,6 +63,21 @@ function createCacheLike(store = new Map<string, unknown>()) {
 }
 
 describe("PermissionCache additional branches", () => {
+    it("returns independent permission snapshots on cache hits", async () => {
+        const cache = new PermissionCache({ ttl: 60_000 });
+        await cache.set("user-snapshot", [
+            { type: "allow", action: "read", resource: "db:orders" },
+        ]);
+
+        const first = await cache.get("user-snapshot");
+        expect(first).not.toBeNull();
+        first![0].resource = "db:tampered";
+
+        await expect(cache.get("user-snapshot")).resolves.toEqual([
+            { type: "allow", action: "read", resource: "db:orders" },
+        ]);
+    });
+
     it("skips reads and writes when disabled but still forwards invalidation", async () => {
         const cacheLike = createCacheLike();
         const cache = new PermissionCache({ enabled: false, cache: cacheLike as never });
@@ -76,7 +91,7 @@ describe("PermissionCache additional branches", () => {
 
         expect(cacheLike.get).not.toHaveBeenCalled();
         expect(cacheLike.set).not.toHaveBeenCalled();
-        expect(cacheLike.del).toHaveBeenCalledWith("permission-core:rules:user-disabled");
+        expect(cacheLike.del).toHaveBeenCalledWith("permission-core:rules:tenant:default|app:-|module:-|ns:-:user-disabled");
         expect(cacheLike.delPattern).toHaveBeenCalledWith("permission-core:rules:*");
         expect(cacheLike.clear).not.toHaveBeenCalled();
     });
@@ -93,13 +108,13 @@ describe("PermissionCache additional branches", () => {
         ]);
         await cache.invalidateAll();
 
-        expect(store.has("permission-core:rules:user-shared")).toBe(false);
+        expect(store.has("permission-core:rules:tenant:default|app:-|module:-|ns:-:user-shared")).toBe(false);
         expect(store.has("monsqlize:query:orders")).toBe(true);
         expect(cacheLike.delPattern).toHaveBeenCalledWith("permission-core:rules:*");
         expect(cacheLike.clear).not.toHaveBeenCalled();
     });
 
-    it("falls back to clear for legacy cache objects without pattern deletion", async () => {
+    it("deletes known permission-core keys for legacy shared caches without pattern deletion", async () => {
         const legacyCache = {
             get: vi.fn(() => undefined),
             set: vi.fn(() => undefined),
@@ -108,9 +123,13 @@ describe("PermissionCache additional branches", () => {
         };
         const cache = new PermissionCache({ cache: legacyCache as never });
 
+        await cache.set("legacy-user", [
+            { type: "allow", action: "invoke", resource: "GET:/api/orders" },
+        ]);
         await cache.invalidateAll();
 
-        expect(legacyCache.clear).toHaveBeenCalledTimes(1);
+        expect(legacyCache.del).toHaveBeenCalledWith("permission-core:rules:tenant:default|app:-|module:-|ns:-:legacy-user");
+        expect(legacyCache.clear).not.toHaveBeenCalled();
     });
 
     it("destroys only caches owned by permission-core", async () => {

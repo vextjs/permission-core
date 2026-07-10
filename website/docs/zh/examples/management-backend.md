@@ -105,3 +105,19 @@ const permissions = await pc.getPermissions('user-001');
 - 想先理解角色规则和用户绑定的职责边界：看 [角色与规则](/zh/guide/roles-and-rules)
 - 想先理解后台保存语义和缓存失效：看 [管理后台接入](/zh/guide/site-preview-release)
 - 想核对管理 API 的完整签名和返回值：看 [RoleManager](/zh/api/role-manager) 和 [UserRoleManager](/zh/api/user-roles)
+
+## 菜单授权树与审计保存
+
+完整菜单后台应通过 `menu.getAuthorizationTree(scope, roleId)` 加载状态，并显示 `sourceRoleIds` 解释继承来源。保存使用：
+
+```typescript
+await menu.saveRoleAuthorization(scope, roleId, {
+  allow,
+  deny,
+  revoke,
+  actorId: request.user.id,
+  reason,
+});
+```
+
+后端应校验 revision，记录 diff/audit，并在存储或补偿失败时返回错误；不能只更新前端树后显示成功。

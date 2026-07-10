@@ -55,6 +55,12 @@ new MemoryAdapter()
 - 需要重启保留数据
 - 正式生产环境
 
+## scoped 与菜单边界
+
+`MemoryAdapter` 实现 scoped storage，role/rule/user binding 按完整 scope key 隔离；`init()` / `close()` 保持统一生命周期，但进程退出后全部丢失。
+
+菜单模块使用独立的 `MemoryMenuStorageAdapter`。两者都适合测试和可运行示例，不是生产持久化方案。
+
 ## 更适合从哪里继续看
 
 - 如果你要文件回退方案：继续看 [FileAdapter](/zh/api/file-adapter)

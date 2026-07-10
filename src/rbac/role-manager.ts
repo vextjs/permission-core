@@ -1,10 +1,12 @@
 import { PermissionCoreError } from "../core/errors";
 import { Resolver } from "../check/resolver";
-import { PermissionCoreErrorCode, type PermissionRule, type RoleChainEntry, type RoleCreateOptions, type RoleData, type RoleInspection, type RoleUpdateOptions, type RowRuleOptions } from "../types";
+import { PermissionCoreErrorCode, type PermissionRule, type PermissionScope, type RoleChainEntry, type RoleCreateOptions, type RoleData, type RoleInspection, type RoleUpdateOptions, type RowRuleOptions } from "../types";
 import { deduplicateRules, stableCondition } from "../utils";
-import { assertNonEmptyString, assertValidAction, assertValidResource, assertValidWhereCondition } from "../utils/validation";
+import { assertNonEmptyString, assertValidAction, assertValidWhereCondition } from "../utils/validation";
 import type { PermissionCache } from "../cache";
 import type { StorageAdapter } from "../storage";
+import { DEFAULT_PERMISSION_SCOPE, normalizePermissionScope } from "../scope/scope";
+import { ResourceSchemeRegistry } from "../check/resource-schemes";
 
 /**
  * 归一化规则动作列表。
@@ -37,6 +39,7 @@ function sameWhere(left: PermissionRule["where"], right: PermissionRule["where"]
  */
 export class RoleManager {
     private readonly resolver = new Resolver();
+    private readonly scope: PermissionScope;
 
     /**
      * @param storage 存储适配器。
@@ -47,7 +50,11 @@ export class RoleManager {
         private readonly storage: StorageAdapter,
         private readonly cache: PermissionCache,
         private readonly ensureInitialized: () => void,
-    ) { }
+        scope: PermissionScope = DEFAULT_PERMISSION_SCOPE,
+        private readonly resourceSchemes = new ResourceSchemeRegistry(),
+    ) {
+        this.scope = normalizePermissionScope(scope);
+    }
 
     /**
      * 创建角色。
@@ -81,7 +88,7 @@ export class RoleManager {
         };
 
         await this.storage.setRole(id, roleData);
-        await this.cache.invalidateAll();
+        await this.invalidateScopeCache();
     }
 
     /**
@@ -106,7 +113,7 @@ export class RoleManager {
         };
 
         await this.storage.setRole(id, updatedRole);
-        await this.cache.invalidateAll();
+        await this.invalidateScopeCache();
     }
 
     /**
@@ -136,7 +143,7 @@ export class RoleManager {
 
         await this.storage.deleteRules(id);
         await this.storage.deleteRole(id);
-        await this.cache.invalidateAll();
+        await this.invalidateScopeCache();
     }
 
     /**
@@ -202,7 +209,7 @@ export class RoleManager {
     ): Promise<void> {
         this.ensureInitialized();
         await this.get(roleId);
-        assertValidResource(resource);
+        this.resourceSchemes.assertValid(resource);
         const normalizedActions = normalizeActions(actions);
         const nextRules = (await this.storage.getRules(roleId)).filter((rule) => {
             const actionMatches = normalizedActions.includes(rule.action);
@@ -211,7 +218,7 @@ export class RoleManager {
         });
 
         await this.storage.setRules(roleId, nextRules);
-        await this.cache.invalidateAll();
+        await this.invalidateScopeCache();
     }
 
     /**
@@ -221,7 +228,7 @@ export class RoleManager {
         this.ensureInitialized();
         await this.get(roleId);
         await this.storage.deleteRules(roleId);
-        await this.cache.invalidateAll();
+        await this.invalidateScopeCache();
     }
 
     /**
@@ -293,7 +300,7 @@ export class RoleManager {
         options: RowRuleOptions,
     ) {
         await this.get(roleId);
-        assertValidResource(resource);
+        this.resourceSchemes.assertValid(resource);
         if (options.where) {
             if (!resource.startsWith("db:")) {
                 throw new PermissionCoreError(
@@ -318,6 +325,15 @@ export class RoleManager {
         ]);
 
         await this.storage.setRules(roleId, nextRules);
+        await this.invalidateScopeCache();
+    }
+
+    private async invalidateScopeCache() {
+        if (typeof this.cache.invalidateScope === "function") {
+            await this.cache.invalidateScope(this.scope);
+            return;
+        }
+
         await this.cache.invalidateAll();
     }
 

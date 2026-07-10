@@ -12,6 +12,16 @@ await pc.roles.update('support', { label: 'Support Team' });
 const role = await pc.roles.get('support');
 ```
 
+```typescript
+create(id, options): Promise<void>
+update(id, options): Promise<void>
+delete(id): Promise<void>
+get(id): Promise<RoleData>
+list(): Promise<RoleData[]>
+```
+
+v1 supports one parent per role. Creation/update rejects missing parents and circular inheritance.
+
 ## Add rules
 
 ```typescript
@@ -38,6 +48,8 @@ await pc.roles.allow('merchant-auditor', 'read', 'db:transactions', {
 await pc.roles.revokeRule('support', 'invoke', 'GET:/api/refunds');
 await pc.roles.clearRules('support');
 ```
+
+`getRules(roleId)` returns only the role's own rules. Use `getEffectiveRules()` for the inherited result or `inspect()` when the consumer needs both.
 
 ## Rule API boundary
 
@@ -71,3 +83,31 @@ const inspection = await pc.roles.inspect('finance-admin');
 Treat identical `type + action + resource + where` as duplicate input before save. `allow` and `deny` can both exist for the same `action + resource`; runtime checks still apply deny-first semantics.
 
 Public `RoleManager` write methods already invalidate the relevant permission cache. Only plan manual `invalidateAll()` calls when you intentionally bypass `RoleManager`, write through a storage adapter directly, or synchronize rules from an external system.
+
+## Delete behavior
+
+`delete(id)` is intentionally heavier than a storage delete:
+
+- it rejects deletion while child roles still reference the role;
+- it removes the role from directly bound users;
+- it deletes the role's own rules and metadata;
+- it invalidates permission caches for the scope.
+
+This operation can touch many user bindings. Expose it as an audited management command with confirmation, not as an unprotected generic CRUD endpoint.
+
+## Return and error contract
+
+Write methods return `Promise<void>`. `get()` returns `ROLE_NOT_FOUND` for a missing role; duplicate create returns `ROLE_ALREADY_EXISTS`; invalid parent transitions return `CIRCULAR_INHERITANCE` or `INVALID_ARGUMENT`. Resource/action/row-rule validation runs before rule persistence.
+
+`inspect(roleId)` returns:
+
+```typescript
+{
+  role: RoleData;
+  ownRules: PermissionRule[];
+  effectiveRules: PermissionRule[];
+  roleChain: RoleChainEntry[];
+}
+```
+
+Use `sourceRoleIds` from the menu authorization tree when a UI must explain which inherited roles produced an allow/deny/conflict state.

@@ -67,3 +67,5 @@ await pc.assert('user-003', 'read', 'db:articles');
 - 初始化后忘记在应用关闭阶段调用 `await pc.close()`
 
 如果你还没决定自己是否需要完整标准栈，建议先回看 [快速开始](/zh/guide/quick-start)。
+
+启用菜单模块时，另配 `MonSQLizeMenuStorageAdapter` 和独立 namespace。共享同一个 msq 时只能有一个 `ownsConnection:true`，关闭顺序为 menu 后 core。备份、迁移和回滚必须同时覆盖核心 role/rule/user binding 与菜单 node/API binding/revision/audit。

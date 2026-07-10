@@ -336,6 +336,22 @@ const inspection = await pc.roles.inspect('editor');
 - 初始化脚本编写者
 - 规则模型维护者
 
+## 1.1.0 完整签名与授权树联动
+
+```typescript
+create(id, options): Promise<void>
+update(id, options): Promise<void>
+delete(id): Promise<void>
+get(id): Promise<RoleData>
+list(): Promise<RoleData[]>
+getEffectiveRules(id): Promise<PermissionRule[]>
+inspect(id): Promise<RoleInspection>
+```
+
+创建重复角色返回 `ROLE_ALREADY_EXISTS`，缺失角色返回 `ROLE_NOT_FOUND`，父链循环返回 `CIRCULAR_INHERITANCE`。删除有子角色的节点会返回 `INVALID_ARGUMENT`，而不是留下断裂继承链。
+
+菜单授权树中的 `sourceRoleIds` 用于解释有效 allow/deny/conflict 来自哪些角色；后台详情页应同时展示 `inspect()` 的 own/effective rules 和菜单树来源，不要把继承结果覆盖回角色自身规则。
+
 ## 常见误区
 
 - 以为 `getRules()` 会返回继承后的完整规则

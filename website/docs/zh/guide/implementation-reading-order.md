@@ -91,6 +91,14 @@
 - `write` 的请求侧语义
 - 缓存失效方式
 
+如果项目包含管理后台菜单、多租户或 Vext，再补完对应分支：
+
+- 菜单与一个操作多个接口：[菜单权限](/zh/guide/menu-permissions) → [Menu API](/zh/api/menu)
+- tenant/app 隔离：[多租户权限](/zh/guide/multi-tenant) → [Scoped API](/zh/api/scoped-permissions)
+- Vext 原生 route guard：[vext 适配器](/zh/guide/vext-adapter) → [vext API](/zh/api/vext-adapter)
+
+分别运行 `npm run example:menu`、`npm run example:multi-tenant`、`npm run example:vext`，不要只阅读片段。
+
 ## 三、按接入路径分别怎么进入
 
 ### `HTTP-only`
@@ -164,5 +172,7 @@
 1. [接入检查清单](/zh/guide/integration-checklist)
 2. [PermissionCore](/zh/api/permission-core)
 3. 你的目标框架或示例页
+
+上线前再执行 `npm run test:docs`，并确认菜单/core 两套生产存储、tenant 精确 scope、Vext `guardRoutePermissions` 与应用生命周期都已进入部署清单。
 
 这样你进入代码实现时，路径、资源、运行时入口和分层边界都会更稳。

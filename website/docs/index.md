@@ -2,7 +2,7 @@
 pageType: home
 
 hero:
-  badge: v1.0.10 payment authorization release
+  badge: v1.1.0 unreleased preview
   name: permission-core
   text: Authorization Core
   tagline: Payment-grade route, data, row, and field permissions for Node.js services.
@@ -39,6 +39,15 @@ features:
   - title: Row and Field Permissions
     details: Combine getRowScope, canRow, filterRows, and filterFields for service-layer data authorization.
     link: /guide/row-level
+  - title: Admin Menu and API Bindings
+    details: Model menus, pages, buttons, and multiple backend APIs per button, then inspect effective authorization trees and audit manifest revisions.
+    link: /guide/menu-permissions
+  - title: Real Tenant Isolation
+    details: Bind the same user ID independently per tenant and app with scoped storage, cache keys, and exact-scope subject checks.
+    link: /guide/multi-tenant
+  - title: Built-in vext Adapter
+    details: Attach req.auth.can/assert, consume native route permissions, enforce any/all groups, and manage lifecycle through the bundled adapter.
+    link: /guide/vext-adapter
 ---
 
 # permission-core
@@ -52,13 +61,16 @@ permission-core is a framework-neutral fine-grained authorization core for Node.
 - role inheritance and rule merging
 - permission cache invalidation
 
-The current repository has implemented the core runtime and passes `typecheck`, 66 tests, package build, runnable examples, and 100% statement / branch / function / line coverage.
+The current repository is preparing the unreleased `1.1.0` line. Its local gate covers `typecheck`, the complete test suite, package build, runnable examples, and enforced coverage floors of 92% statements, 89.5% branches, 95% functions, and 92% lines.
 
 ## Start with one path
 
 - Route permissions only: start with the [HTTP-only path](/guide/quick-start).
 - Data permissions only: start with the [DB-only path](/guide/quick-start).
 - Route + data + management APIs: start with the [full standard stack](/guide/quick-start).
+- Admin menus and one-button-to-many-API rules: follow [Menu Permissions](/guide/menu-permissions).
+- Tenant-isolated roles and rules: follow [Multi-tenant Permissions](/guide/multi-tenant).
+- A real vext host: follow the [vext Adapter](/guide/vext-adapter).
 
 If you are unsure which path fits, read the [FAQ](/guide/faq) before wiring a full production stack.
 
@@ -70,7 +82,7 @@ From the repository root:
 npm run example:all
 ```
 
-That command runs the HTTP-only, DB-only, and complete-flow examples against the built package output. After that, continue with [Quick Start](/guide/quick-start), [Resource Paths](/guide/resource-paths), and the [PermissionCore API](/api/permission-core).
+That command runs HTTP-only, DB-only, complete-flow, menu, multi-tenant, and real vext-host examples against the built package output. After that, continue with [Quick Start](/guide/quick-start), [Resource Paths](/guide/resource-paths), and the [PermissionCore API](/api/permission-core).
 
 ## How this site is organized
 

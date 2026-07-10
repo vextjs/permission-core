@@ -65,6 +65,12 @@
 - [FileAdapter](/zh/api/file-adapter)
 - [MonSQLizeStorageAdapter](/zh/api/monsqlize-storage-adapter)
 
+## Scoped 与菜单存储边界
+
+多租户生产实现应额外满足 `ScopedStorageAdapter`，使 role/rule/user binding 按完整 scope key 分区。旧的非 scoped adapter 只允许 `defaultScope`；其他 scope 会返回 `INVALID_ARGUMENT`，不会混存租户。
+
+`MenuPermissionStorageAdapter` 是另一套契约，负责 menu node、API binding、revision 和 audit。它不属于核心 `StorageAdapter`，生产备份和迁移必须同时覆盖两套 store。
+
 ## 更适合从哪里继续看
 
 - 如果你想先选现成适配器：继续看 [存储适配器](/zh/guide/adapters)

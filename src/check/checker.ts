@@ -2,16 +2,19 @@ import { PermissionCoreError } from "../core/errors";
 import {
     PermissionCoreErrorCode,
     type PermissionRule,
+    type PermissionScope,
     type RowCondition,
     type RowScope,
 } from "../types";
+import { DEFAULT_PERMISSION_SCOPE, normalizePermissionScope } from "../scope/scope";
 import { combineAnyConditions, evaluateRowCondition } from "../utils";
-import { assertDbResource, assertNonEmptyString, assertValidAction, assertValidResource, isPlainObject } from "../utils/validation";
+import { assertDbResource, assertNonEmptyString, assertValidAction, isPlainObject } from "../utils/validation";
 import type { PermissionCache } from "../cache";
 import type { StorageAdapter } from "../storage";
 
+import { ResourceSchemeRegistry } from "./resource-schemes";
 import { Resolver } from "./resolver";
-import { matchAction, matchResource, matchRule } from "./wildcard";
+import { matchAction } from "./wildcard";
 
 /**
  * 归一化行级权限求值上下文。
@@ -36,6 +39,7 @@ function buildEvaluationContext(
  */
 export class Checker {
     private readonly resolver = new Resolver();
+    private readonly scope: PermissionScope;
 
     /**
      * @param storage 规则与角色存储。
@@ -46,7 +50,11 @@ export class Checker {
         private readonly storage: StorageAdapter,
         private readonly cache: PermissionCache,
         private readonly strict: boolean,
-    ) { }
+        scope: PermissionScope = DEFAULT_PERMISSION_SCOPE,
+        private readonly resourceSchemes = new ResourceSchemeRegistry(),
+    ) {
+        this.scope = normalizePermissionScope(scope);
+    }
 
     /**
      * 判断用户是否拥有指定资源权限。
@@ -54,7 +62,7 @@ export class Checker {
     async can(userId: string, action: string, resource: string): Promise<boolean> {
         assertNonEmptyString(userId, "userId");
         assertValidAction(action);
-        assertValidResource(resource);
+        this.resourceSchemes.assertValid(resource);
 
         // 请求侧 write 必须同时满足 create 和 update，两者缺一不可。
         if (action === "write") {
@@ -117,7 +125,7 @@ export class Checker {
             // strict 模式下如果 deny 已经覆盖该资源，就不要再把它暴露给菜单/按钮层。
             const coveredByDeny =
                 this.strict
-                && denyRules.some((denyRule) => matchResource(denyRule.resource, allowRule.resource));
+                && denyRules.some((denyRule) => this.resourceSchemes.match(denyRule.resource, allowRule.resource));
             if (!coveredByDeny) {
                 resources.add(allowRule.resource);
             }
@@ -145,7 +153,7 @@ export class Checker {
             return { mode: "none" };
         }
 
-        const rules = (await this.getRules(userId)).filter((rule) => matchRule(rule, action, resource));
+        const rules = (await this.getRules(userId)).filter((rule) => this.matchesRule(rule, action, resource));
         if (rules.some((rule) => rule.type === "deny" && !rule.where)) {
             return { mode: "none" };
         }
@@ -306,7 +314,7 @@ export class Checker {
      */
     private async canSingle(userId: string, action: string, resource: string) {
         const rules = await this.getRules(userId);
-        const matchedRules = rules.filter((rule) => matchRule(rule, action, resource));
+        const matchedRules = rules.filter((rule) => this.matchesRule(rule, action, resource));
         const unconditionalRules = matchedRules.filter((rule) => !rule.where);
 
         if (this.strict) {
@@ -324,7 +332,7 @@ export class Checker {
 
         let result = false;
         for (const rule of unconditionalRules) {
-            if (matchRule(rule, action, resource)) {
+            if (this.matchesRule(rule, action, resource)) {
                 result = rule.type === "allow";
             }
         }
@@ -332,11 +340,15 @@ export class Checker {
         return result || matchedRules.some((rule) => rule.type === "allow");
     }
 
+    private matchesRule(rule: PermissionRule, action: string, resource: string) {
+        return matchAction(rule.action, action) && this.resourceSchemes.match(rule.resource, resource);
+    }
+
     /**
      * 获取用户合并后的规则，并在缓存 miss 时展开角色链后写回缓存。
      */
     private async getRules(userId: string): Promise<PermissionRule[]> {
-        const cachedRules = await this.cache.get(userId);
+        const cachedRules = await this.cache.get(userId, this.scope);
         if (cachedRules !== null) {
             return cachedRules;
         }
@@ -344,7 +356,7 @@ export class Checker {
         // 缓存 miss 时才展开角色链，避免每次鉴权都重复合并规则。
         const roleIds = await this.storage.getUserRoles(userId);
         const rules = await this.resolver.mergeRules(roleIds, this.storage, this.strict);
-        await this.cache.set(userId, rules);
+        await this.cache.set(userId, rules, this.scope);
         return rules;
     }
 }

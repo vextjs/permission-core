@@ -62,3 +62,5 @@ await pc.assert('user-001', 'invoke', 'GET:/api/articles');
 - [快速开始](/zh/guide/quick-start)
 - [Express 接入](/zh/examples/express)
 - [资源路径模型](/zh/guide/resource-paths)
+
+真实应用和仓库维护示例还必须在结束时执行 `await pc.close()`；这样从 Memory 切换到 File/MonSQLize 时，调用结构不需要重写。

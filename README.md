@@ -7,10 +7,10 @@ permission-core is a fine-grained authorization core for Node.js. It uses one `a
 ## Status
 
 - The full user documentation is published at [https://vextjs.github.io/permission-core](https://vextjs.github.io/permission-core).
-- The runtime has implemented the core engine, three storage adapters, RBAC managers, role inheritance, row-level checks, and field filtering.
+- The runtime has implemented the core engine, three storage adapters, RBAC managers, role inheritance, row-level checks, field filtering, scoped multi-tenant APIs, the optional `permission-core/menu` module, and the built-in `permission-core/adapters/vext` adapter.
 - Role management can inspect a role's own rules, effective inherited rules, and role chain.
-- The current implementation passes `typecheck`, 66 tests, package build, example smoke tests, and 100% statement / branch / function / line coverage.
-- The root `examples/` directory includes runnable `HTTP-only`, `DB-only`, and complete integration flows.
+- The current `1.1.0` worktree is unreleased. Its local gate covers type checking, the complete test suite, package build, example smoke tests, and enforced coverage floors of 92% statements, 89.5% branches, 95% functions, and 92% lines.
+- The root `examples/` directory includes runnable HTTP-only, DB-only, complete integration, menu permissions, multi-tenant, and vext adapter flows.
 - This README keeps the entry path short. Use the documentation site for the complete guide, API reference, and examples.
 
 ## Three Official Integration Paths
@@ -43,10 +43,46 @@ Use this path when you need route permissions, data permissions, row scopes, fie
 ## Unified Permission Model
 
 - Route resource: `<METHOD>:<path>`
+- API guard resource: `api:<METHOD>:<path>`
+- UI resource: `ui:menu:<id>`, `ui:page:<id>`, or `ui:button:<id>`
 - Data resource: `db:<collection>[:<field>]`
 - Route action: `invoke`
-- Data actions: `read`, `create`, `update`, `delete`, `write`, `*`
+- Data and management actions: `read`, `create`, `update`, `delete`, `write`, `manage`, `*`
 - Rule-side `write` grants `create + update`; request-side `write` requires both `create && update`.
+
+## Menu Permissions and Multi-tenancy
+
+Use `permission-core/menu` when an admin console needs menu trees, page routes, buttons, API bindings, authorization trees, manifest import, validation, and audit records.
+
+```ts
+import { PermissionCore } from "permission-core";
+import { createMenuPermission } from "permission-core/menu";
+
+const pc = new PermissionCore();
+await pc.init();
+
+const scope = { tenantId: "tenant-a", appId: "admin" };
+const menu = createMenuPermission({ core: pc, strictApiBindings: true });
+
+await pc.scope(scope).roles.create("admin", { label: "Admin" });
+await pc.scope(scope).roles.allow("admin", "read", "ui:menu:system.user");
+await pc.scope(scope).roles.allow("admin", "invoke", "api:GET:/api/users");
+await pc.scope(scope).users.assign("u-1", "admin");
+await pc.assertSubject(
+  { ...scope, userId: "u-1" },
+  "invoke",
+  "api:GET:/api/users",
+);
+
+await menu.close();
+await pc.close();
+```
+
+Menu and button visibility is an experience layer, not the final security boundary. Backend routes should still call `assertSubject()` or the vext adapter guard for `api:` resources.
+
+## vext Adapter
+
+Use `permission-core/adapters/vext` inside a vext app to attach permission-core to `req.auth.can/assert`, import route manifests, and expose `permissionCore` through a plugin-like object. The main package does not runtime import `vextjs`; `vextjs` is an optional peer for vext applications.
 
 ## Recommended Stack
 
@@ -71,7 +107,13 @@ For role detail pages, debugging panels, or integration diagnostics, use:
 - Production deployment: `website/docs/guide/production-deployment.md`
 - Compatibility matrix: `website/docs/guide/compatibility-matrix.md`
 - Resource paths: `website/docs/guide/resource-paths.md`
+- Menu permissions: `website/docs/guide/menu-permissions.md`
+- Multi-tenant permissions: `website/docs/guide/multi-tenant.md`
+- vext adapter: `website/docs/guide/vext-adapter.md`
 - API reference: `website/docs/api/permission-core.md`
+- Menu API: `website/docs/api/menu.md`
+- Scoped permissions API: `website/docs/api/scoped-permissions.md`
+- vext adapter API: `website/docs/api/vext-adapter.md`
 - Examples: `website/docs/examples/basic.md`
 - Runnable examples: `examples/README.md`
 - Chinese documentation: `website/docs/zh/**`
@@ -83,7 +125,8 @@ Recommended reading order:
 3. `website/docs/guide/resource-paths.md`
 4. `website/docs/guide/roles-and-rules.md`
 5. `website/docs/guide/check-permission.md`
-6. `website/docs/guide/integration-checklist.md`
+6. Choose `menu-permissions.md`, `multi-tenant.md`, or `vext-adapter.md` when that capability is part of your application.
+7. `website/docs/guide/integration-checklist.md`
 
 If you are ready to write integration code, continue with `website/docs/guide/implementation-reading-order.md`.
 
@@ -124,10 +167,14 @@ Or run them one by one:
 npm run example:http
 npm run example:db
 npm run example:complete
+npm run example:menu
+npm run example:multi-tenant
+npm run example:vext
 ```
 
 ## Current Boundary
 
 - Public docs cover integration paths, resource modeling, runtime APIs, management APIs, cache semantics, and common integration patterns.
+- Optional subpaths expose `permission-core/menu` and `permission-core/adapters/vext`; both are built and tested as public package exports.
 - Security, production deployment, and compatibility docs explain how to use the authorization core safely, but they do not replace your own authentication, secrets, logging, compliance, or audit controls.
 - For the most detailed API surface, continue with `website/docs/api/**` and `website/docs/examples/**`.

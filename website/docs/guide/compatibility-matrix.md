@@ -23,7 +23,7 @@ npm run example:all
 cd website && npm run build
 ```
 
-Current coverage is 100% for statements, branches, functions, and lines.
+The `1.1.0` unreleased gate enforces minimum coverage of 92% statements, 89.5% branches, 95% functions, and 92% lines. Module-specific floors also protect `menu`, `scope`, and `adapters/vext`.
 
 ## Storage support
 

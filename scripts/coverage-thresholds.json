@@ -1,0 +1,28 @@
+{
+    "global": {
+        "statements": 92,
+        "branches": 89.5,
+        "functions": 95,
+        "lines": 92
+    },
+    "groups": {
+        "src/adapters/vext/": {
+            "statements": 90,
+            "branches": 83,
+            "functions": 96,
+            "lines": 90
+        },
+        "src/menu/": {
+            "statements": 86.5,
+            "branches": 81.5,
+            "functions": 94,
+            "lines": 86.5
+        },
+        "src/scope/": {
+            "statements": 95,
+            "branches": 95,
+            "functions": 100,
+            "lines": 95
+        }
+    }
+}

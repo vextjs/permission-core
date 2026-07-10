@@ -91,10 +91,23 @@
 - [ ] 已确认漏洞提交流程和安全边界，知道哪些问题属于 [SECURITY.md](https://github.com/vextjs/permission-core/blob/main/SECURITY.md) 中声明的范围
 - [ ] 已确认上线后要监控哪些指标，例如权限拒绝率、缓存命中率、存储异常次数
 - [ ] 已确认规则变更、角色变更和用户绑定变更都有日志或审计线索
+- [ ] 启用菜单模块时已确认 core storage 与 menu storage 分开持久化、共享连接只有一个 owner
+- [ ] 已确认菜单 manifest 经过 `validate()`，revision、diff 和 audit 能用于回滚排查
+
+## 九、菜单、多租户与 Vext 检查
+
+- [ ] 菜单测试前已经创建角色、写入规则并通过 `users.assign()` 绑定用户
+- [ ] 已导入完整 directory/menu/page/button 与 API binding；一个操作多个接口时已明确 `permissionMode: "any" | "all"`
+- [ ] 敏感按钮启用 `strictApiBindings`，后端仍执行 `assertSubject()` 或等价 route guard
+- [ ] 每个租户请求都有非空 `tenantId`，subject 与 bound scope 不一致时 fail closed
+- [ ] 已用 tenant A 允许、tenant B 拒绝的反例证明真实隔离
+- [ ] Vext 认证先写入 `req.auth`，再运行 permission middleware
+- [ ] tenant 场景启用 `tenantRequired`，并保持 `guardRoutePermissions` 开启，除非已有另一条经过验证的同 metadata guard
+- [ ] `ownsCore`、`ownsMenu` 和 MonSQLize connection owner 与应用生命周期一致
 
 如果你已经准备上线，继续看 [生产部署与监控](/zh/guide/production-deployment)。
 
-## 九、开始写代码前最后再看一眼
+## 十、开始写代码前最后再看一眼
 
 如果下面四条你都能明确回答，通常就可以开始真正接入了：
 
@@ -111,3 +124,5 @@
 2. 再看 [常见问题](/zh/guide/faq)
 3. 然后按需要进入 [框架接入](/zh/guide/framework-integration) 或 [PermissionCore](/zh/api/permission-core)
 4. 真正写接入代码前，再回来看这份清单
+
+仓库维护者还应执行 `npm run test:docs`、`npm run example:all`、`npm run test:package` 和文档站构建。

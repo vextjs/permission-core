@@ -83,6 +83,12 @@ resources; // string[]
 - 上下文不负责身份鉴别，`userId` 的合法性仍由调用方保证
 - 上下文只保留“按当前用户做鉴权”的方法；`invalidate()`、`invalidateAll()`、`roles`、`users` 这些运行时/管理能力仍在主类实例上
 
+## Subject context 与错误
+
+租户场景使用 `pc.forSubject(subject)`；也可以在 `pc.scope(scope)` 返回的 context 中调用 `forSubject()`。subject 的 `tenantId/appId/moduleId/namespace` 必须与 bound scope 完全一致，不一致时返回 `INVALID_ARGUMENT`。
+
+`assert()` / `assertRow()` 被拒绝时返回 `PERMISSION_DENIED`。context 仍支持 `getRowScope()`、`filterRows()`、`filterFields()` 等方法，但传入的规则变量不能覆盖绑定 user 或 tenant 身份。
+
 ## 什么时候不需要它
 
 如果你只做一次简单判断，例如只在中间件里调用一次 `assert()`，直接用主类 API 会更直接。
