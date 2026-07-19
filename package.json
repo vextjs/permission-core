@@ -65,6 +65,7 @@
         "test:coverage": "vitest run --coverage && node ./scripts/check-coverage.mjs",
         "test:package": "node ./scripts/package-install-smoke.mjs",
         "test:docs": "node ./scripts/check-docs.mjs",
+        "test:docs:zh": "node ./scripts/check-docs.mjs --locale=zh",
         "test:docs:rendered": "node ./scripts/check-docs-rendered.mjs",
         "docs:first-success": "npm run build && node ./scripts/docs-first-success-smoke.mjs",
         "docs:assemble": "node ./scripts/assemble-docs-site.mjs",

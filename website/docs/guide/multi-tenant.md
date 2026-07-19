@@ -5,17 +5,21 @@ Tenant isolation is part of every authorization identity, not a filter added by 
 ## Relationship model
 
 ```mermaid
-erDiagram
-  TENANT ||--o{ SCOPE : contains
-  SCOPE ||--o{ ROLE : defines
-  SCOPE ||--o{ USER_ROLE_SET : owns
-  USER ||--o{ USER_ROLE_SET : has
-  USER_ROLE_SET }o--o{ ROLE : binds
-  ROLE ||--o{ RULE : grants_or_denies
-  ROLE ||--o{ MENU_GRANT : receives
-  SCOPE ||--o{ MENU_NODE : contains
-  MENU_NODE ||--o{ API_BINDING : owns
+flowchart TD
+  accTitle: Tenant, user, role, menu, and API relationships
+  accDescr: Each complete scope owns independent roles, user-role sets, rules, menu grants, menu nodes, and API bindings even when identifiers are reused in another tenant.
+  TENANT["Tenant"] -->|contains| SCOPE["Complete scope"]
+  SCOPE -->|defines| ROLE["Role"]
+  SCOPE -->|owns| USER_ROLE_SET["User-role set"]
+  USER["User"] -->|has| USER_ROLE_SET
+  USER_ROLE_SET -->|binds| ROLE
+  ROLE -->|grants or denies| RULE["Rule"]
+  ROLE -->|receives| MENU_GRANT["Menu grant"]
+  SCOPE -->|contains| MENU_NODE["Menu node"]
+  MENU_NODE -->|owns| API_BINDING["API binding"]
 ```
+
+<p className="pc-diagram-text" id="pc-diagram-tenant-relationship-en-text" data-diagram-id="tenant-relationship"><strong>Text equivalent.</strong> A tenant contains one or more complete scopes. Each scope independently owns roles, user-role sets, menu nodes, and their API bindings; users bind to roles through the user-role set, while roles own allow/deny rules and menu grants. Reusing a user ID or role ID in another scope does not share authorization state.</p>
 
 `tenantId` is required. `appId`, `moduleId`, and `namespace` are optional additional dimensions. A user is identified by `userId` plus the complete scope; a role ID has meaning only inside that same complete scope.
 

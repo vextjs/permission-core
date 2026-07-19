@@ -6,6 +6,8 @@
 
 ```mermaid
 flowchart TD
+  accTitle: 权限生命周期
+  accDescr: 宿主初始化存储，管理员提交带修订的权限状态，请求评估可信主体，关闭时先排空权限操作再关闭宿主数据库。
   A["宿主连接 MonSQLize 3.1"] --> B["PermissionCore.init"]
   B --> C["健康、索引、Schema 与事务探针"]
   C --> D["管理员进入租户 scope"]
@@ -25,6 +27,39 @@ flowchart TD
   P --> Q["PermissionCore.close 排空操作"]
   Q --> R["宿主关闭 MonSQLize"]
 ```
+
+<p className="pc-diagram-text" id="pc-diagram-permission-lifecycle-zh-text" data-diagram-id="permission-lifecycle"><strong>文字等价说明。</strong>宿主连接 MonSQLize 并初始化 PermissionCore。管理员先预览，再在事务中提交带修订的角色、规则、菜单、绑定、审计证据和缓存失效。每个已认证请求都会成为可信主体，基于稳定快照得到判定或授权操作。关闭时先排空 PermissionCore，再由宿主关闭 MonSQLize。</p>
+
+与流程图对应的最小代码顺序如下：
+
+```ts
+const pc = new PermissionCore({ monsqlize: msq, tokenSecret });
+const initialHealth = await pc.init();
+
+const scoped = pc.scope({ tenantId: 'acme' });
+await scoped.roles.create({ id: 'reader', label: 'Reader' });
+const ruleResult = await scoped.roles.allow('reader', {
+  action: 'read', resource: 'db:orders',
+});
+await scoped.userRoles.assign('u-1', 'reader');
+
+const subject = pc.forSubject({
+  userId: 'u-1', scope: { tenantId: 'acme' },
+});
+const allowed = await subject.can('read', 'db:orders');
+
+await pc.close();
+await msq.close();
+```
+
+| 调用 | 原始返回 | 生命周期作用 |
+|---|---|---|
+| `pc.init()` | `PermissionCoreHealth` | 从 new/initializing 进入 ready，失败则启动失败 |
+| `pc.scope()` / `forSubject()` | 同步 facade | 绑定管理 scope 或请求 subject，不写数据库 |
+| `roles.create/allow`、`userRoles.assign` | 各自 mutation envelope | 在事务中提交管理状态与审计证据 |
+| `subject.can()` | boolean | 从当前稳定授权状态做请求判定 |
+| `pc.close()` | `Promise<void>` | 停止新 lease 并排空权限操作；不关闭 msq |
+| `msq.close()` | MonSQLize 自身关闭结果 | 由宿主在 core 完成后关闭数据库 |
 
 ## 初始化
 
@@ -51,6 +86,8 @@ flowchart TD
   "warnings": { "total": 0, "items": [], "truncated": false }
 }
 ```
+
+这是上例 `ruleResult` 一类管理写入的原始 envelope 结构节选；领域结果仍位于 `ruleResult.data`。它不是 `can()`、`init()` 或 `close()` 的返回结构。
 
 `revision` 是便捷的聚合修订，`revisions` 标识受影响的域和实体。管理客户端必须使用读取或 preview 返回的 expected revision，正确处理 `REVISION_CONFLICT`，不能自行编造新的 expected 值。
 

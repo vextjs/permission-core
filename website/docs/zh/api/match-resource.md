@@ -14,6 +14,26 @@ matchResource(pattern: string, resource: string): boolean
 
 第一个参数是规则侧 pattern，第二个参数是具体请求 resource。颠倒顺序会改变语义。
 
+## 方法详解
+
+<span id="match-resource"></span>
+### `matchResource(pattern, resource)`
+
+<!-- docs:method name=matchResource locale=zh -->
+
+<!-- docs:params owner=matchResource locale=zh -->
+
+| 参数 | 必填 | 示例 | 语义 |
+|---|:---:|---|---|
+| `pattern` | 是 | `GET:/orders/:id` | 来自规则侧，可以包含该内置 scheme 允许的 wildcard/parameter。 |
+| `resource` | 是 | `GET:/orders/42` | 本次待匹配的具体资源；不能含 wildcard。 |
+
+- **用途**：配置校验器、管理 UI 预览或测试需要复用内置 matcher 时；真实授权判定不应绕过 core。
+- **参数**：按上表依次传规则侧 `pattern` 与本次具体 `resource`；顺序不可颠倒，具体资源不能含 wildcard。
+- **何时不用**：真实授权决策应调用 `can/assert`；自定义 resource scheme 应由已配置的 core 判定。
+- **状态影响**：同步纯函数，无 I/O、缓存、角色或审计副作用。
+- **原始返回**：`boolean`；无效格式、不同 scheme 或不匹配都返回 false，不抛领域错误。
+
 ## 响应与副作用
 
 该函数同步、纯粹，并且只返回 `true` 或 `false`。无效输入或 scheme 不同返回 `false`；它不抛错，也不修改调用者状态。
@@ -26,6 +46,8 @@ matchResource(pattern: string, resource: string): boolean
   "invalid": false
 }
 ```
+
+这是四次 `matchResource()` boolean 返回值组成的教程汇总，不是单次调用的对象响应。
 
 HTTP/API `*` 是尾部 segment wildcard，要求至少剩余一个 segment。`:param` 消费一个 segment。数据字段 pattern 支持精确路径、`profile.*` 和字段级 `*`。规则侧全局 `*` 匹配任意有效内置具体资源。
 
@@ -47,6 +69,8 @@ const result = {
 ```json
 { "exact": true, "subtree": true, "field": true, "tooShort": false }
 ```
+
+同样，这个对象由示例代码自行组装；每个属性值才是对应同步调用的原始 boolean。
 
 ## 相关内容
 

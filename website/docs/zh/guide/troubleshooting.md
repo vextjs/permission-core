@@ -2,6 +2,30 @@
 
 排查时先看错误 `code` 和 `details.kind`，不要依赖 message 文案。PermissionCore 错误是结构化的，还可能包含 `retryable`、`committed` 和 `operationId`。
 
+## 最小诊断顺序
+
+```ts
+const health = await pc.health();
+if (health.status !== 'up') {
+  logger.warn({ health }, 'permission core is not fully healthy');
+}
+
+const scoped = pc.scope({ tenantId: 'acme' });
+const directRoles = await scoped.userRoles.getDirect('u-1');
+const subject = pc.forSubject({
+  userId: 'u-1', scope: { tenantId: 'acme' },
+});
+const explanation = await subject.explain('invoke', 'GET:/api/orders');
+```
+
+| 变量 | 原始结构 | 首先查看 |
+|---|---|---|
+| `health` | `PermissionCoreHealth` | lifecycle/database/schema/cache/audit，而不只看 status |
+| `directRoles` | `VersionedResult<UserRoleBindingSet>` | `data.roleIds/status/revision`，确认角色确实直接绑定 |
+| `explanation` | `SubjectRuntimeResult<PermissionExplanation>` | `data.allowed/reason/evaluations` 与 `detailBudget.truncated` |
+
+这三个读取不会修复状态。先根据证据定位层级，再调用相应管理写入或部署恢复；不要在诊断代码中自动追加 allow。
+
 ## 安装与初始化
 
 | 现象 | 常见原因 | 恢复方式 |

@@ -6,6 +6,8 @@ Authorization is a lifecycle, not one `can()` call. The host establishes trusted
 
 ```mermaid
 flowchart TD
+  accTitle: Permission lifecycle
+  accDescr: The host initializes storage, administrators commit revisioned permission state, requests evaluate a trusted subject, and shutdown drains permission work before the host database closes.
   A["Host connects MonSQLize 3.1"] --> B["PermissionCore.init"]
   B --> C["Health, indexes, schema and transaction probes"]
   C --> D["Admin scopes a tenant"]
@@ -25,6 +27,8 @@ flowchart TD
   P --> Q["PermissionCore.close drains operations"]
   Q --> R["Host closes MonSQLize"]
 ```
+
+<p className="pc-diagram-text" id="pc-diagram-permission-lifecycle-en-text" data-diagram-id="permission-lifecycle"><strong>Text equivalent.</strong> The host connects MonSQLize and initializes PermissionCore. Administrators preview and transactionally commit revisioned roles, rules, menus, bindings, audit evidence, and cache invalidation. Each authenticated request becomes a trusted subject whose stable snapshot produces a decision or authorized operation. Shutdown first drains PermissionCore work, then the host closes MonSQLize.</p>
 
 ## Initialization
 

@@ -55,7 +55,21 @@ const page = await scoped.menus.create({
 }
 ```
 
+这是第二次 `menus.create()` 原始 `MutationResult<MenuNode>` 的节选；完整响应还含 `revisions/operationId/replayed/cache/warnings/detailBudget`。第一次创建 root 也会独立返回同结构响应。
+
+| 调用 | 参数说明 | 状态变化与下一步 |
+|---|---|---|
+| [`pc.scope(scope)`](/zh/api/core-and-contexts#core-scope) | 可信 `tenantId`，本例还带 `appId` | 同步创建管理 facade，不写数据库。 |
+| [`menus.create(input, options?)`](/zh/api/menus#menus-create) | `directory` 只需 id/type/title；`page` 还需 parentId/path/name/component/permission | 每次创建一个节点并返回其 revision；不会自动创建 API binding 或角色授权。 |
+
 管理页面可使用 `get(nodeId)`、游标式 `list(filter)` 或 `getTree({ rootId?, includeHidden? })`。这些方法返回包含停用和隐藏节点的管理状态，与 subject 运行时投影有意不同。
+
+| 读取方法 | 参数 | 原始返回 | 适合界面 |
+|---|---|---|---|
+| [`get(nodeId)`](/zh/api/menus#menus-get) | 节点 ID | `VersionedResult<MenuNode>` | 编辑单节点、取得 expectedRevision |
+| [`list(query?)`](/zh/api/menus#menus-list) | `parentId/type/status/hidden/search/first/after` | `PageResult<MenuNode>` | 可筛选的管理列表 |
+| [`getTree(options?)`](/zh/api/menus#menus-get-tree) | 可选 rootId/includeHidden | `VersionedResult<MenuTreeNode[]>` | 管理端完整嵌套树 |
+| [`subject.menus.getVisibleTree(options?)`](/zh/api/menus#subject-menus-get-visible-tree) | subject 已绑定身份 | `SubjectRuntimeResult<VisibleMenuTreeNode[]>` | 当前用户导航；不可用于编辑库存 |
 
 ## 更新元数据与结构
 
@@ -69,6 +83,8 @@ const updated = await scoped.menus.update(
   { expectedRevision: current.data.revision },
 );
 ```
+
+`get()` 的 `data.revision` 是单节点并发基线；`update()` 只接受 title/component/icon/hidden/i18nKey/meta 等非授权字段，返回更新后的原始 mutation envelope。`updated.data.revision` 可作为下一次简单更新的基线。
 
 路径、权限、数据模板等带来源字段的修改，必须先 `previewUpdate` 再 `executeUpdate`。预览会列出必须替换或撤销的全部角色来源。移动、排序、状态变更和删除在影响后代或角色授权时也采用相同 preview/execute 模式。
 
@@ -84,6 +100,8 @@ await scoped.menus.move(
 );
 ```
 
+`previewMove(input)` 只生成 `ImpactPreview<MenuMovePlan>`；它的 `executable`、`conflicts`、`expected` 和 `previewToken` 决定能否执行。`move(input, options)` 的 input 必须与预览完全相同，执行后返回移动后的 `MutationResult<MenuNode>`。
+
 出现 `REVISION_CONFLICT` 或 `PREVIEW_STALE` 时，管理界面必须重新加载当前状态，不能用旧预览操作已经变化的层级。
 
 ## 安全移除
@@ -95,9 +113,21 @@ const impact = await scoped.menus.getRemovalImpact('orders');
 const preview = await scoped.menus.previewRemove('orders', {
   cascade: true,
 });
+if (!preview.executable) throw new Error('Resolve dependencies first');
+const removed = await scoped.menus.remove(
+  'orders',
+  { cascade: true },
+  { ...preview.expected, previewToken: preview.previewToken },
+);
 ```
 
 影响结果会列出后代、接口绑定和角色来源。依赖或来源重写未解决时不能移除。`cascade: true` 会原子删除后代，但不会静默拆除无关角色规则。
+
+| 方法 | 原始返回 | 是否写入 |
+|---|---|---|
+| [`getRemovalImpact(nodeId)`](/zh/api/menus#menus-get-removal-impact) | `VersionedResult<MenuRemovalImpact>` | 否；快速清点依赖，不产生 token |
+| [`previewRemove(nodeId, input)`](/zh/api/menus#menus-preview-remove) | `ImpactPreview<MenuRemovalPlan>` | 否；展开 nodes、detachedApiBindings、sourceImpacts |
+| [`remove(nodeId, input, options)`](/zh/api/menus#menus-remove) | `MutationResult<BatchMutationSummary>` | 是；只有匹配预览才执行 |
 
 ## 导入和导出 manifest
 
@@ -126,6 +156,12 @@ if (preview.executable) {
 }
 const exported = await scoped.menus.manifest.export();
 ```
+
+| 方法 | 输入/输出 | 关键边界 |
+|---|---|---|
+| [`manifest.preview(manifest)`](/zh/api/menus#menus-manifest-preview) | 返回 node/binding 增删改及来源影响计划 | `replace` 会把未声明库存列为删除，必须先审查 |
+| [`manifest.import(manifest, options)`](/zh/api/menus#menus-manifest-import) | 返回 `MutationResult<BatchMutationSummary>` | manifest 和 token 必须来自同一次可执行预览 |
+| [`manifest.export()`](/zh/api/menus#menus-manifest-export) | 返回 `VersionedResult<FrontendMenuManifest>` | `exported.data` 才是 schemaVersion/nodes/apiBindings；大清单用 exportPage |
 
 `merge` 修改已声明 ID 并保留其他项；`replace` 让 manifest 成为该 scope 的权威清单。两种模式都有修订、审计、容量边界和来源完整性检查。
 

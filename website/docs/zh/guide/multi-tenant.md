@@ -5,17 +5,21 @@
 ## 关系模型
 
 ```mermaid
-erDiagram
-  TENANT ||--o{ SCOPE : contains
-  SCOPE ||--o{ ROLE : defines
-  SCOPE ||--o{ USER_ROLE_SET : owns
-  USER ||--o{ USER_ROLE_SET : has
-  USER_ROLE_SET }o--o{ ROLE : binds
-  ROLE ||--o{ RULE : grants_or_denies
-  ROLE ||--o{ MENU_GRANT : receives
-  SCOPE ||--o{ MENU_NODE : contains
-  MENU_NODE ||--o{ API_BINDING : owns
+flowchart TD
+  accTitle: 租户、用户、角色、菜单与接口关系
+  accDescr: 每个完整范围独立拥有角色、用户角色集合、规则、菜单授权、菜单节点和接口绑定，即使另一个租户复用了相同标识。
+  TENANT["租户"] -->|包含| SCOPE["完整 scope"]
+  SCOPE -->|定义| ROLE["角色"]
+  SCOPE -->|拥有| USER_ROLE_SET["用户角色集合"]
+  USER["用户"] -->|拥有| USER_ROLE_SET
+  USER_ROLE_SET -->|绑定| ROLE
+  ROLE -->|允许或拒绝| RULE["规则"]
+  ROLE -->|获得| MENU_GRANT["菜单授权"]
+  SCOPE -->|包含| MENU_NODE["菜单节点"]
+  MENU_NODE -->|拥有| API_BINDING["接口绑定"]
 ```
+
+<p className="pc-diagram-text" id="pc-diagram-tenant-relationship-zh-text" data-diagram-id="tenant-relationship"><strong>文字等价说明。</strong>一个租户包含一个或多个完整 scope。每个 scope 独立拥有角色、用户角色集合、菜单节点及其接口绑定；用户通过用户角色集合绑定角色，角色持有 allow/deny 规则和菜单授权。在另一个 scope 复用相同 userId 或 roleId，不会共享授权状态。</p>
 
 `tenantId` 必填，`appId`、`moduleId` 和 `namespace` 是可选附加维度。用户由 `userId` 加完整 scope 标识；role ID 也只在相同完整 scope 内有意义。
 
@@ -38,6 +42,13 @@ await tenantB.roles.allow('manager', {
   action: 'read', resource: 'ui:page:tenant-b-dashboard',
 });
 await tenantB.userRoles.assign('same-user', 'manager');
+
+const subjectA = pc.forSubject({ userId: 'same-user', scope: scopeA });
+const subjectB = pc.forSubject({ userId: 'same-user', scope: scopeB });
+const tenantAOwnResource = await subjectA.can('read', 'ui:page:tenant-a-dashboard');
+const tenantACrossResource = await subjectA.can('read', 'ui:page:tenant-b-dashboard');
+const tenantBOwnResource = await subjectB.can('read', 'ui:page:tenant-b-dashboard');
+const tenantBCrossResource = await subjectB.can('read', 'ui:page:tenant-a-dashboard');
 ```
 
 ```json
@@ -48,6 +59,16 @@ await tenantB.userRoles.assign('same-user', 'manager');
   "tenantBCrossResource": false
 }
 ```
+
+该 JSON 是把四个 `can()` 布尔值按租户并列后的教程汇总，不是角色创建、分配或某次判定的原始响应。
+
+| 调用 | scope 从哪里来 | 状态/原始返回 |
+|---|---|---|
+| [`pc.scope(scope)`](/zh/api/core-and-contexts#core-scope) | 可信租户与 app 维度 | 同步返回管理 facade；A/B facade 的库存完全隔离 |
+| [`roles.create/allow`](/zh/api/roles#roles-create) | facade 已锁定 scope | 分别返回 mutation envelope；相同 roleId 在两个 scope 是两条独立记录 |
+| [`userRoles.assign`](/zh/api/user-roles#user-roles-assign) | facade scope + userId | 分别追加各自 scope 内的直接角色 |
+| [`pc.forSubject(input)`](/zh/api/core-and-contexts#core-for-subject) | userId 与完整可信 scope | 返回请求期 facade；subjectA 不能读取 subjectB 的授权状态 |
+| [`subject.can(action, resource)`](/zh/api/core-and-contexts#core-can) | subject 自带 scope | 每次返回独立 boolean；跨租户资源因没有该 scope 内 allow 而默认拒绝 |
 
 数据库可以在两个租户保存相同 `roleId` 与 `userId`，但它们的规范 scope key 和索引不同。公开管理 API 不存在全局角色查询或无 scope 用户分配。
 
@@ -66,6 +87,8 @@ const subject = pc.forSubject({
 });
 ```
 
+`forSubject()` 不会自行认证 session；它只校验并冻结调用方交付的 subject。返回值是同步 facade，不是登录结果。`claims` 只供策略条件读取，不能覆盖 `scope` 或 `userId`。
+
 scope 与 subject ID 会去除首尾空白，限制为 128 UTF-8 字节，并拒绝控制字符、异常 Unicode、未知字段和保留标识。
 
 ## 在业务数据中强制 scope
@@ -81,6 +104,8 @@ const orders = subject.data.collection('orders', {
   },
 });
 ```
+
+`data.collection()` 同步返回 `AuthorizedCollection`。`name='orders'` 选择物理 collection，`resource='db:orders'` 选择授权规则，`scopeFields` 则决定每次真实 Mongo 查询强制加入哪些字段 equality；三者不可互相替代。
 
 读写会为这些字段添加精确标量相等条件。数组、对象、缺失或不一致值都不算该租户值。插入会注入可信 scope 值；更新不能把 scope 字段改到授权范围外。
 

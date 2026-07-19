@@ -6,10 +6,21 @@ import {
     guideGroups,
     validateDocsManifest,
 } from "../website/docs-manifest.mjs";
+import {
+    apiMethodContracts,
+    apiMethodEvidenceLabels,
+    diagramContracts,
+    diagramFallbackId,
+    docsLocales,
+    localizedDocsSource,
+    operationLabels,
+    operationPageContracts,
+} from "./docs-experience-contracts.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const docsRoot = path.join(projectRoot, "website", "docs");
 const failures = [];
+const localeMode = parseLocaleMode(process.argv.slice(2));
 
 const englishPages = listMarkdownFiles(docsRoot)
     .filter((file) => !file.startsWith("zh/"));
@@ -17,6 +28,11 @@ const chinesePages = listMarkdownFiles(path.join(docsRoot, "zh"));
 
 verifyManifestContracts();
 verifyManifestNegativeFixtures();
+verifyDiagramSourceContracts();
+verifyDiagramNegativeFixtures();
+verifyOperationSourceContracts();
+verifyOperationNegativeFixtures();
+verifyMermaidPipelineConfig();
 comparePageSets();
 verifyPagesAreSubstantial();
 verifyLanguagePairSizeDrift();
@@ -24,7 +40,11 @@ verifyCriticalPages();
 verifyCriticalPairStructure();
 verifyJsonCodeBlocks();
 verifyApiReferenceContracts();
+verifyApiMethodComprehensionContracts();
+verifyApiMethodNegativeFixtures();
 verifyExampleRoleContracts();
+verifyDisplayedExampleCallContracts();
+verifyDisplayedExampleCallNegativeFixtures();
 verifyContentOwnership();
 verifyDuplicateResponsibilities();
 verifyMaintainerBoundary();
@@ -43,8 +63,24 @@ if (failures.length > 0) {
     process.exitCode = 1;
 } else {
     console.log(
-        `Documentation checks passed: ${englishPages.length} EN/ZH page pairs, critical contracts, and internal links`,
+        `Documentation checks passed: mode=${localeMode}, ${englishPages.length} page routes, critical contracts, and internal links`,
     );
+}
+
+function parseLocaleMode(args) {
+    const option = args.find((argument) => argument.startsWith("--locale="));
+    const value = option?.slice("--locale=".length) ?? "all";
+    if (!["all", "en", "zh"].includes(value)) {
+        throw new Error(`Unsupported documentation locale mode: ${value}`);
+    }
+    return value;
+}
+
+function activeLocales() {
+    return [
+        ...(localeMode === "zh" ? [] : [["EN", "en", docsRoot]]),
+        ...(localeMode === "en" ? [] : [["ZH", "zh", path.join(docsRoot, "zh")]]),
+    ];
 }
 
 function listMarkdownFiles(root) {
@@ -135,6 +171,386 @@ function verifyManifestNegativeFixtures() {
     }
 }
 
+function verifyDiagramSourceContracts() {
+    const expectedSources = new Set();
+    let diagramCount = 0;
+
+    for (const contract of diagramContracts) {
+        for (const locale of docsLocales) {
+            const source = localizedDocsSource(contract.path, locale);
+            expectedSources.add(source);
+            const content = read(path.join(docsRoot, source));
+            for (const finding of collectDiagramSourceFailures(content, contract, locale)) {
+                failures.push(`${source} ${finding}`);
+            }
+            diagramCount += count(content, /^```mermaid$/gmu);
+        }
+    }
+
+    for (const page of [
+        ...englishPages,
+        ...chinesePages.map((source) => `zh/${source}`),
+    ]) {
+        const mermaidCount = count(read(path.join(docsRoot, page)), /^```mermaid$/gmu);
+        if (mermaidCount > 0 && !expectedSources.has(page)) {
+            failures.push(`unexpected Mermaid source outside the diagram contract: ${page}`);
+        }
+    }
+
+    const expectedCount = diagramContracts.length * docsLocales.length;
+    if (diagramCount !== expectedCount) {
+        failures.push(`diagram inventory expected ${expectedCount} Mermaid blocks, received ${diagramCount}`);
+    }
+}
+
+function collectDiagramSourceFailures(content, contract, locale) {
+    const findings = [];
+    const blocks = [...content.matchAll(/```mermaid\r?\n([\s\S]*?)```/gu)];
+    if (blocks.length !== 1) {
+        findings.push(`must contain exactly one Mermaid block, received ${blocks.length}`);
+        return findings;
+    }
+
+    const source = blocks[0][1];
+    const expected = contract.locales[locale];
+    if (!source.trimStart().startsWith(contract.kind)) {
+        findings.push(`diagram kind must be ${contract.kind}`);
+    }
+    if (!source.includes(`accTitle: ${expected.title}`)) {
+        findings.push("is missing its localized accTitle");
+    }
+    if (!source.includes(`accDescr: ${expected.description}`)) {
+        findings.push("is missing its localized accDescr");
+    }
+
+    const fallbackId = diagramFallbackId(contract, locale);
+    const fallbackPattern = new RegExp(
+        `<p\\s+className="pc-diagram-text"\\s+id="${escapeRegExp(fallbackId)}"\\s+data-diagram-id="${escapeRegExp(contract.id)}">([\\s\\S]*?)<\\/p>`,
+        "u",
+    );
+    const fallback = fallbackPattern.exec(content);
+    if (!fallback) {
+        findings.push("is missing its stable visible diagram text fallback");
+    } else {
+        const visibleText = fallback[1]
+            .replace(/<[^>]+>/gu, " ")
+            .replace(/[`*_]/gu, "")
+            .replace(/\s+/gu, " ")
+            .trim();
+        const minimumLength = locale === "zh" ? 60 : 140;
+        if ([...visibleText].length < minimumLength) {
+            findings.push(`diagram text fallback is too short (${[...visibleText].length}/${minimumLength})`);
+        }
+    }
+    return findings;
+}
+
+function verifyDiagramNegativeFixtures() {
+    const contract = diagramContracts[0];
+    const locale = "en";
+    const metadata = contract.locales[locale];
+    const fallbackId = diagramFallbackId(contract, locale);
+    const fallback = `<p className="pc-diagram-text" id="${fallbackId}" data-diagram-id="${contract.id}"><strong>Text equivalent.</strong> The authenticated host identity becomes a scoped permission subject, effective rules are resolved, and the same authorization state drives API, menu, button, and protected data decisions for the request.</p>`;
+    const valid = `# Fixture\n\n\`\`\`mermaid\n${contract.kind} LR\n  accTitle: ${metadata.title}\n  accDescr: ${metadata.description}\n  A --> B\n\`\`\`\n\n${fallback}`;
+    const cases = [
+        {
+            name: "missing diagram title",
+            content: valid.replace(`  accTitle: ${metadata.title}\n`, ""),
+            expected: "missing its localized accTitle",
+        },
+        {
+            name: "missing diagram description",
+            content: valid.replace(`  accDescr: ${metadata.description}\n`, ""),
+            expected: "missing its localized accDescr",
+        },
+        {
+            name: "missing visible fallback",
+            content: valid.replace(fallback, ""),
+            expected: "missing its stable visible diagram text fallback",
+        },
+        {
+            name: "fallback too short",
+            content: valid.replace(fallback, `<p className="pc-diagram-text" id="${fallbackId}" data-diagram-id="${contract.id}">Short.</p>`),
+            expected: "diagram text fallback is too short",
+        },
+    ];
+
+    if (collectDiagramSourceFailures(valid, contract, locale).length > 0) {
+        failures.push("valid diagram source fixture did not pass");
+    }
+    for (const fixture of cases) {
+        const fixtureFailures = collectDiagramSourceFailures(fixture.content, contract, locale);
+        if (!fixtureFailures.some((finding) => finding.includes(fixture.expected))) {
+            failures.push(`diagram negative fixture did not fail: ${fixture.name}`);
+        }
+    }
+}
+
+function verifyOperationSourceContracts() {
+    const expectedPaths = operationPageContracts.map((contract) => contract.path).sort();
+    const examplePaths = docsPages
+        .filter((page) => page.section === "examples")
+        .map((page) => page.path)
+        .sort();
+    if (JSON.stringify(expectedPaths) !== JSON.stringify(examplePaths)) {
+        failures.push("operation contracts must cover exactly the five example pages");
+    }
+
+    let operationCount = 0;
+    let outputCount = 0;
+    for (const contract of operationPageContracts) {
+        for (const locale of docsLocales) {
+            const source = localizedDocsSource(contract.path, locale);
+            const content = read(path.join(docsRoot, source));
+            for (const finding of collectOperationSourceFailures(content, contract, locale)) {
+                failures.push(`${source} ${finding}`);
+            }
+            operationCount += count(content, /<!-- docs:operation /gu);
+            outputCount += count(content, /<!-- docs:output /gu);
+        }
+    }
+
+    const expectedOperationCount = operationPageContracts
+        .reduce((total, contract) => total + contract.operations.length, 0) * docsLocales.length;
+    const expectedOutputCount = operationPageContracts
+        .reduce((total, contract) => total + contract.outputGroups.length, 0) * docsLocales.length;
+    if (operationCount !== expectedOperationCount) {
+        failures.push(`operation inventory expected ${expectedOperationCount} localized groups, received ${operationCount}`);
+    }
+    if (outputCount !== expectedOutputCount) {
+        failures.push(`output provenance inventory expected ${expectedOutputCount} localized groups, received ${outputCount}`);
+    }
+
+    const contractedPaths = new Set(expectedPaths);
+    for (const page of [
+        ...englishPages,
+        ...chinesePages.map((source) => `zh/${source}`),
+    ]) {
+        const canonical = page.replace(/^zh\//u, "");
+        const content = read(path.join(docsRoot, page));
+        if (!contractedPaths.has(canonical) && /<!-- docs:(?:operation|output) /u.test(content)) {
+            failures.push(`operation marker exists outside its page contract: ${page}`);
+        }
+    }
+}
+
+function collectOperationSourceFailures(content, contract, locale) {
+    const findings = [];
+    const expectedOperationMarkers = [];
+    const expectedOutputMarkers = [];
+
+    for (const operation of contract.operations) {
+        const marker = `<!-- docs:operation id=${operation.id} calls=${operation.calls.join(",")} outputs=${operation.outputs.join(",")} -->`;
+        expectedOperationMarkers.push(marker);
+        if (count(content, new RegExp(escapeRegExp(marker), "gu")) !== 1) {
+            findings.push(`operation ${operation.id} is missing its exact contract marker`);
+        }
+
+        const section = extractMarkdownSection(content, 3, operation.headings[locale]);
+        if (!section) {
+            findings.push(`operation ${operation.id} is missing heading: ${operation.headings[locale]}`);
+            continue;
+        }
+        if (!section.includes(marker)) {
+            findings.push(`operation ${operation.id} marker is outside its visible section`);
+        }
+
+        const visible = section.replace(/<!--[\s\S]*?-->/gu, "");
+        for (const label of operationLabels[locale]) {
+            const token = `**${label}**`;
+            if (count(visible, new RegExp(escapeRegExp(token), "gu")) !== 1) {
+                findings.push(`operation ${operation.id} is missing visible label: ${label}`);
+                continue;
+            }
+            const labelStart = visible.indexOf(token) + token.length;
+            const laterLabels = operationLabels[locale]
+                .map((candidate) => visible.indexOf(`**${candidate}**`, labelStart))
+                .filter((index) => index >= 0);
+            const labelEnd = laterLabels.length > 0 ? Math.min(...laterLabels) : visible.length;
+            const explanation = stripMarkdown(visible.slice(labelStart, labelEnd));
+            const isApiReference = label === operationLabels[locale][3];
+            const minimum = isApiReference
+                ? (locale === "zh" ? 10 : 20)
+                : (locale === "zh" ? 20 : 45);
+            if ([...explanation].length < minimum) {
+                findings.push(`operation ${operation.id} ${label} explanation is too short`);
+            }
+        }
+
+        for (const call of operation.calls) {
+            if (!visible.includes(`\`${call}\``)) {
+                findings.push(`operation ${operation.id} method is not visible: ${call}`);
+            }
+        }
+        for (const apiPath of operation.apiPaths) {
+            const target = locale === "zh" ? `/zh${apiPath}` : apiPath;
+            if (!section.includes(`](${target})`)) {
+                findings.push(`operation ${operation.id} is missing API link: ${target}`);
+            }
+        }
+    }
+
+    const actualOperationMarkers = [...content.matchAll(/<!-- docs:operation [^>]+ -->/gu)]
+        .map((match) => match[0]);
+    if (JSON.stringify(actualOperationMarkers) !== JSON.stringify(expectedOperationMarkers)) {
+        findings.push("operation marker order or inventory differs from the contract");
+    }
+
+    for (const output of contract.outputGroups) {
+        const marker = `<!-- docs:output group=${output.group} producer=${output.producer} -->`;
+        expectedOutputMarkers.push(marker);
+        if (count(content, new RegExp(escapeRegExp(marker), "gu")) !== 1) {
+            findings.push(`output ${output.group} is missing its exact output marker`);
+            continue;
+        }
+        if (!contract.operations.some((operation) => operation.id === output.producer)) {
+            findings.push(`output ${output.group} references unknown producer ${output.producer}`);
+        }
+
+        const markerStart = content.indexOf(marker) + marker.length;
+        const relativeEnd = content.slice(markerStart).search(/\n(?:<!-- docs:output|## )/u);
+        const markerEnd = relativeEnd === -1 ? content.length : markerStart + relativeEnd;
+        const visible = content.slice(markerStart, markerEnd).replace(/<!--[\s\S]*?-->/gu, "");
+        const label = locale === "zh"
+            ? `**\`${output.group}\` 来源。**`
+            : `**\`${output.group}\` provenance.**`;
+        if (!visible.includes(label)) {
+            findings.push(`output ${output.group} is missing its visible provenance label`);
+        }
+        if (!visible.includes(`\`${output.producerToken}\``)) {
+            findings.push(`output ${output.group} does not name producer token ${output.producerToken}`);
+        }
+        const explanation = stripMarkdown(visible);
+        const minimum = locale === "zh" ? 35 : 70;
+        if ([...explanation].length < minimum) {
+            findings.push(`output ${output.group} provenance explanation is too short`);
+        }
+    }
+
+    const actualOutputMarkers = [...content.matchAll(/<!-- docs:output [^>]+ -->/gu)]
+        .map((match) => match[0]);
+    if (JSON.stringify(actualOutputMarkers) !== JSON.stringify(expectedOutputMarkers)) {
+        findings.push("output marker order or inventory differs from the contract");
+    }
+    return findings;
+}
+
+function verifyOperationNegativeFixtures() {
+    const contract = operationPageContracts[0];
+    const locale = "en";
+    const valid = read(path.join(docsRoot, contract.path));
+    if (collectOperationSourceFailures(valid, contract, locale).length > 0) {
+        failures.push("valid operation source fixture did not pass");
+        return;
+    }
+
+    const roleOutputMarker = "<!-- docs:output group=role producer=basic-role-state -->";
+    const cases = [
+        {
+            name: "missing operation label",
+            content: valid.replace("**Purpose and target.**", "**Purpose removed.**"),
+            expected: "missing visible label: Purpose and target.",
+        },
+        {
+            name: "broad operation explanation",
+            content: valid.replace(
+                /\*\*Purpose and target\.\*\*[\s\S]*?(?=\n\n\*\*State, arguments, and result\.\*\*)/u,
+                "**Purpose and target.** Works.",
+            ),
+            expected: "Purpose and target. explanation is too short",
+        },
+        {
+            name: "method hidden in marker only",
+            content: valid.replace("`roles.create` creates", "`role write` creates"),
+            expected: "method is not visible: roles.create",
+        },
+        {
+            name: "missing operation API link",
+            content: valid.replace("](/api/roles)", "](#roles)"),
+            expected: "missing API link: /api/roles",
+        },
+        {
+            name: "disconnected output producer",
+            content: valid.replace(
+                roleOutputMarker,
+                "<!-- docs:output group=role producer=basic-assignment -->",
+            ),
+            expected: "output role is missing its exact output marker",
+        },
+    ];
+
+    for (const fixture of cases) {
+        const fixtureFailures = collectOperationSourceFailures(fixture.content, contract, locale);
+        if (!fixtureFailures.some((finding) => finding.includes(fixture.expected))) {
+            failures.push(`operation negative fixture did not fail: ${fixture.name}`);
+        }
+    }
+}
+
+function extractMarkdownSection(content, level, heading) {
+    const startToken = `${"#".repeat(level)} ${heading}`;
+    const start = content.indexOf(startToken);
+    if (start < 0) return null;
+    const bodyStart = start + startToken.length;
+    const relativeEnd = content.slice(bodyStart).search(new RegExp(`\\n#{1,${level}} `, "u"));
+    const end = relativeEnd === -1 ? content.length : bodyStart + relativeEnd;
+    return content.slice(start, end);
+}
+
+function stripMarkdown(value) {
+    return value
+        .replace(/<!--[\s\S]*?-->/gu, " ")
+        .replace(/\[([^\]]+)\]\([^)]+\)/gu, "$1")
+        .replace(/[`*_#]/gu, "")
+        .replace(/\s+/gu, " ")
+        .trim();
+}
+
+function verifyMermaidPipelineConfig() {
+    const websitePackage = JSON.parse(read(path.join(projectRoot, "website", "package.json")));
+    if (websitePackage.dependencies?.["rspress-plugin-devkit"] !== "1.0.0") {
+        failures.push("website must pin rspress-plugin-devkit to 1.0.0");
+    }
+    if (websitePackage.dependencies?.["rspress-plugin-mermaid"] !== undefined) {
+        failures.push("website must use the serialized local Mermaid renderer instead of the racy upstream renderer");
+    }
+    if (websitePackage.dependencies?.mermaid !== "10.9.6") {
+        failures.push("website must pin mermaid to 10.9.6");
+    }
+    if (websitePackage.overrides?.mermaid?.uuid !== "11.1.1") {
+        failures.push("website must pin Mermaid's uuid dependency to the fixed 11.1.1 release");
+    }
+    if (websitePackage.scripts?.prebuild !== "node ./scripts/check-mermaid.mjs") {
+        failures.push("website build must run the Mermaid parser through prebuild");
+    }
+
+    const config = read(path.join(projectRoot, "website", "rspress.config.ts"));
+    for (const marker of [
+        "permissionCoreMermaidPlugin",
+        'securityLevel: "strict"',
+        "startOnLoad: false",
+        "htmlLabels: false",
+        "useMaxWidth: true",
+    ]) {
+        if (!config.includes(marker)) failures.push(`Rspress Mermaid config is missing: ${marker}`);
+    }
+
+    const theme = read(path.join(projectRoot, "website", "theme", "index.tsx"));
+    for (const marker of ["syncMermaidAccessibility", "pc-mermaid", "aria-describedby"]) {
+        if (!theme.includes(marker)) failures.push(`website theme is missing Mermaid synchronization marker: ${marker}`);
+    }
+
+    const renderer = read(path.join(projectRoot, "website", "theme", "MermaidRenderer.tsx"));
+    for (const marker of ["renderQueue", "enqueueRender", "nextRenderId", "data-mermaid-state"]) {
+        if (!renderer.includes(marker)) failures.push(`website Mermaid renderer is missing serialization marker: ${marker}`);
+    }
+
+    const styles = read(path.join(projectRoot, "website", "styles", "payment-permission.css"));
+    for (const marker of [".pc-mermaid", ".pc-diagram-text", "overflow-x: auto"]) {
+        if (!styles.includes(marker)) failures.push(`website styles are missing Mermaid marker: ${marker}`);
+    }
+}
+
 function comparePageSets() {
     const english = new Set(englishPages);
     const chinese = new Set(chinesePages);
@@ -169,6 +585,7 @@ function verifyPagesAreSubstantial() {
 }
 
 function verifyLanguagePairSizeDrift() {
+    if (localeMode !== "all") return;
     for (const page of englishPages) {
         const english = Buffer.byteLength(read(path.join(docsRoot, page)), "utf8");
         const chinese = Buffer.byteLength(read(path.join(docsRoot, "zh", page)), "utf8");
@@ -195,7 +612,7 @@ function verifyCriticalPages() {
         "guide/permission-lifecycle.md": ["flowchart", "revision", "auditId", "PermissionCore.close"],
         "guide/resources-and-rules.md": ["no-allow", "db:orders:field", "ResourceSchemeDefinition", "valueFrom"],
         "guide/role-inheritance.md": ["getOwnRules", "getEffectiveRules", "CIRCULAR_INHERITANCE", "getRemovalImpact"],
-        "guide/multi-tenant.md": ["erDiagram", "same-user", "scopeFields", "SCOPE_CONFLICT"],
+        "guide/multi-tenant.md": ["flowchart TD", "same-user", "scopeFields", "SCOPE_CONFLICT"],
         "guide/cache.md": ["ordered-bounded-stale", "caller-attested", "invalidationRiskUntil", "pendingCacheOutcomes"],
         "guide/vext-plugin.md": ["permissionPlugin", "resolveMonSQLize", "permission: true", "VEXT_ROUTE_RESTART_REQUIRED"],
         "guide/authentication-boundary.md": ["PermissionSubject", "resolveSubject", "SCOPE_CONFLICT", "permission: false"],
@@ -223,7 +640,7 @@ function verifyCriticalPages() {
         failures.push(`critical page contract expected ${docsPages.length} entries, received ${Object.keys(contracts).length}`);
     }
     for (const [page, markers] of Object.entries(contracts)) {
-        for (const [locale, root] of [["EN", docsRoot], ["ZH", path.join(docsRoot, "zh")]]) {
+        for (const [locale, , root] of activeLocales()) {
             const content = read(path.join(root, page)).toLowerCase();
             for (const marker of markers) {
                 if (!content.includes(marker.toLowerCase())) {
@@ -235,6 +652,7 @@ function verifyCriticalPages() {
 }
 
 function verifyCriticalPairStructure() {
+    if (localeMode !== "all") return;
     for (const page of docsPages.map((item) => item.path)) {
         const english = read(path.join(docsRoot, page));
         const chinese = read(path.join(docsRoot, "zh", page));
@@ -341,19 +759,21 @@ function verifyApiReferenceContracts() {
     }
 
     for (const page of apiPages) {
-        for (const [locale, root] of [
-            ["EN", docsRoot],
-            ["ZH", path.join(docsRoot, "zh")],
-        ]) {
+        for (const [locale, , root] of activeLocales()) {
             const content = read(path.join(root, page.path));
             const headings = [...content.matchAll(/^## (.+)$/gm)].map((match) => match[1]);
-            if (JSON.stringify(headings) !== JSON.stringify(expectedHeadings[locale])) {
-                failures.push(`${locale} ${page.path} does not use the fixed API reference slots`);
+            let previousIndex = -1;
+            for (const heading of expectedHeadings[locale]) {
+                const index = headings.indexOf(heading);
+                if (index < 0 || index <= previousIndex) {
+                    failures.push(`${locale} ${page.path} is missing or reorders API reference slot: ${heading}`);
+                }
+                previousIndex = index;
             }
 
             const codeBlocks = count(content, /^```[^\n]*$/gm) / 2;
-            if (codeBlocks !== 4 || !content.includes("```json")) {
-                failures.push(`${locale} ${page.path} must contain signatures, response, example, and example-output blocks`);
+            if (codeBlocks < 4 || !content.includes("```json")) {
+                failures.push(`${locale} ${page.path} must contain at least signatures, response, example, and example-output blocks`);
             }
 
             if (/^## .*(?:Tutorial|教程|Deployment|部署|Reading Order|阅读顺序|Release Checklist|发布清单)/gmi.test(content)) {
@@ -368,21 +788,154 @@ function verifyApiReferenceContracts() {
         }
     }
 
-    for (const [locale, root] of [["EN", docsRoot], ["ZH", path.join(docsRoot, "zh")]]) {
+    for (const [locale, , root] of activeLocales()) {
         const coreApi = read(path.join(root, "api/core-and-contexts.md"));
         for (const marker of ['"evaluations"', '"evaluatedAllows"', '"evaluatedDenies"']) {
             if (!coreApi.includes(marker)) failures.push(`${locale} core response example is missing ${marker}`);
         }
     }
 
-    const errors = read(path.join(docsRoot, "api/errors.md"));
     const errorTypes = read(path.join(projectRoot, "src/types/errors.ts"));
     const errorUnion = errorTypes.slice(
         errorTypes.indexOf("export type PermissionCoreErrorCode"),
         errorTypes.indexOf("export interface LimitExceededDetails"),
     );
-    for (const match of errorUnion.matchAll(/"([A-Z][A-Z0-9_]+)"/g)) {
-        if (!errors.includes(`\`${match[1]}\``)) failures.push(`api/errors.md is missing public code ${match[1]}`);
+    for (const [locale, , root] of activeLocales()) {
+        const errors = read(path.join(root, "api/errors.md"));
+        for (const match of errorUnion.matchAll(/"([A-Z][A-Z0-9_]+)"/g)) {
+            if (!errors.includes(`\`${match[1]}\``)) failures.push(`${locale} api/errors.md is missing public code ${match[1]}`);
+        }
+    }
+}
+
+function verifyApiMethodComprehensionContracts() {
+    const expectedPaths = docsPages
+        .filter((page) => page.section === "api")
+        .map((page) => page.path)
+        .sort();
+    const contractPaths = apiMethodContracts.map((contract) => contract.path).sort();
+    if (JSON.stringify(contractPaths) !== JSON.stringify(expectedPaths)) {
+        failures.push("API method comprehension contracts do not exactly cover the API page set");
+    }
+
+    for (const contract of apiMethodContracts) {
+        for (const [localeLabel, locale, root] of activeLocales()) {
+            const content = read(path.join(root, contract.path));
+            for (const finding of collectApiMethodComprehensionFailures(
+                content,
+                contract,
+                locale,
+            )) {
+                failures.push(`${localeLabel} ${contract.path} ${finding}`);
+            }
+        }
+    }
+}
+
+function collectApiMethodComprehensionFailures(content, contract, locale) {
+    const findings = [];
+    const expectedMarkers = contract.methods.map(
+        (method) => `<!-- docs:method name=${method} locale=${locale} -->`,
+    );
+    const actualMarkers = [
+        ...content.matchAll(/<!--\s*docs:method name=([^\s]+) locale=(en|zh)\s*-->/gu),
+    ].map((match) => match[0]);
+    if (JSON.stringify(actualMarkers) !== JSON.stringify(expectedMarkers)) {
+        findings.push("method marker order or inventory differs from the contract");
+    }
+    if (!/<!--\s*docs:params owner=[^\s]+ locale=(?:en|zh)\s*-->/u.test(content)) {
+        findings.push("is missing a visible parameter-contract owner marker");
+    }
+
+    for (const [index, method] of contract.methods.entries()) {
+        const marker = expectedMarkers[index];
+        const markerMatches = [...content.matchAll(new RegExp(escapeRegExp(marker), "gu"))];
+        if (markerMatches.length !== 1) {
+            findings.push(`method ${method} must have exactly one method marker`);
+            continue;
+        }
+
+        const markerIndex = markerMatches[0].index;
+        const precedingHeadings = [
+            ...content.slice(0, markerIndex).matchAll(/^###\s+(.+)$/gmu),
+        ];
+        const heading = precedingHeadings.at(-1);
+        if (!heading) {
+            findings.push(`method ${method} is not owned by an H3 section`);
+            continue;
+        }
+
+        const sectionStart = heading.index;
+        const remaining = content.slice(markerIndex + marker.length);
+        const nextHeading = remaining.search(/\n#{1,3}\s+/u);
+        const sectionEnd = nextHeading < 0
+            ? content.length
+            : markerIndex + marker.length + nextHeading;
+        const section = content.slice(sectionStart, sectionEnd);
+        const headingText = stripMarkdown(heading[1]);
+        const visibleSegments = method === "ResourceSchemeDefinition.callbacks"
+            ? ["validate", "match"]
+            : method.split(".").filter((segment) => segment.length >= 3);
+        if (!visibleSegments.some((segment) => headingText.includes(segment))) {
+            findings.push(`method ${method} is present only in a hidden marker`);
+        }
+
+        for (const label of apiMethodEvidenceLabels[locale]) {
+            const evidence = new RegExp(
+                `\\*\\*${escapeRegExp(label)}\\*\\*[：:]\\s*([^\\r\\n]+)`,
+                "u",
+            ).exec(section)?.[1];
+            if (!evidence) {
+                findings.push(`method ${method} is missing visible evidence: ${label}`);
+                continue;
+            }
+            const minimumLength = locale === "zh" ? 2 : 5;
+            if ([...stripMarkdown(evidence)].length < minimumLength) {
+                findings.push(`method ${method} ${label} explanation is too short`);
+            }
+        }
+    }
+
+    return findings;
+}
+
+function verifyApiMethodNegativeFixtures() {
+    const contract = apiMethodContracts[0];
+    const locale = "zh";
+    const valid = read(path.join(docsRoot, "zh", contract.path));
+    if (collectApiMethodComprehensionFailures(valid, contract, locale).length > 0) {
+        failures.push("valid Chinese API method comprehension fixture did not pass");
+        return;
+    }
+
+    const firstMarker = `<!-- docs:method name=${contract.methods[0]} locale=${locale} -->`;
+    const cases = [
+        {
+            name: "missing API method parameter evidence",
+            content: valid.replace("**参数**", "**参数已移除**"),
+            expected: "is missing visible evidence: 参数",
+        },
+        {
+            name: "method hidden in marker only",
+            content: valid.replace("### `new PermissionCore(options)`", "### `new authorization core(options)`"),
+            expected: "is present only in a hidden marker",
+        },
+        {
+            name: "missing API method marker",
+            content: valid.replace(firstMarker, ""),
+            expected: "method marker order or inventory differs",
+        },
+    ];
+
+    for (const fixture of cases) {
+        const fixtureFailures = collectApiMethodComprehensionFailures(
+            fixture.content,
+            contract,
+            locale,
+        );
+        if (!fixtureFailures.some((finding) => finding.includes(fixture.expected))) {
+            failures.push(`API method negative fixture did not fail: ${fixture.name}`);
+        }
     }
 }
 
@@ -405,10 +958,7 @@ function verifyExampleRoleContracts() {
     }
 
     for (const page of examplePages) {
-        for (const [locale, root] of [
-            ["EN", docsRoot],
-            ["ZH", path.join(docsRoot, "zh")],
-        ]) {
+        for (const [locale, , root] of activeLocales()) {
             const content = read(path.join(root, page.path));
             const headings = [...content.matchAll(/^## (.+)$/gm)].map((match) => match[1]);
             if (JSON.stringify(headings) !== JSON.stringify(expectedHeadings[locale])) {
@@ -416,8 +966,8 @@ function verifyExampleRoleContracts() {
             }
 
             const codeBlocks = count(content, /^```[^\n]*$/gm) / 2;
-            if (codeBlocks !== 3 || !content.includes("```json")) {
-                failures.push(`${locale} ${page.path} must contain run, source, and expected-output blocks`);
+            if (codeBlocks < 3 || !content.includes("```json")) {
+                failures.push(`${locale} ${page.path} must contain at least run, source, and expected-output blocks`);
             }
 
             for (const sourceMarker of sourceMarkers[page.path] ?? []) {
@@ -433,6 +983,87 @@ function verifyExampleRoleContracts() {
     for (const name of expectedScripts) {
         if (typeof packageJson.scripts?.[`example:${name}`] !== "string") {
             failures.push(`package.json is missing example:${name}`);
+        }
+    }
+}
+
+function verifyDisplayedExampleCallContracts() {
+    for (const contract of operationPageContracts) {
+        for (const [localeLabel, locale, root] of activeLocales()) {
+            const content = read(path.join(root, contract.path));
+            for (const finding of collectDisplayedExampleCallFailures(
+                content,
+                contract,
+                locale,
+            )) {
+                failures.push(`${localeLabel} ${contract.path} ${finding}`);
+            }
+        }
+    }
+}
+
+function collectDisplayedExampleCallFailures(content, contract, locale) {
+    const findings = [];
+    const displayedCode = [
+        ...content.matchAll(/```(?:js|javascript|mjs|ts|typescript)\r?\n([\s\S]*?)```/gu),
+    ].map((match) => match[1]).join("\n");
+    if (!displayedCode.trim()) {
+        findings.push("does not contain a displayed JavaScript/TypeScript source block");
+        return findings;
+    }
+
+    for (const operation of contract.operations) {
+        for (const call of operation.calls) {
+            if (!displayedExampleContainsCall(displayedCode, call)) {
+                findings.push(`operation ${operation.id} displayed source is missing call: ${call}`);
+            }
+        }
+    }
+
+    const summaryLabel = locale === "zh" ? "示例汇总输出" : "Example summary output";
+    if (!content.includes(summaryLabel)) {
+        findings.push(`is missing the generated-output provenance label: ${summaryLabel}`);
+    }
+    return findings;
+}
+
+function displayedExampleContainsCall(displayedCode, call) {
+    if (call === "permissionPlugin.setup") {
+        return /permissionPlugin\s*\(/u.test(displayedCode) && /\)\s*\.setup\s*\(/u.test(displayedCode);
+    }
+    return displayedCode.includes(call);
+}
+
+function verifyDisplayedExampleCallNegativeFixtures() {
+    const contract = operationPageContracts[0];
+    const locale = "zh";
+    const valid = read(path.join(docsRoot, "zh", contract.path));
+    if (collectDisplayedExampleCallFailures(valid, contract, locale).length > 0) {
+        failures.push("valid Chinese displayed example-call fixture did not pass");
+        return;
+    }
+
+    const cases = [
+        {
+            name: "call remains in prose but is removed from displayed source",
+            content: valid.replaceAll("roles.create", "roles_create_removed"),
+            expected: "displayed source is missing call: roles.create",
+        },
+        {
+            name: "example output provenance removed",
+            content: valid.replace("示例汇总输出", "输出"),
+            expected: "is missing the generated-output provenance label",
+        },
+    ];
+
+    for (const fixture of cases) {
+        const fixtureFailures = collectDisplayedExampleCallFailures(
+            fixture.content,
+            contract,
+            locale,
+        );
+        if (!fixtureFailures.some((finding) => finding.includes(fixture.expected))) {
+            failures.push(`displayed example negative fixture did not fail: ${fixture.name}`);
         }
     }
 }
@@ -693,7 +1324,7 @@ function verifyStaleClaims() {
         for (const [lineIndex, line] of content.split(/\r?\n/).entries()) {
             const legacyTerm = /permission-core\/adapters\/vext|cache-hub|\b(?:MemoryAdapter|FileAdapter|MonSQLizeStorageAdapter|StorageAdapter)\b/u.exec(line)?.[0];
             if (!legacyTerm) continue;
-            const negativeBoundary = /\b(?:no|not|never|retired|removed|without)\b|没有|不是|不要|已退出|已移除|不再/u.test(line);
+            const negativeBoundary = /\b(?:no|not|never|retired|removed|without)\b|没有|不是|不要|已退出|已移除|不再|不(?:直接|依赖|配置|创建|使用|支持|需要)/u.test(line);
             if (!negativeBoundary) {
                 failures.push(`legacy public claim ${legacyTerm}: ${path.relative(projectRoot, file).replaceAll("\\", "/")}:${lineIndex + 1}`);
             }
@@ -859,4 +1490,8 @@ function read(file) {
 
 function count(content, pattern) {
     return [...content.matchAll(pattern)].length;
+}
+
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }

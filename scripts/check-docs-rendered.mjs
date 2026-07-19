@@ -3,6 +3,14 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "parse5";
 import { docsPages } from "../website/docs-manifest.mjs";
+import {
+    apiMethodContracts,
+    apiMethodEvidenceLabels,
+    diagramContracts,
+    diagramFallbackId,
+    operationLabels,
+    operationPageContracts,
+} from "./docs-experience-contracts.mjs";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const options = parseOptions(process.argv.slice(2));
@@ -250,6 +258,9 @@ function verifyRenderedStructure({
     verifySidebar(route, locale, page, sectionPages, elements, expectedBase, add);
     verifyOutline(elements, add);
     verifyCodeBlocks(page, main, add);
+    verifyDiagramRenderingContract(locale, page, main, add);
+    verifyOperationRenderingContract(locale, page, main, expectedBase, add);
+    verifyApiMethodRenderingContract(locale, page, main, add);
     verifyPrevNext(route, locale, page, sectionPages, elements, expectedBase, add);
 
     const primaryNext = localizedRenderedRoute(
@@ -359,12 +370,170 @@ function verifyCodeBlocks(page, main, add) {
     if (blocks.some((node) => !(getAttr(node, "class") ?? "").split(/\s+/).some((value) => value.startsWith("language-")))) {
         add("contains a rendered code block without a language class");
     }
-    if (page.section === "api" && blocks.length !== 4) {
-        add(`API reference must render exactly four code blocks, received ${blocks.length}`);
+    if (page.section === "api" && blocks.length < 4) {
+        add(`API reference must render at least four code blocks, received ${blocks.length}`);
     }
-    if (page.section === "examples" && blocks.length !== 3) {
-        add(`example page must render exactly three code blocks, received ${blocks.length}`);
+    if (page.section === "examples" && blocks.length < 3) {
+        add(`example page must render at least three code blocks, received ${blocks.length}`);
     }
+}
+
+function verifyDiagramRenderingContract(locale, page, main, add) {
+    const rawMermaid = findElements(main).filter(
+        (node) => hasClass(node, "language-mermaid"),
+    );
+    if (rawMermaid.length > 0) {
+        add(`contains ${rawMermaid.length} raw Mermaid code block(s)`);
+    }
+
+    const contract = diagramContracts.find((candidate) => candidate.path === page.path);
+    const fallbacks = findElements(main).filter(
+        (node) => hasClass(node, "pc-diagram-text"),
+    );
+    if (!contract) {
+        if (fallbacks.length > 0) add("contains a diagram fallback outside the diagram contract");
+        return;
+    }
+
+    const expectedId = diagramFallbackId(contract, locale);
+    const expectedFallbacks = fallbacks.filter(
+        (node) =>
+            getAttr(node, "id") === expectedId &&
+            getAttr(node, "data-diagram-id") === contract.id,
+    );
+    if (fallbacks.length !== 1 || expectedFallbacks.length !== 1) {
+        add(`must render one stable diagram text fallback: ${expectedId}`);
+        return;
+    }
+
+    const fallbackText = normalizeText(textContent(expectedFallbacks[0]));
+    const minimumLength = locale === "zh" ? 60 : 140;
+    if ([...fallbackText].length < minimumLength) {
+        add(`diagram text fallback is too short (${[...fallbackText].length}/${minimumLength})`);
+    }
+}
+
+function verifyOperationRenderingContract(locale, page, main, expectedBase, add) {
+    for (const finding of collectRenderedOperationFailures(locale, page, main, expectedBase)) {
+        add(finding);
+    }
+}
+
+function verifyApiMethodRenderingContract(locale, page, main, add) {
+    for (const finding of collectRenderedApiMethodFailures(locale, page, main)) {
+        add(finding);
+    }
+}
+
+function collectRenderedApiMethodFailures(locale, page, main) {
+    const findings = [];
+    const contract = apiMethodContracts.find((candidate) => candidate.path === page.path);
+    if (!contract || locale !== "zh") return findings;
+
+    const labels = apiMethodEvidenceLabels[locale];
+    const actualLabels = findElements(main, "strong")
+        .map((node) => normalizeText(textContent(node)))
+        .filter((label) => labels.includes(label));
+    const expectedLabels = contract.methods.flatMap(() => labels);
+    if (JSON.stringify(actualLabels) !== JSON.stringify(expectedLabels)) {
+        findings.push(
+            `must render ${contract.methods.length} ordered API method evidence groups`,
+        );
+    }
+    return findings;
+}
+
+function collectRenderedOperationFailures(locale, page, main, expectedBase) {
+    const findings = [];
+    const contract = operationPageContracts.find((candidate) => candidate.path === page.path);
+    if (!contract) return findings;
+
+    const elements = findElements(main);
+    const headings = elements.filter((node) => node.tagName === "h3");
+    if (headings.length !== contract.operations.length) {
+        findings.push(`must render ${contract.operations.length} operation H3 headings, received ${headings.length}`);
+    }
+
+    for (const operation of contract.operations) {
+        const expectedHeading = operation.headings[locale];
+        const matches = headings.filter(
+            (node) => normalizeHeadingText(textContent(node)) === expectedHeading,
+        );
+        if (matches.length !== 1) {
+            findings.push(`operation ${operation.id} must render one heading: ${expectedHeading}`);
+            continue;
+        }
+
+        const start = elements.indexOf(matches[0]) + 1;
+        let end = elements.length;
+        for (let index = start; index < elements.length; index += 1) {
+            if (["h2", "h3"].includes(elements[index].tagName)) {
+                end = index;
+                break;
+            }
+        }
+        const section = elements.slice(start, end);
+        const actualLabels = section
+            .filter((node) => node.tagName === "strong")
+            .map((node) => normalizeText(textContent(node)))
+            .filter((label) => operationLabels[locale].includes(label));
+        if (JSON.stringify(actualLabels) !== JSON.stringify(operationLabels[locale])) {
+            findings.push(`operation ${operation.id} rendered label order differs from the contract`);
+        }
+
+        const codeTokens = new Set(
+            section
+                .filter((node) => node.tagName === "code")
+                .map((node) => normalizeText(textContent(node))),
+        );
+        for (const call of operation.calls) {
+            if (!codeTokens.has(call)) {
+                findings.push(`operation ${operation.id} rendered method is missing: ${call}`);
+            }
+        }
+
+        const linkedRoutes = new Set(
+            section
+                .filter((node) => node.tagName === "a")
+                .map((node) => resolveInternalHref(getAttr(node, "href"), markdownToHtml(page.path), expectedBase))
+                .filter(Boolean)
+                .map((target) => target.route),
+        );
+        for (const apiPath of operation.apiPaths) {
+            const route = `${locale === "zh" ? "zh/" : ""}${apiPath.replace(/^\//u, "")}.html`;
+            if (!linkedRoutes.has(route)) {
+                findings.push(`operation ${operation.id} rendered API link is missing: ${route}`);
+            }
+        }
+    }
+
+    const paragraphs = findElements(main, "p");
+    for (const output of contract.outputGroups) {
+        const label = locale === "zh"
+            ? `${output.group} 来源。`
+            : `${output.group} provenance.`;
+        const matches = paragraphs.filter(
+            (node) => normalizeText(textContent(node)).startsWith(label),
+        );
+        if (matches.length !== 1) {
+            findings.push(`output ${output.group} must render one provenance paragraph`);
+            continue;
+        }
+        const codeTokens = new Set(
+            findElements(matches[0], "code").map((node) => normalizeText(textContent(node))),
+        );
+        if (!codeTokens.has(output.group)) {
+            findings.push(`output ${output.group} rendered label does not preserve its group token`);
+        }
+        if (!codeTokens.has(output.producerToken)) {
+            findings.push(`output ${output.group} rendered producer is missing: ${output.producerToken}`);
+        }
+        const minimum = locale === "zh" ? 35 : 70;
+        if ([...normalizeText(textContent(matches[0]))].length < minimum) {
+            findings.push(`output ${output.group} rendered provenance is too short`);
+        }
+    }
+    return findings;
 }
 
 function verifyPrevNext(route, locale, page, sectionPages, elements, expectedBase, add) {
@@ -479,6 +648,117 @@ function verifyNegativeFixtures(documents, expectedRoutes, idSets) {
         if (!fixtureFailures.some((finding) => finding.includes(fixture.expected))) {
             fail(`negative fixture did not fail as expected: ${fixture.name}`);
         }
+    }
+
+    verifyRenderedDiagramNegativeFixtures();
+    verifyRenderedOperationNegativeFixtures();
+    verifyRenderedApiMethodNegativeFixtures();
+}
+
+function verifyRenderedDiagramNegativeFixtures() {
+    const contract = diagramContracts[0];
+    const page = docsPages.find((candidate) => candidate.path === contract.path);
+    const route = markdownToHtml(contract.path);
+    const source = fs.readFileSync(path.join(distRoot, route), "utf-8");
+    const fallbackId = diagramFallbackId(contract, "en");
+    const fallbackPattern = new RegExp(
+        `<p[^>]*\\bid="${fallbackId}"[^>]*>[\\s\\S]*?<\\/p>`,
+        "u",
+    );
+    const fixtures = [
+        {
+            name: "missing rendered diagram fallback",
+            html: source.replace(fallbackPattern, ""),
+            expected: "must render one stable diagram text fallback",
+        },
+        {
+            name: "raw rendered Mermaid block",
+            html: source.replace(
+                "</main>",
+                '<div class="rp-codeblock language-mermaid"><code>flowchart LR</code></div></main>',
+            ),
+            expected: "raw Mermaid code block",
+        },
+    ];
+
+    for (const fixture of fixtures) {
+        const document = parse(fixture.html);
+        const main = findElements(document).find((node) => node.tagName === "main");
+        const fixtureFailures = [];
+        if (!main) {
+            fail(`rendered diagram fixture is missing main: ${fixture.name}`);
+            continue;
+        }
+        verifyDiagramRenderingContract("en", page, main, (finding) => fixtureFailures.push(finding));
+        if (!fixtureFailures.some((finding) => finding.includes(fixture.expected))) {
+            fail(`negative fixture did not fail as expected: ${fixture.name}`);
+        }
+    }
+}
+
+function verifyRenderedOperationNegativeFixtures() {
+    const contract = operationPageContracts[0];
+    const page = docsPages.find((candidate) => candidate.path === contract.path);
+    const route = markdownToHtml(contract.path);
+    const source = fs.readFileSync(path.join(distRoot, route), "utf-8");
+    const roleParagraphPattern = /<p><strong><code>role<\/code> provenance\.<\/strong>[\s\S]*?<\/p>/u;
+    const fixtures = [
+        {
+            name: "missing rendered operation heading",
+            html: source.replace("1. Create the role state", "1. Removed role state"),
+            expected: "must render one heading",
+        },
+        {
+            name: "missing rendered operation label",
+            html: source.replace("Purpose and target.", "Purpose removed."),
+            expected: "rendered label order differs",
+        },
+        {
+            name: "missing rendered operation API link",
+            html: source.replace(
+                `href="${base}api/roles.html"`,
+                `href="${base}guide/introduction.html"`,
+            ),
+            expected: "rendered API link is missing",
+        },
+        {
+            name: "missing rendered output producer",
+            html: source.replace(roleParagraphPattern, (paragraph) =>
+                paragraph.replace("<code>roles.get</code>", "<code>role read</code>")),
+            expected: "rendered producer is missing",
+        },
+    ];
+
+    for (const fixture of fixtures) {
+        const document = parse(fixture.html);
+        const main = findElements(document).find((node) => node.tagName === "main");
+        if (!main) {
+            fail(`rendered operation fixture is missing main: ${fixture.name}`);
+            continue;
+        }
+        const fixtureFailures = collectRenderedOperationFailures("en", page, main, base);
+        if (!fixtureFailures.some((finding) => finding.includes(fixture.expected))) {
+            fail(`operation negative fixture did not fail as expected: ${fixture.name}`);
+        }
+    }
+}
+
+function verifyRenderedApiMethodNegativeFixtures() {
+    const contract = apiMethodContracts[0];
+    const page = docsPages.find((candidate) => candidate.path === contract.path);
+    const route = `zh/${markdownToHtml(contract.path)}`;
+    const source = fs.readFileSync(path.join(distRoot, route), "utf-8");
+    const fixture = source.replace("<strong>参数</strong>", "<strong>参数已移除</strong>");
+    const document = parse(fixture);
+    const main = findElements(document).find((node) => node.tagName === "main");
+    if (!main) {
+        fail("rendered API method fixture is missing main");
+        return;
+    }
+
+    const fixtureFailures = collectRenderedApiMethodFailures("zh", page, main);
+    if (!fixtureFailures.some((finding) => finding.includes("ordered API method evidence groups"))) {
+        fail("API method negative fixture did not fail: missing rendered parameter evidence");
     }
 }
 

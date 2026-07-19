@@ -11,13 +11,15 @@ const outputRoot = outputRootArgument
     ? path.resolve(outputRootArgument.slice("--output-root=".length))
     : fs.mkdtempSync(path.join(os.tmpdir(), "permission-core-first-success-"));
 const consumerRoot = path.join(outputRoot, "consumer");
-const cachedMongoBinary = path.join(
-    toolingRoot,
-    ".cache",
-    "mongodb-memory-server",
-    "binaries",
-    "mongod-x64-win32-7.0.37.exe",
-);
+const PACK_TIMEOUT_MS = 120_000;
+const INSTALL_TIMEOUT_MS = 300_000;
+const EXAMPLE_TIMEOUT_MS = 180_000;
+const MONGODB_VERSION = "7.0.37";
+const cachedMongoBinary = [
+    process.env.PERMISSION_CORE_MONGOD_BINARY,
+    ...findMongoBinaries(path.join(toolingRoot, ".cache", "mongodb-memory-server", "binaries")),
+    ...findMongoBinaries(path.resolve(toolingRoot, "../monSQLize/.cache/mongodb-memory-server/binaries")),
+].find((candidate) => candidate && fs.existsSync(candidate));
 
 fs.mkdirSync(consumerRoot, { recursive: true });
 assertFile(path.join(packageRoot, "dist", "index.js"));
@@ -28,7 +30,11 @@ const packOutput = run(npmCommand(), [
     "--json",
     "--pack-destination",
     outputRoot,
-], packageRoot, true);
+], packageRoot, {
+    capture: true,
+    stage: "package",
+    timeoutMs: PACK_TIMEOUT_MS,
+});
 const packResult = JSON.parse(packOutput);
 const tarballPath = path.join(outputRoot, packResult[0].filename);
 assertFile(tarballPath);
@@ -54,8 +60,15 @@ run(npmCommand(), [
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
-], consumerRoot);
-const stdout = run(process.execPath, ["first-success.mjs"], consumerRoot, true).trim();
+], consumerRoot, {
+    stage: "consumer install",
+    timeoutMs: INSTALL_TIMEOUT_MS,
+});
+const stdout = run(process.execPath, ["first-success.mjs"], consumerRoot, {
+    capture: true,
+    stage: "First Success example",
+    timeoutMs: EXAMPLE_TIMEOUT_MS,
+}).trim();
 const jsonStart = stdout.lastIndexOf('\n{') + 1;
 const result = JSON.parse(stdout.slice(jsonStart));
 if (result.example !== "basic"
@@ -69,22 +82,28 @@ if (result.example !== "basic"
 console.log("Docs First Success smoke passed: basic allowed=true cannotDelete=true afterSet=order-reader");
 console.log(`FIRST_SUCCESS_SMOKE_RETAINED=${outputRoot}`);
 
-/** Execute one child process and surface its captured failure output. */
-function run(command, args, cwd, capture = false) {
+/** Execute one bounded child process and surface its captured failure output. */
+function run(command, args, cwd, { capture = false, stage, timeoutMs }) {
+    const useShell = process.platform === "win32" && /\.cmd$/i.test(command);
     const result = spawnSync(command, args, {
         cwd,
         encoding: "utf-8",
         stdio: capture ? "pipe" : "inherit",
-        shell: process.platform === "win32",
+        shell: useShell,
+        timeout: timeoutMs,
+        windowsHide: true,
         env: {
             ...process.env,
-            ...(fs.existsSync(cachedMongoBinary)
+            ...(cachedMongoBinary
                 ? { PERMISSION_CORE_MONGOD_BINARY: cachedMongoBinary }
                 : {}),
         },
     });
+    if (result.error?.code === "ETIMEDOUT") {
+        throw new Error(`${stage} timed out after ${String(timeoutMs)} ms`);
+    }
     if (result.status !== 0) {
-        throw new Error(`${command} ${args.join(" ")} failed (${String(result.status)}):\n${result.error?.message ?? result.stderr ?? ""}`);
+        throw new Error(`${stage} failed (${String(result.status)}):\n${result.error?.message ?? result.stderr ?? ""}`);
     }
     return result.stdout ?? "";
 }
@@ -97,4 +116,16 @@ function assertFile(filePath) {
     if (!fs.statSync(filePath, { throwIfNoEntry: false })?.isFile()) {
         throw new Error(`Required package artifact is missing: ${filePath}`);
     }
+}
+
+function findMongoBinaries(directory) {
+    if (!fs.statSync(directory, { throwIfNoEntry: false })?.isDirectory()) return [];
+    return fs.readdirSync(directory, { withFileTypes: true })
+        .filter((entry) => entry.isFile()
+            && entry.name.startsWith("mongod-")
+            && entry.name.includes(MONGODB_VERSION)
+            && (process.platform === "win32"
+                ? entry.name.endsWith(".exe")
+                : path.extname(entry.name) === ""))
+        .map((entry) => path.join(directory, entry.name));
 }

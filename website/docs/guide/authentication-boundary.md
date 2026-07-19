@@ -5,13 +5,17 @@ permission-core answers authorization questions after a host has authenticated t
 ## Responsibility model
 
 ```mermaid
-flowchart LR
+flowchart TD
+  accTitle: Authentication and authorization boundary
+  accDescr: The host authenticates credentials and supplies trusted identity, scope, and claims before permission-core authorizes a route, menu, or data operation.
   A["Credential or session"] --> B["Host authentication"]
   B --> C["Trusted user, scope and claims"]
   C --> D["PermissionSubject"]
   D --> E["permission-core authorization"]
   E --> F["Route, menu or data operation"]
 ```
+
+<p className="pc-diagram-text" id="pc-diagram-authentication-boundary-en-text" data-diagram-id="authentication-boundary"><strong>Text equivalent.</strong> Credentials or a session are validated by host authentication. The host supplies trusted user identity, scope, and claims to build a `PermissionSubject`; permission-core then authorizes the requested route, menu projection, or data operation. Authentication and account recovery remain host responsibilities.</p>
 
 Authentication owns credential validation, account status, session lifetime, and identity recovery. permission-core owns role/rule lookup, deny-first evaluation, menu projection, and authorized data operations inside the supplied scope. Business handlers still own object existence and domain invariants.
 

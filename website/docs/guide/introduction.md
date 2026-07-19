@@ -22,6 +22,8 @@ permission-core is not an identity provider, login module, ORM, API gateway, or 
 
 ```mermaid
 flowchart LR
+  accTitle: permission-core runtime model
+  accDescr: An authenticated identity becomes a scoped permission subject whose effective rules drive API, menu, button, and data decisions.
   A["Authenticated identity"] --> B["PermissionSubject"]
   B --> C["Tenant-scoped roles"]
   C --> D["Effective allow and deny rules"]
@@ -29,6 +31,8 @@ flowchart LR
   D --> F["Visible menus and buttons"]
   D --> G["Authorized Mongo collection"]
 ```
+
+<p className="pc-diagram-text" id="pc-diagram-runtime-model-en-text" data-diagram-id="runtime-model"><strong>Text equivalent.</strong> The host turns an authenticated identity into a scoped `PermissionSubject`. permission-core resolves tenant-scoped roles and effective allow/deny rules, then uses that same authorization state for route and API decisions, visible menus and buttons, and authorized Mongo collection operations.</p>
 
 A scope contains at least `tenantId` and can add `appId`, `moduleId`, or `namespace`. The same `userId` and `roleId` may exist in another scope without sharing bindings or rules.
 

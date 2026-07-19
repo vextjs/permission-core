@@ -2,6 +2,7 @@
 
 `AuthorizedCollection` 是受支持的数据访问边界。它运行在宿主 MonSQLize 3.1 的事务运行时上，在操作到达 MongoDB 前把应用查询与授权条件组合起来。
 
+<span id="data-filter-vs-where"></span>
 ## `filter` 与 `where` 职责不同
 
 - `filter` 是调用方针对一次操作提供的 Mongo 风格业务查询，例如 `{ status: 'paid' }`。
@@ -27,6 +28,13 @@ const orders = pc.forSubject({
 const rows = await orders.find({ status: 'paid' });
 ```
 
+| 调用 | 参数与来源 | 状态/原始返回 |
+|---|---|---|
+| [`roles.allow(roleId, rule)`](/zh/api/roles#roles-allow) | `where` 是持久化策略 AST；`valueFrom='claims.merchantId'` 在请求时读取可信 claim | 写入角色规则并返回 mutation envelope |
+| [`pc.forSubject(input)`](/zh/api/core-and-contexts#core-for-subject) | user/scope/claims 必须来自认证边界 | 同步返回 subject，不访问数据库 |
+| [`subject.data.collection(name, options)`](/zh/api/authorized-collection#authorized-collection-factory) | 物理 collection `orders`；逻辑资源和 scope 字段映射 | 同步返回受保护 facade，不返回数据 |
+| [`orders.find(filter, options?)`](/zh/api/authorized-collection#authorized-find) | 本次业务 filter `{ status:'paid' }` | 返回授权与字段裁剪后的原始文档数组，无 management envelope |
+
 最终 Mongo 条件在逻辑上等于：
 
 ```text
@@ -34,6 +42,8 @@ const rows = await orders.find({ status: 'paid' });
 ```
 
 公开 API 不会只返回一个授权 filter 让调用方之后选择是否使用。集合会直接执行组合后的条件，调用方无法忘记或替换权限条件。
+
+也不会接受 `rows: (subject) => ...` 一类持久化函数。函数无法稳定序列化、审计、跨进程重放或比较版本；需要计算的业务值应先由认证/业务层写入可信 `claims` 或本次 `context`，再由 `valueFrom` 引用。
 
 ## 多个策略条件
 
@@ -89,11 +99,24 @@ const safe = await orders.find(
 [{ "publicValue": "shown" }]
 ```
 
+这是 `orders.find()` 的原始数组响应。两次字段 `roles.allow()` 各自返回独立 mutation envelope，示例没有展示它们的返回，是因为本节关注读取结果；生产初始化应检查写入错误。
+
+`projection: ['publicValue']` 是调用方期望字段，最终仍受字段 allow/deny 收紧。filter 中的 `status` 也需要 read 字段权限，即使它没有出现在响应 projection 中。
+
 请求 `secret`、用它过滤，或在没有无条件查询授权时按条件字段排序，都会抛出 `FIELD_PERMISSION_DENIED`。
 
 ## 受保护的读写操作
 
 门面支持 `find`、`findOne`、`count`、`findAndCount`、签名游标 `findPage`、`insertOne`、`updateOne`、`updateMany`、`deleteOne` 和 `deleteMany`。插入会校验授权后的 post-image，并从可信 subject 注入 scope 字段。更新同时检查 pre-image 与 post-image，包括字段规则和 scope 保持。
+
+| 任务 | 方法 | 原始返回 |
+|---|---|---|
+| 多条/单条读取 | [`find`](/zh/api/authorized-collection#authorized-find) / [`findOne`](/zh/api/authorized-collection#authorized-find-one) | 裁剪后的文档数组 / 文档或 `null` |
+| 统计/列表统计 | [`count`](/zh/api/authorized-collection#authorized-count) / [`findAndCount`](/zh/api/authorized-collection#authorized-find-and-count) | number / `{ data, total }` |
+| 游标分页 | [`findPage`](/zh/api/authorized-collection#authorized-find-page) | `{ items, pageInfo, total? }` |
+| 创建 | [`insertOne`](/zh/api/authorized-collection#authorized-insert-one) | `{ acknowledged, insertedId }` |
+| 单条/批量更新 | [`updateOne`](/zh/api/authorized-collection#authorized-update-one) / [`updateMany`](/zh/api/authorized-collection#authorized-update-many) | `{ acknowledged, matchedCount, modifiedCount }` |
+| 单条/批量删除 | [`deleteOne`](/zh/api/authorized-collection#authorized-delete-one) / [`deleteMany`](/zh/api/authorized-collection#authorized-delete-many) | `{ acknowledged, deletedCount }` |
 
 ```ts
 await scoped.roles.allow('owner-writer', {
@@ -111,6 +134,8 @@ const result = await orders.updateOne(
 ```json
 { "acknowledged": true, "matchedCount": 1, "modifiedCount": 1 }
 ```
+
+这是 `updateOne()` 的完整业务结果对象。`matchedCount=0` 表示授权组合后没有候选；如果调用方试图修改无权限字段或 scope 字段，则会显式抛错，而不是悄悄返回 0。
 
 批量更新和删除必须提供 1～1000 的 `maxAffected`，实际 pre-image 数量超过上限时事务中止。支持的更新操作符为 `$set`、`$unset`、`$inc`、`$mul`、`$min`、`$max`、`$addToSet`、`$push` 和 `$pull`。
 

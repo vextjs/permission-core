@@ -11,6 +11,42 @@
 
 ## 配置
 
+先在宿主 MonSQLize 3.1 上配置 `getCache()` 将返回的后端。单进程开发可使用其内置内存缓存：
+
+```ts
+import MonSQLize from 'monsqlize';
+
+const msq = new MonSQLize({
+  type: 'mongodb',
+  databaseName: 'app',
+  config: { uri: 'mongodb://127.0.0.1:27017' },
+  cache: {
+    maxEntries: 10_000,
+    defaultTtl: 30_000,
+  },
+});
+await msq.connect();
+```
+
+内存后端只适用于单进程语义。多实例部署最直接的共享配置是把 MonSQLize 的 Redis cache adapter 作为后端，使所有 PermissionCore 实例的 `get/set/del/delPattern` 指向同一存储：
+
+```ts
+const sharedCache = MonSQLize.createRedisCacheAdapter(
+  'redis://127.0.0.1:6379',
+);
+const msq = new MonSQLize({
+  type: 'mongodb',
+  databaseName: 'app',
+  config: { uri: 'mongodb://127.0.0.1:27017' },
+  cache: sharedCache,
+});
+await msq.connect();
+```
+
+这两段配置的是 **MonSQLize 所有的缓存后端**。permission-core 不直接依赖或配置 cache-hub，也不创建 Redis 客户端。若宿主采用 MonSQLize 多级缓存，还必须证明跨实例的模式失效会触达每个 L1；无法证明时保持权限缓存关闭，或对权限层使用直接共享后端。
+
+然后显式启用 permission-core 语义缓存：
+
 ```ts
 const pc = new PermissionCore({
   monsqlize: msq,
@@ -40,6 +76,17 @@ const health = await pc.init();
   }
 }
 ```
+
+这个 JSON 是 `pc.init()` 返回的原始 `PermissionCoreHealth` 中 cache 部分的节选，不是缓存配置回显。`backendState: 'opaque'` 只表示 permission-core 不探测宿主缓存内部健康，不等于后端已经验证可用。
+
+| 配置/调用 | 参数或返回 | 作用 |
+|---|---|---|
+| `cache.enabled` | 必须显式 `true` | 让 core 在 init 时调用 `monsqlize.getCache()` 并校验必需方法。 |
+| `cache.consistency` | 启用时必须为 `ordered-bounded-stale` | 调用方确认后端满足提交后有序失效及有界陈旧窗口。 |
+| `cache.ttlMs` | 默认 30000，范围 100..86400000 | permission-core 语义条目的 TTL；不是 MonSQLize 普通业务查询的 cache TTL。 |
+| [`pc.init()`](/zh/api/core-and-contexts#core-init) | 无参数 | 初始化持久化/缓存能力并返回当前 health；只允许成功初始化一次。 |
+| [`pc.health()`](/zh/api/core-and-contexts#core-health) | 无参数 | 随时重新读取 health，不修改缓存状态。 |
+| [`pc.close()`](/zh/api/core-and-contexts#core-close) | 无参数 | 排空 core；不会关闭宿主 MonSQLize 或其缓存后端。 |
 
 `ttlMs` 默认为 `30000`，范围是 `100..86400000`。启用缓存时必须提供 `consistency`，当前唯一值是 `ordered-bounded-stale`。省略 `cache` 或设置 `{ enabled: false }` 都会完全绕过权限缓存。
 

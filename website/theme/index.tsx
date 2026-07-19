@@ -202,6 +202,38 @@ function activateFocusedControlWithoutClosedSearch(event: KeyboardEvent) {
     control.click();
 }
 
+function syncMermaidAccessibility() {
+    const diagrams = Array.from(
+        document.querySelectorAll<SVGSVGElement>(
+            "main svg.flowchart, main svg[aria-roledescription]",
+        ),
+    );
+    const fallbacks = Array.from(
+        document.querySelectorAll<HTMLElement>(
+            "main .pc-diagram-text[data-diagram-id]",
+        ),
+    );
+
+    for (const [index, diagram] of diagrams.entries()) {
+        const container = diagram.parentElement;
+        const fallback = fallbacks[index];
+        if (!container) continue;
+
+        container.classList.add("pc-mermaid");
+        container.dataset.diagramRendered = "true";
+        if (!diagram.hasAttribute("role")) diagram.setAttribute("role", "img");
+        if (fallback?.id) {
+            const describedBy = new Set(
+                (diagram.getAttribute("aria-describedby") ?? "")
+                    .split(/\s+/)
+                    .filter(Boolean),
+            );
+            describedBy.add(fallback.id);
+            diagram.setAttribute("aria-describedby", [...describedBy].join(" "));
+        }
+    }
+}
+
 function syncDrawerAccessibility() {
     const sidebar = document.querySelector<HTMLElement>(".rp-doc-layout__sidebar");
     const outline = document.querySelector<HTMLElement>(".rp-doc-layout__outline");
@@ -261,6 +293,7 @@ function syncDrawerAccessibility() {
         main.id = "pc-main-content";
         main.tabIndex = -1;
     }
+    syncMermaidAccessibility();
     syncInteractiveAccessibility();
 }
 

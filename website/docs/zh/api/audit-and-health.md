@@ -27,6 +27,51 @@ interface MutationResult<T> {
 
 管理选项可以包含 `actorId`、`reason`、`requestId`、`idempotencyKey`。这些值会成为有界关联证据，但不会授予变更权限。
 
+## 方法与字段详解
+
+<span id="audit-health-init"></span>
+### `pc.init()`
+
+<!-- docs:method name=init locale=zh -->
+
+- **用途**：校验 MonSQLize 能力、初始化权限 schema/index、验证资源方案并进入 ready。
+- **参数**：无；构造 options 已保存在 core。
+- **状态影响**：首次成功会改变 core lifecycle；重复并发初始化共享同一初始化过程，成功后不应再次作为迁移命令调用。
+- **原始返回**：`Promise<PermissionCoreHealth>`，直接返回 health 对象，没有 `data` envelope。
+- **失败**：配置、schema contract、索引或数据库失败会阻止 ready，并在可用时记录 `lastInitError`。
+
+<span id="audit-health-health"></span>
+### `pc.health()`
+
+<!-- docs:method name=health locale=zh -->
+
+- **用途**：读取当前 core、数据库、schema、token、缓存和审计协调状态。
+- **参数**：无。
+- **状态影响**：只读；数据库 down 可以体现在返回值而不是抛错。
+- **原始返回**：`Promise<PermissionCoreHealth>`；`status` 是聚合状态，仍应读取每个子域定位原因。
+
+<!-- docs:params owner=PermissionCoreHealth locale=zh -->
+
+| 字段 | 怎样读取 |
+|---|---|
+| `status/lifecycle/initialized` | `up` 可服务；`degraded` 需处置但数据库可能仍 up；`down` 不应通过 readiness。 |
+| `namespace` | collectionPrefix、资源方案 digest 和命名空间身份；多实例应一致。 |
+| `database` | MonSQLize/Mongo 健康及最后检查时间；`unknown` 不等于 up。 |
+| `schema` | expected version/contract 与 mismatch 计数；`truncated` 时实际数量可能更大。 |
+| `tokens` | ephemeral/configured 及跨实例稳定性；preview/cursor 跨实例依赖 configured secret。 |
+| `cache` | 权限层启用状态、读回退、失效事故与风险截止时间。`backendState='opaque'` 不证明后端健康。 |
+| `audit.pendingCacheOutcomes` | 数据库已提交但缓存结果仍待协调的操作数。 |
+| `lastInitError` | 最近初始化失败的 code/message；不是当前数据库探活的替代。 |
+
+<!-- docs:params owner=MutationAuditOptions locale=zh -->
+
+| 选项 | 是否改变权限 | 真实用途 |
+|---|:---:|---|
+| `actorId` | 否 | 记录谁发起管理变更。 |
+| `reason` | 否 | 记录为什么变更。 |
+| `requestId` | 否 | 与宿主请求/日志关联。 |
+| `idempotencyKey` | 否 | 对同一直接写入安全重放；相同 key 不同 input 会冲突。 |
+
 ## 响应与副作用
 
 `PermissionCoreHealth` 报告 lifecycle/database/schema/token/cache/audit 状态及 namespace hash。`status: 'degraded'` 表示数据库可用，但 schema mismatch、缓存事件或待处理缓存结果需要处置。变更的审计证据与状态变化一起提交；提交后的缓存结果随后可能完成、绕过或被协调。
@@ -47,6 +92,8 @@ interface MutationResult<T> {
   }
 }
 ```
+
+这是 `PermissionCoreHealth` 原始对象的节选。健康响应没有 `committed` 或 `operationId`；那些字段属于 mutation response。
 
 ## 失败与限制
 
@@ -71,6 +118,15 @@ businessAudit.info({ operationId: result.operationId, auditId: result.auditId })
   "cache": { "status": "completed" }
 }
 ```
+
+这是 `roles.create()` 原始 `MutationResult<Role>` 的审计字段节选，不是单独的“写审计”方法响应。真正的新角色仍在 `result.data`，完整 envelope 见[公共响应合同](/zh/api/core-and-contexts#common-response-contracts)。
+
+| 字段 | 后续动作 |
+|---|---|
+| `operationId/auditId` | 写入业务日志和管理操作回执；permission-core 不提供公开通用查询 manager。 |
+| `replayed` | `true` 表示同一幂等写入已重放，不要重复外部副作用。 |
+| `cache.status` | `degraded` 时数据库提交仍有效；告警并按 health 协调，不要重做创建。 |
+| `committed/changed` | committed 固定 true；changed=false 是成功 no-op/幂等，不是失败。 |
 
 ## 相关内容
 

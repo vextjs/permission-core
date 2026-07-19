@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { defineConfig } from "@rspress/core";
 import { pluginSitemap } from "@rspress/plugin-sitemap";
+import { permissionCoreMermaidPlugin } from "./plugins/permission-core-mermaid";
 import {
     docsPages,
     guideGroups,
@@ -244,6 +245,17 @@ export default defineConfig({
         },
     ],
     plugins: [
+        permissionCoreMermaidPlugin({
+            componentPath: path.join(__dirname, "theme", "MermaidRenderer.tsx"),
+            mermaidConfig: {
+                securityLevel: "strict",
+                startOnLoad: false,
+                flowchart: {
+                    htmlLabels: false,
+                    useMaxWidth: true,
+                },
+            },
+        }),
         pluginSitemap({
             siteUrl: docsSiteUrl,
         }),

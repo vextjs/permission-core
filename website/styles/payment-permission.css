@@ -671,6 +671,42 @@ body::after {
   box-shadow: var(--pc-code-shadow);
 }
 
+.pc-mermaid {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 12px;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+}
+
+.pc-mermaid > svg {
+  display: block;
+  min-width: 100%;
+  max-width: none !important;
+  height: auto;
+  margin-inline: auto;
+}
+
+.pc-diagram-text {
+  margin: 8px 0 24px;
+  padding: 4px 0 4px 14px;
+  border-left: 3px solid var(--pc-teal);
+  color: var(--pc-muted);
+  line-height: 1.65;
+}
+
+.pc-diagram-text strong {
+  color: var(--pc-ink);
+}
+
+@media (max-width: 768px) {
+  .pc-mermaid > svg {
+    min-width: 680px;
+  }
+}
+
 @media (max-width: 1080px) {
   .rp-home-hero.rp-home-hero {
     grid-template-columns: 1fr;
