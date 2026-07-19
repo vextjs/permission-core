@@ -1,102 +1,87 @@
-import { PermissionCoreError } from "../core/errors";
-import { PermissionCoreErrorCode, type PermissionScope, type PermissionSubject } from "../types";
-import { assertNonEmptyString } from "../utils/validation";
+import type {
+    PermissionScope,
+    PermissionSubject,
+    PolicyContext,
+} from "../types";
+import { digestCanonical } from "../internal/canonical";
+import { isWellFormedUnicode } from "../internal/unicode";
+import {
+    assertOnlyKeys,
+    assertPlainRecord,
+    clonePolicyRecord,
+} from "../internal/plain-data";
+import { validationError } from "../core/errors";
 
-/**
- * 旧 userId API 使用的默认单租户范围。
- */
-export const DEFAULT_PERMISSION_SCOPE: PermissionScope = Object.freeze({
-    tenantId: "default",
-});
+const SCOPE_KEYS = ["tenantId", "appId", "moduleId", "namespace"] as const;
+const SUBJECT_KEYS = ["userId", "scope", "claims"] as const;
+const ID_MAX_BYTES = 128;
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/u;
+const FORBIDDEN_IDS = new Set(["__proto__", "prototype", "constructor"]);
 
-/**
- * 断言 scope 字段适合作为稳定 key 片段。
- */
-function assertScopeSegment(value: unknown, name: string): asserts value is string {
-    assertNonEmptyString(value, name);
-    if (value.includes("|")) {
-        throw new PermissionCoreError(
-            PermissionCoreErrorCode.INVALID_ARGUMENT,
-            `${name} cannot contain '|'`,
-        );
+function normalizeId(value: unknown, field: string, errorCode: "INVALID_SUBJECT" | "INVALID_ARGUMENT") {
+    if (typeof value !== "string") {
+        throw validationError(errorCode, field, "must be a string");
     }
-}
-
-/**
- * 归一化权限范围。
- */
-export function normalizePermissionScope(
-    scope: Partial<PermissionScope> | undefined,
-    fallback: PermissionScope = DEFAULT_PERMISSION_SCOPE,
-): PermissionScope {
-    // An explicitly supplied scope must identify its tenant; only an omitted scope uses the legacy fallback.
-    const tenantId = scope === undefined ? fallback.tenantId : scope.tenantId;
-    assertScopeSegment(tenantId, "tenantId");
-
-    const normalized: PermissionScope = {
-        tenantId,
-    };
-
-    const appId = scope?.appId ?? fallback.appId;
-    if (appId !== undefined) {
-        assertScopeSegment(appId, "appId");
-        normalized.appId = appId;
+    const normalized = value.trim();
+    if (!normalized) {
+        throw validationError(errorCode, field, "cannot be empty");
     }
-
-    const moduleId = scope?.moduleId ?? fallback.moduleId;
-    if (moduleId !== undefined) {
-        assertScopeSegment(moduleId, "moduleId");
-        normalized.moduleId = moduleId;
+    if (Buffer.byteLength(normalized, "utf8") > ID_MAX_BYTES) {
+        throw validationError(errorCode, field, `exceeds ${ID_MAX_BYTES} UTF-8 bytes`);
     }
-
-    const namespace = scope?.namespace ?? fallback.namespace;
-    if (namespace !== undefined) {
-        assertScopeSegment(namespace, "namespace");
-        normalized.namespace = namespace;
+    if (CONTROL_CHARACTERS.test(normalized)) {
+        throw validationError(errorCode, field, "cannot contain control characters");
     }
-
+    if (!isWellFormedUnicode(normalized)) {
+        throw validationError(errorCode, field, "cannot contain an unpaired UTF-16 surrogate");
+    }
+    if (FORBIDDEN_IDS.has(normalized)) {
+        throw validationError(errorCode, field, "uses a reserved identifier");
+    }
     return normalized;
 }
 
-/**
- * 从 subject 中提取归一化 scope。
- */
-export function getSubjectScope(subject: PermissionSubject): PermissionScope {
-    assertPermissionSubject(subject);
-    return normalizePermissionScope(subject);
-}
+export function normalizeScope(scope: PermissionScope): Readonly<PermissionScope> {
+    const record = assertPlainRecord(scope, "INVALID_SUBJECT", "scope");
+    assertOnlyKeys(record, SCOPE_KEYS, "INVALID_SUBJECT", "scope");
 
-/**
- * 断言 subject 满足新多租户 API 的最低要求。
- */
-export function assertPermissionSubject(subject: PermissionSubject): asserts subject is PermissionSubject {
-    if (typeof subject !== "object" || subject === null) {
-        throw new PermissionCoreError(
-            PermissionCoreErrorCode.INVALID_ARGUMENT,
-            "subject must be an object",
-        );
+    const normalized: PermissionScope = {
+        tenantId: normalizeId(record.tenantId, "scope.tenantId", "INVALID_SUBJECT"),
+    };
+    for (const key of SCOPE_KEYS.slice(1)) {
+        if (Object.hasOwn(record, key)) {
+            normalized[key] = normalizeId(record[key], `scope.${key}`, "INVALID_SUBJECT");
+        }
     }
-
-    assertNonEmptyString(subject.userId, "subject.userId");
-    normalizePermissionScope(subject);
+    return Object.freeze(normalized);
 }
 
-/**
- * 生成稳定的租户隔离 key。
- */
-export function getPermissionScopeKey(scope: PermissionScope = DEFAULT_PERMISSION_SCOPE): string {
-    const normalized = normalizePermissionScope(scope);
-    return [
-        `tenant:${normalized.tenantId}`,
-        `app:${normalized.appId ?? "-"}`,
-        `module:${normalized.moduleId ?? "-"}`,
-        `ns:${normalized.namespace ?? "-"}`,
-    ].join("|");
+export function createScopeKey(scope: PermissionScope) {
+    return digestCanonical(normalizeScope(scope));
 }
 
-/**
- * 判断两个 scope 是否指向同一隔离范围。
- */
-export function isSamePermissionScope(left: PermissionScope, right: PermissionScope): boolean {
-    return getPermissionScopeKey(left) === getPermissionScopeKey(right);
+export function normalizeSubject(subject: PermissionSubject): Readonly<PermissionSubject> {
+    const record = assertPlainRecord(subject, "INVALID_SUBJECT", "subject");
+    assertOnlyKeys(record, SUBJECT_KEYS, "INVALID_SUBJECT", "subject");
+
+    const normalized: PermissionSubject = {
+        userId: normalizeId(record.userId, "subject.userId", "INVALID_SUBJECT"),
+        scope: normalizeScope(record.scope as PermissionScope),
+    };
+    if (Object.hasOwn(record, "claims")) {
+        normalized.claims = clonePolicyRecord(record.claims, "INVALID_SUBJECT", "subject.claims");
+    }
+    return Object.freeze(normalized);
+}
+
+export function normalizePolicyContext(context?: PolicyContext): PolicyContext {
+    return clonePolicyRecord(context ?? {}, "INVALID_ARGUMENT", "context");
+}
+
+export function createClaimsFingerprint(subject: PermissionSubject) {
+    return digestCanonical(normalizeSubject(subject).claims ?? {});
+}
+
+export function createContextFingerprint(context?: PolicyContext) {
+    return digestCanonical(normalizePolicyContext(context));
 }

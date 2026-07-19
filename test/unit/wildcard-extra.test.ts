@@ -12,17 +12,19 @@ describe("wildcard matching additional paths", () => {
         expect(matchResource("GET:/api/*", "GET:/api")).toBe(false);
         expect(matchResource("GET:/api/:id", "GET:/api")).toBe(false);
         expect(matchResource("POST:/api/orders", "GET:/api/orders")).toBe(false);
+        expect(matchResource("GET:/api/*", "GET:/api/\ud800")).toBe(false);
     });
 
     it("supports parameterized HTTP paths and db wildcards", () => {
         expect(matchResource("GET:/api/:id", "GET:/api/42")).toBe(true);
         expect(matchResource("db:*", "db:orders")).toBe(true);
         expect(matchResource("db:orders", "db:orders")).toBe(true);
-        expect(matchResource("db:orders:*", "db:orders:status")).toBe(true);
+        expect(matchResource("db:orders:field:*", "db:orders:field:status")).toBe(true);
         expect(matchResource("db:orders", "db:users")).toBe(false);
-        expect(matchResource("db:orders", "db:orders:status:extra")).toBe(false);
-        expect(matchResource("db:orders", "db:orders:status")).toBe(false);
-        expect(matchResource("db:orders:status", "db:orders")).toBe(false);
+        expect(matchResource("db:orders", "db:orders:field:status:extra")).toBe(false);
+        expect(matchResource("db:orders", "db:orders:field:status")).toBe(false);
+        expect(matchResource("db:orders:field:status", "db:orders")).toBe(false);
+        expect(matchResource("db:orders:status", "db:orders:field:status")).toBe(false);
         expect(matchResource("db:orders", "GET:/api/orders")).toBe(false);
     });
 

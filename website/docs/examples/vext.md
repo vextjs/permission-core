@@ -1,51 +1,55 @@
-# vext Integration
+# Vext Integration
 
-The runnable example uses the built-in adapter inside a real `vextjs/testing` host. It does not mock a request object or hand-roll permission middleware.
+## Scenario
 
-```javascript
-import { createTestApp } from 'vextjs/testing';
-import { PermissionCore } from 'permission-core';
-import { createVextPermissionPlugin } from 'permission-core/adapters/vext';
+This example loads the native Vext plugin, protects a route template, exercises public/unauthenticated/denied/allowed requests, proves route reload requires restart, and verifies that plugin shutdown does not close the host database.
 
-const pc = new PermissionCore();
-const permissionPlugin = createVextPermissionPlugin({
-  core: pc,
-  init: false,
-  tenantRequired: true,
-});
-
-const app = await createTestApp({
-  rootDir: new URL('../../../examples/vext-adapter/app/', import.meta.url),
-});
-
-app.use(async (req, _res, next) => {
-  req.auth = {
-    isAuthenticated: true,
-    userId: String(req.headers['x-user-id']),
-    tenantId: String(req.headers['x-tenant-id']),
-  };
-  await next();
-});
-app.use(permissionPlugin.middleware);
-```
-
-Route options declare the permissions consumed by the adapter guard:
-
-```javascript
-app.get('/api/users', {
-  auth: {
-    permissions: [{ action: 'invoke', resource: 'api:GET:/api/users' }],
-    mode: 'all',
-  },
-}, async (_req, res) => res.json({ ok: true }));
-```
-
-Run it from the repository root:
+## Run
 
 ```bash
 npm run example:vext
 ```
 
-The example proves an allowed `200` request and a denied `403 AUTH_FORBIDDEN` request. Authentication must run before the permission middleware. Keep collection, row, and field authorization in the service layer.
+The canonical sources are `examples/vext/index.mjs` (`docs:vext:start` to `docs:vext:end`) and `examples/vext/app/src/routes/index.mjs`.
 
-See the [vext Adapter guide](/guide/vext-adapter) and [API reference](/api/vext-adapter) for tenant conflict handling, resource resolution, `any/all` groups, manifest limits, and lifecycle ownership.
+## Source walkthrough
+
+```js
+await permissionPlugin({ monsqlize: database.monsqlize }).setup(app);
+
+app.get('/public', {}, publicHandler);
+app.get('/orders/:id', { permission: true }, async (req, res) => {
+  res.json({ orderId: req.params.id, userId: req.auth.permission.subject.userId });
+});
+```
+
+`permission: true` derives `invoke` on `GET:/orders/:id`. The test-only header middleware supplies a reproducible `req.auth`; production uses a real authentication plugin.
+
+## Expected output
+
+```json
+{
+  "example": "vext",
+  "ok": true,
+  "responses": {
+    "public": 200,
+    "missingAuthentication": 401,
+    "permissionDenied": 403,
+    "permissionAllowed": 200,
+    "routeReloadRequiresRestart": 503
+  },
+  "allowedBody": { "orderId": "42", "userId": "u-vext" },
+  "lifecycle": {
+    "permissionCoreClosedByPlugin": true,
+    "hostDatabaseStillConnected": true
+  }
+}
+```
+
+## Production boundary
+
+`createTestApp`, the memory database, and `x-example-user` authentication are fixtures. Production registers `permissionPlugin` in the normal Vext plugin graph, loads authentication first, passes/discovers the host MonSQLize 3.1 instance, and performs a cold restart when routes change.
+
+## Related
+
+See [Vext Plugin](/guide/vext-plugin), [Authentication Boundary](/guide/authentication-boundary), [Vext Plugin API](/api/vext-plugin), and [Troubleshooting](/guide/troubleshooting).

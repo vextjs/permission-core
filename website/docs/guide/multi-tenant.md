@@ -1,67 +1,100 @@
-# Multi-tenant Permissions
+# Multi-Tenant Model
 
-New subject APIs accept a real tenant scope. The legacy `userId` APIs still work and map to the default scope `{ tenantId: "default" }`.
+Tenant isolation is part of every authorization identity, not a filter added by convention. Roles, user bindings, rules, menus, API bindings, revisions, audit state, cache keys, and data operations all live inside a normalized scope.
+
+## Relationship model
+
+```mermaid
+erDiagram
+  TENANT ||--o{ SCOPE : contains
+  SCOPE ||--o{ ROLE : defines
+  SCOPE ||--o{ USER_ROLE_SET : owns
+  USER ||--o{ USER_ROLE_SET : has
+  USER_ROLE_SET }o--o{ ROLE : binds
+  ROLE ||--o{ RULE : grants_or_denies
+  ROLE ||--o{ MENU_GRANT : receives
+  SCOPE ||--o{ MENU_NODE : contains
+  MENU_NODE ||--o{ API_BINDING : owns
+```
+
+`tenantId` is required. `appId`, `moduleId`, and `namespace` are optional additional dimensions. A user is identified by `userId` plus the complete scope; a role ID has meaning only inside that same complete scope.
+
+## Same identifiers, isolated state
 
 ```ts
-import { PermissionCore } from "permission-core";
+const scopeA = { tenantId: 'tenant-a', appId: 'admin' };
+const scopeB = { tenantId: 'tenant-b', appId: 'admin' };
+const tenantA = pc.scope(scopeA);
+const tenantB = pc.scope(scopeB);
 
-const pc = new PermissionCore();
-await pc.init();
+await tenantA.roles.create({ id: 'manager', label: 'A manager' });
+await tenantA.roles.allow('manager', {
+  action: 'read', resource: 'ui:page:tenant-a-dashboard',
+});
+await tenantA.userRoles.assign('same-user', 'manager');
 
-const scope = { tenantId: "tenant-a", appId: "admin" };
-const subject = { ...scope, userId: "u-1" };
-const tenant = pc.scope(scope);
-
-await tenant.roles.create("admin", { label: "Admin" });
-await tenant.roles.allow("admin", "read", "ui:menu:system.user");
-await tenant.users.assign(subject.userId, "admin");
-
-console.log(await pc.canSubject(subject, "read", "ui:menu:system.user")); // true
-console.log(await pc.canSubject(
-  { ...subject, tenantId: "tenant-b" },
-  "read",
-  "ui:menu:system.user",
-)); // false
-
-await pc.close();
+await tenantB.roles.create({ id: 'manager', label: 'B manager' });
+await tenantB.roles.allow('manager', {
+  action: 'read', resource: 'ui:page:tenant-b-dashboard',
+});
+await tenantB.userRoles.assign('same-user', 'manager');
 ```
 
-Run the two-tenant proof from the repository root:
-
-```bash
-npm run example:multi-tenant
+```json
+{
+  "tenantAOwnResource": true,
+  "tenantACrossResource": false,
+  "tenantBOwnResource": true,
+  "tenantBCrossResource": false
+}
 ```
 
-`PermissionScope` fields:
+The database may contain the same `roleId` and `userId` values for both tenants, but their canonical scope keys and indexes differ. No global role lookup or unscoped user assignment exists in the public management API.
 
-| Field | Purpose |
-|---|---|
-| `tenantId` | Real tenant boundary |
-| `appId` | Optional application boundary inside a tenant |
-| `moduleId` | Optional module boundary |
-| `namespace` | Optional permission domain boundary |
+## Construct trusted subjects
 
-The storage adapters and rule cache include `scopeKey`, so the same `userId` and `roleId` can safely exist in different tenants with different permissions.
+Build the scope from authenticated server state or a trusted server-side resolver. Do not copy arbitrary `x-tenant-id` or request-body values into `PermissionSubject` merely because they are present. When two trusted sources disagree, reject with `SCOPE_CONFLICT` rather than choosing one.
 
-`MonSQLizeStorageAdapterOptions.namespace` is still only a physical collection prefix. It is not the same as `PermissionScope.namespace`, and it is not a tenant boundary.
+```ts
+const subject = pc.forSubject({
+  userId: session.userId,
+  scope: {
+    tenantId: session.tenantId,
+    appId: 'admin',
+  },
+  claims: { merchantId: session.merchantId },
+});
+```
 
-## Boundary rules
+Scope and subject IDs are trimmed, bounded to 128 UTF-8 bytes, and reject control characters, malformed Unicode, unknown keys, and reserved identifiers.
 
-- Every subject API requires a non-empty `tenantId`; raw JavaScript calls without it fail instead of falling back to the default tenant.
-- `pc.scope(scope).forSubject(subject)` requires the subject scope to exactly match the bound scope.
-- The same `userId` and `roleId` may exist in multiple tenants, but roles, rules, user bindings, cache entries, menu assets, revisions, and audits remain partitioned by `scopeKey`.
-- Legacy `can(userId, ...)`, `roles`, and `users` use only the configured `defaultScope`. Do not mix them with subject APIs inside a tenant-aware request.
+## Enforce scope in business data
 
-## Production storage
+Authorized collections require an explicit field mapping for every scope dimension in use:
 
-`MemoryAdapter` proves isolation but loses data on restart. Use `FileAdapter` for a single process or `MonSQLizeStorageAdapter` for shared production persistence. If the application also uses the menu module, configure a matching `FileMenuStorageAdapter` or `MonSQLizeMenuStorageAdapter`; core storage does not persist menu assets automatically.
+```ts
+const orders = subject.data.collection('orders', {
+  resource: 'db:orders',
+  scopeFields: {
+    tenantId: 'tenantId',
+    appId: 'applicationId',
+  },
+});
+```
 
-## Failure recovery
+Reads and writes add exact scalar equality for these fields. Array, object, missing, or mismatched values do not count as the tenant value. Inserts receive trusted scope values; updates cannot mutate scope fields outside the authorized scope.
 
-| Error | Meaning | Recovery |
-|---|---|---|
-| `INVALID_ARGUMENT`: `tenantId must be a non-empty string` | The subject did not carry an explicit tenant | Restore tenant identity before authorization; do not substitute a global default |
-| `INVALID_ARGUMENT`: `subject scope does not match` | A subject crossed a bound scope | Recreate the scoped context from the authenticated subject |
-| Correct user gets no permissions | Role/user binding was created in another scope | Inspect roles and bindings through `pc.scope(theSameScope)` |
+## Persistence, cache, and audit isolation
 
-For framework header/claim conflict handling, continue with the [vext adapter guide](/guide/vext-adapter).
+Permission collections use a canonical scope key and scope-aware unique indexes. Revision vectors are advanced within that scope. Semantic cache keys include the core namespace, scope, subject, claims/context fingerprints, and read family. Invalidation targets affected scope/role/user families rather than flushing another tenant.
+
+Mutation audit evidence includes scope-owned revision and operation identity. Logs and metrics should expose a tenant-safe hash or approved label, not accept an untrusted tenant string as the only correlation key.
+
+## Operational checks
+
+- Test the same user and role IDs in two scopes, including cross-resource denials.
+- Test every configured `scopeFields` dimension on find, count, insert, update, and delete.
+- Use the same scope dimensions on every service instance and in Vext authentication integration.
+- Treat changing the scope model as a schema contract change, not a UI setting.
+
+Run the [Multi-Tenant example](/examples/multi-tenant), then use [Core and Contexts](/api/core-and-contexts) for exact subject and scope signatures.

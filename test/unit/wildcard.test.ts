@@ -17,12 +17,12 @@ describe("matchResource", () => {
     });
 
     it("matches field-level DB wildcards", () => {
-        expect(matchResource("db:users:*", "db:users:email")).toBe(true);
-        expect(matchResource("db:users:*", "db:orders:email")).toBe(false);
+        expect(matchResource("db:users:field:*", "db:users:field:email")).toBe(true);
+        expect(matchResource("db:users:field:*", "db:orders:field:email")).toBe(false);
     });
 
     it("supports global wildcard resources", () => {
-        expect(matchResource("*", "db:orders:status")).toBe(true);
+        expect(matchResource("*", "db:orders:field:status")).toBe(true);
         expect(matchResource("*", "POST:/api/orders")).toBe(true);
     });
 
@@ -37,5 +37,6 @@ describe("matchResource", () => {
         expect(matchResource("api:*:/api/users", "GET:/api/users")).toBe(false);
         expect(matchResource("ui:*", "api:GET:/api/users")).toBe(false);
         expect(matchResource("db:*", "ui:menu:orders")).toBe(false);
+        expect(matchResource("db:users:*", "db:users:field:email")).toBe(false);
     });
 });

@@ -1,219 +1,119 @@
-/**
- * 权限规则的效果类型。
- */
-export type PermissionRuleType = "allow" | "deny";
+export type {
+    BoundedHealthCount,
+    BuiltInPermissionAction,
+    PermissionAction,
+    PermissionCoreHealth,
+    PermissionCoreLifecycle,
+    PermissionCoreOptions,
+    PermissionRuleAction,
+    PermissionScope,
+    PermissionSemanticCacheOptions,
+    PermissionSubject,
+    PolicyContext,
+    PolicyScalar,
+    PolicyValue,
+    ResourceSchemeDefinition,
+    ResourceSchemeProbe,
+} from "./foundation";
 
-/**
- * 统一的权限动作模型。
- *
- * 接口权限与数据权限共用同一套 action，避免在运行时拆成两套互不兼容的判定模型。
- */
-export type PermissionAction =
-    | "invoke"
-    | "read"
-    | "create"
-    | "update"
-    | "delete"
-    | "write"
-    | "manage"
-    | "*";
+export type {
+    AuditLookupDetails,
+    CapacityRiskAckRequiredDetails,
+    CoreCloseTimeoutDetails,
+    DatabaseFailureDetails,
+    DataValueUnsupportedDetails,
+    LimitExceededDetails,
+    PermissionCoreErrorCode,
+    PermissionCoreErrorDetails,
+    PersistedStateInvalidDetails,
+    PreviewRequiredDetails,
+    ReconcileSupersededDetails,
+    RevisionConflictDetails,
+    SchemaMismatchDetails,
+    ValidationErrorDetails,
+} from "./errors";
 
-/**
- * 权限隔离范围。
- *
- * `tenantId` 是真实租户边界；`appId`、`moduleId` 和 `namespace` 用于同一租户内继续拆分应用、模块或权限域。
- */
-export interface PermissionScope {
-    /** 真实租户 ID。 */
-    tenantId: string;
-    /** 可选应用 ID。 */
-    appId?: string;
-    /** 可选模块 ID。 */
-    moduleId?: string;
-    /** 可选权限域命名空间。 */
-    namespace?: string;
-}
+export type {
+    DynamicRowCondition,
+    LiteralRowCondition,
+    NonEmptyReadonlyArray,
+    PolicyConditionOutcome,
+    RowCondition,
+    RowOperator,
+} from "./policy";
 
-/**
- * 发起鉴权的主体。
- */
-export interface PermissionSubject extends PermissionScope {
-    /** 当前用户 ID。 */
-    userId: string;
-    /** 可选角色快照，保留给 adapter 或后续外部身份源扩展。 */
-    roles?: string[];
-    /** 可选 claims，便于框架 adapter 传递认证上下文。 */
-    claims?: Record<string, unknown>;
-}
+export type * from "./data";
 
-/**
- * 行级权限 DSL 支持的比较操作符。
- */
-export type RowOperator =
-    | "eq"
-    | "ne"
-    | "in"
-    | "nin"
-    | "gt"
-    | "gte"
-    | "lt"
-    | "lte"
-    | "contains"
-    | "exists";
+export type {
+    AuditPreviewExpectation,
+    AuthorizationCapacityAssessment,
+    AuthorizationPreviewExpectation,
+    BatchMutationSummary,
+    BoundedDetails,
+    CountSample,
+    CursorQuery,
+    EffectiveCapacityUsage,
+    EntityRevisionRef,
+    ExpectedRevisionVector,
+    ImpactPreview,
+    ManagementConflict,
+    ManagementWarning,
+    MutationOptions,
+    MutationResult,
+    PageResult,
+    PreviewExecutionOptions,
+    PreviewOptions,
+    RequiredRevisionOptions,
+    RequiredRevisionVectorOptions,
+    ResponseDetailBudget,
+    RevisionVector,
+    SubjectRuntimeResult,
+    VersionedResult,
+} from "./management";
 
-/**
- * 行级权限条件树。
- *
- * 逻辑节点通过 `all` / `any` / `not` 组合，叶子节点通过 `field + op + value/valueFrom` 描述比较规则。
- */
-export type RowCondition =
-    | { all: RowCondition[] }
-    | { any: RowCondition[] }
-    | { not: RowCondition }
-    | {
-        field: string;
-        op: RowOperator;
-        value?: unknown;
-        valueFrom?: string;
-    };
+export type {
+    EffectivePermissionSnapshot,
+    EffectiveResourcePattern,
+    EffectiveRoleRules,
+    EffectiveRuleEntry,
+    EffectiveUserRoleEntry,
+    EntityStatus,
+    ManualRuleChange,
+    ManualRuleChangePlan,
+    ManualRuleChangeResult,
+    ManualRuleInput,
+    ManualRuleSelector,
+    MenuRuleSourceState,
+    PermissionActionEvaluation,
+    PermissionDecisionReason,
+    PermissionDecisionTrace,
+    PermissionExplanation,
+    PermissionRuleInput,
+    PermissionRuleView,
+    Role,
+    RoleAccessUpdateInput,
+    RoleAccessUpdatePlan,
+    RoleAuthorizationSnapshot,
+    RoleChainEntry,
+    RoleCreateInput,
+    RoleManager,
+    RoleRemovalImpact,
+    RoleRuleReplacePlan,
+    RoleUpdateInput,
+    RuleConflict,
+    RuleSourceView,
+    ScopedPermissionContext,
+    SourceAvailability,
+    SourceDrift,
+    SourceIntegrity,
+    SubjectEffectiveRoleEntry,
+    SubjectEffectiveRuleEntry,
+    SubjectPermissionContext,
+    SubjectRoleAuthorizationSnapshot,
+    SubjectRuleConflict,
+    UserEffectiveRoles,
+    UserRoleBindingSet,
+    UserRoleManager,
+} from "./rbac";
 
-/**
- * 单条权限规则。
- */
-export interface PermissionRule {
-    /** 规则效果。 */
-    type: PermissionRuleType;
-    /** 规则动作。允许未来扩展字符串，但公开约定仍以 {@link PermissionAction} 为主。 */
-    action: PermissionAction | string;
-    /** 规则资源。 */
-    resource: string;
-    /** 仅对 `db:` 资源生效的行级条件。 */
-    where?: RowCondition;
-}
-
-/**
- * 角色元数据。
- */
-export interface RoleData {
-    /** 角色唯一标识。 */
-    id: string;
-    /** 角色展示名称。 */
-    label: string;
-    /** 父角色 ID；`null` 代表无继承。 */
-    parent: string | null;
-    /** 角色说明。 */
-    description: string;
-    /** 创建时间戳（毫秒）。 */
-    createdAt: number;
-    /** 最后更新时间戳（毫秒）。 */
-    updatedAt: number;
-}
-
-/**
- * 角色继承链节点。
- */
-export interface RoleChainEntry extends RoleData {
-    /** 当前节点自身直接声明的规则数量。 */
-    ruleCount: number;
-}
-
-/**
- * 角色检查结果。
- */
-export interface RoleInspection {
-    /** 当前角色元数据。 */
-    role: RoleData;
-    /** 当前角色自身直接声明的规则。 */
-    ownRules: PermissionRule[];
-    /** 当前角色连同父链展开后的有效规则集合。 */
-    effectiveRules: PermissionRule[];
-    /** 从当前角色到更高父角色的继承链。 */
-    roleChain: RoleChainEntry[];
-}
-
-/**
- * 写入带行级条件规则时的附加参数。
- */
-export interface RowRuleOptions {
-    /** 可选的行级条件。 */
-    where?: RowCondition;
-}
-
-/**
- * 运行时可执行的行级范围结构。
- */
-export interface RowScope {
-    /** 当前资源的可见模式。 */
-    mode: "all" | "conditional" | "none";
-    /** 允许命中的条件。 */
-    include?: RowCondition;
-    /** 需要排除的条件。 */
-    exclude?: RowCondition;
-}
-
-/**
- * 创建角色时允许写入的字段。
- */
-export interface RoleCreateOptions {
-    /** 角色展示名称。 */
-    label: string;
-    /** 可选父角色。 */
-    parent?: string | null;
-    /** 可选描述。 */
-    description?: string;
-}
-
-/**
- * 更新角色时允许变更的字段。
- */
-export interface RoleUpdateOptions {
-    /** 新的展示名称。 */
-    label?: string;
-    /** 新的父角色；显式传 `null` 表示移除继承。 */
-    parent?: string | null;
-    /** 新的描述。 */
-    description?: string;
-}
-
-/**
- * 轻量缓存配置。
- *
- * 更完整的缓存能力交给 `cache-hub` 兼容实例提供，这里只暴露常用开关。
- */
-export interface CacheOptions {
-    /** 是否启用缓存。 */
-    enabled?: boolean;
-    /** 默认 TTL，单位毫秒。 */
-    ttl?: number;
-    /** 最大缓存条目数。 */
-    maxEntries?: number;
-}
-
-/**
- * permission-core 公开错误码。
- */
-export enum PermissionCoreErrorCode {
-    PERMISSION_DENIED = "PERMISSION_DENIED",
-    ROLE_NOT_FOUND = "ROLE_NOT_FOUND",
-    ROLE_ALREADY_EXISTS = "ROLE_ALREADY_EXISTS",
-    CIRCULAR_INHERITANCE = "CIRCULAR_INHERITANCE",
-    INVALID_RESOURCE_PATH = "INVALID_RESOURCE_PATH",
-    INVALID_ACTION = "INVALID_ACTION",
-    INVALID_ARGUMENT = "INVALID_ARGUMENT",
-    STORAGE_ERROR = "STORAGE_ERROR",
-    NOT_INITIALIZED = "NOT_INITIALIZED",
-}
-
-/**
- * 自定义资源 scheme 定义。
- *
- * `validate` 和 `match` 都接收完整资源字符串，便于扩展自行保留层级、通配符或命名空间语义。
- */
-export interface ResourceSchemeDefinition {
-    /** scheme 名称，例如 `urn`，不包含尾随冒号。 */
-    scheme: string;
-    /** 校验完整资源或规则资源是否合法。 */
-    validate(resource: string): boolean;
-    /** 判断规则资源是否覆盖请求资源。 */
-    match(pattern: string, resource: string): boolean;
-}
+export type * from "./menu";

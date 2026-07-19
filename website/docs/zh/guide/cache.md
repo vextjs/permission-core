@@ -1,94 +1,73 @@
-# 权限缓存
+# 缓存
 
-permission-core 默认通过 `cache-hub` 缓存“某个用户最后真正能用的规则”，这样就不用每次判断权限都重新展开继承链、重新合并规则。
+权限缓存是可选能力。默认值为 `cache: { enabled: false }`，权限判断直接读取 MonSQLize 持久化状态。只有宿主能够确认 MonSQLize 3.1 缓存后端在全部 permission-core 实例间提供有序的 `get`、`set`、`del`、`delPattern` 行为时，才应启用语义缓存。
 
-正常通过 `pc.roles` 和 `pc.users` 修改权限数据时，公开 manager 会自动失效对应缓存。手工调用 `invalidate()` / `invalidateAll()` 主要用于直接写存储适配器、外部同步或跨实例缓存协调。
+## 前置条件
 
-## 它缓存的不是某一次 `can()` 的结果
+- 在宿主持有的 MonSQLize 实例上配置缓存后端。permission-core 没有 cache-hub 配置项，也不持有第二套缓存客户端。
+- 多应用实例需要感知同一批失效事件时，应使用共享后端。
+- 保持授权数据库写入与缓存操作的固定顺序：先提交数据库，再执行失效。
+- 将配置的 TTL 视为失效失败后的最大风险窗口，而不是“允许使用陈旧权限”的承诺。
 
-它缓存的是“某个用户最后可用的规则集合”，而不是某次 `can()` 返回的 true/false。
+## 配置
 
-这样设计的好处是：
+```ts
+const pc = new PermissionCore({
+  monsqlize: msq,
+  cache: {
+    enabled: true,
+    consistency: 'ordered-bounded-stale',
+    ttlMs: 30_000,
+  },
+});
 
-- `can()`、`assert()`、`getPermissions()`、`getResources()` 都能复用同一份展开结果
-- 规则合并和继承链展开只需要做一次
-- 不会因为缓存了某次布尔结果而把不同资源请求混在一起
+const health = await pc.init();
+```
 
-## 一次常见的读取过程
+```json
+{
+  "status": "up",
+  "cache": {
+    "permissionLayer": "enabled",
+    "consistencyAssurance": "caller-attested",
+    "backendState": "opaque",
+    "readIncidentActive": false,
+    "invalidationIncidentActive": false,
+    "hits": 0,
+    "misses": 0,
+    "readFallbacks": 0,
+    "invalidationFailures": 0
+  }
+}
+```
 
-1. 先拿用户直接绑定的角色
-2. 展开角色继承链
-3. 合并 allow / deny 规则
-4. 把最终规则集合放入缓存
-5. 后续 `can/assert/getPermissions/getResources` 复用这份结果
+`ttlMs` 默认为 `30000`，范围是 `100..86400000`。启用缓存时必须提供 `consistency`，当前唯一值是 `ordered-bounded-stale`。省略 `cache` 或设置 `{ enabled: false }` 都会完全绕过权限缓存。
 
-这也是为什么缓存层对三条接入路径都有效，而不只是 `Full standard stack`。
+## 一致性与所有权
 
-## 两类失效
+缓存保存绑定 revision 的有效授权快照和菜单投影。缓存键包含 core namespace、完整 scope、用户、claims/context 指纹、读取族和选择器。只有 envelope、TTL、数据族与已知 revision 契约都有效时，缓存视图才会被接受。
 
-### 全量失效
+管理变更先在 MonSQLize 中提交状态和审计证据，再使受影响的 scope、RBAC、菜单或用户键族失效。缓存读取、解码或写入失败时，在安全情况下回退数据库。失效失败不同：健康状态会在记录的风险窗口内保持 degraded，因为其他读者可能仍持有旧条目。
 
-规则变化时触发，常见操作包括：
+MonSQLize 及其缓存后端都归宿主持有。`PermissionCore.close()` 只解除权限层的缓存使用，不关闭这两个宿主资源。
 
-- `allow`
-- `deny`
-- `revokeRule`
-- `clearRules`
-- `roles.update()`
-- `roles.delete()`
+## 故障处置
 
-### 精确失效
+1. 读取 `await pc.health()`，检查 `cache.readIncidentActive`、`cache.invalidationIncidentActive`、`cache.invalidationRiskUntil`、回退/失败计数和 `audit.pendingCacheOutcomes`。
+2. 独立检查 MonSQLize 健康状态和所配置的缓存后端；`backendState: 'opaque'` 表示 permission-core 不声称已经证明后端存活。
+3. 读取故障时应预期数据库回退，在恢复后端前先检查数据库延迟和容量。
+4. 失效故障时，必要时停止高风险权限扩张，恢复有序失效，并等待风险窗口和 pending outcome 清零。
+5. 不得绕过 revision 检查、手工标记健康，也不得用陈旧 allow 作为恢复捷径。
 
-用户绑定变化时触发：
+## 多实例检查清单
 
-- `assign`
-- `revoke`
-- `setUserRoles`
-- `clearUserRoles`
+- 所有实例使用相同的 `collectionPrefix`、资源方案契约、已配置 `tokenSecret`、缓存后端和 TTL 策略。
+- 后端的模式删除能触达所有实例写入的键。
+- 健康告警区分读取回退与失效风险，并包含待处理审计结果。
+- 部署测试覆盖实例 A 变更权限、实例 B 随后读取权限的路径。
 
-## 为什么规则变化要偏向全量失效
+## 回滚
 
-因为角色规则变化可能影响一整条继承链上的多个用户，而不仅仅是直接绑定该角色的用户。首版方案选择“最简单、最安全”的默认策略：
+安全回滚方式是在整个实例组一致部署 `cache: { enabled: false }`，恢复数据库直读。旧实例排空前，不应宣称整个集群已经关闭缓存。授权故障期间不要随机对个别实例切换缓存模式。
 
-- 通过 `pc.roles` 写规则、继承或角色信息：内部触发 `invalidateAll()`
-- 通过 `pc.users` 写用户绑定：内部触发 `invalidate(userId)`
-- 绕过 manager 直接写存储或接外部同步：调用方需要按同样边界手工失效缓存
-
-你可以把它理解成：宁可多清一点缓存，也先保证结果正确。
-
-如果 `PermissionCore` 复用的是 `msq.getCache()` 返回的共享缓存，`invalidateAll()` 只会清理 `permission-core:rules:*` 前缀下的权限规则缓存，不会调用底层 `cache.clear()` 去清空 MonSQLize 查询缓存。
-
-## 对接入者的意义
-
-- `HTTP-only` 场景依然受益于缓存，因为接口权限同样依赖角色继承和规则合并
-- `DB-only` 场景同样受益，因为集合级和字段级权限判断会频繁复用同一份规则集
-- `Full standard stack` 场景最能放大 `cache-hub` 的价值，因为接口资源、数据资源和资源列表拉取会同时命中缓存
-
-## 配置建议
-
-### 本地验证或文档演示
-
-默认 `MemoryCache` 即可，重点先确认规则判断和缓存清理是否符合预期。
-
-### 正式生产环境
-
-继续沿用官方标准栈：
-
-- 存储：`MonSQLizeStorageAdapter`
-- 缓存：`cache-hub`
-
-这样可以保持规则持久化和缓存策略的一致口径。
-
-## 一个容易误解的点
-
-缓存层不改变权限语义。无论命中缓存与否，`deny` 优先级、`write` 语义和资源匹配规则都必须保持一致。
-
-## 常见误区
-
-- 缓存单次 `can()` 结果，而不是缓存规则集合
-- 角色规则变化后只精确失效单用户
-- 以为 `HTTP-only` 场景不需要缓存
-
-如果你想看运行时主入口怎么暴露缓存失效 API，可继续看 [PermissionCore](/zh/api/permission-core)。
-
-如果你想直接查缓存构造参数和失效方法，可继续看 [PermissionCache API](/zh/api/permission-cache)。
+继续阅读[生产运维](/zh/guide/production-operations)了解就绪处置，并在[审计与健康 API](/zh/api/audit-and-health)查看精确健康结构。

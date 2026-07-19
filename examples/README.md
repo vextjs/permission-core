@@ -1,48 +1,40 @@
 # Runnable Examples
 
-这个目录放的是仓库内可以直接执行的 example，不是只给文档站贴代码片段。
+这里的五个场景都是可执行真相源，文档站只引用这些代码，不维护另一套容易漂移的伪示例。
 
-## 运行方式
-
-先在仓库根目录执行：
+## 运行
 
 ```bash
 npm install
-```
-
-然后按需运行：
-
-```bash
-npm run example:http
-npm run example:db
-npm run example:complete
-npm run example:menu
-npm run example:multi-tenant
-npm run example:vext
-```
-
-一次性跑完全部示例：
-
-```bash
 npm run example:all
 ```
 
-这些脚本会先执行 `npm run build`，再通过包名 `permission-core` 自引用加载刚生成的构建产物。
+也可以单独运行：
 
-## 包含什么
+```bash
+npm run example:basic
+npm run example:multi-tenant
+npm run example:data-guard
+npm run example:menu-admin
+npm run example:vext
+```
 
-- `http-only.mjs`：最小接口权限闭环
-- `db-only.mjs`：集合权限 + 行级范围 + 字段过滤
-- `complete-flow.mjs`：把接口权限、数据权限、角色继承、缓存和管理 API 串成一段完整流程
-- `menu-permissions.mjs`：菜单、页面、按钮和一个按钮多个接口的权限闭环
-- `multi-tenant.mjs`：同一个 `userId` 在不同 tenant 下的角色和规则隔离
-- `vext-adapter/index.mjs`：真实 Vext TestApp 上的 `req.auth.can/assert`、原生 route guard、200/403 与 route manifest normalize
+`example:*` 会先构建包，再通过包名自引用加载 `dist`。每个脚本输出一段稳定 JSON，便于人工阅读和自动核对。
 
-## 为什么完整示例仍然使用 MemoryAdapter
+根包示例支持 Node.js `>=18.0.0`；`example:vext` 使用 Vext 0.3.26，因此要求 Node.js `>=20.19.0`。
 
-完整示例的目标是“开箱即可运行”，所以它默认使用 `MemoryAdapter + MemoryCache` 来把权限流跑通，而不是强依赖外部数据库。
+## 场景
 
-如果你要看官方生产默认路径里的 `cache-hub + monsqlize` 组合，继续看：
+| 脚本 | 证明的能力 |
+|---|---|
+| `basic.mjs` | 角色、规则、`assign`/`set`、`can`/`cannot`、角色与权限读取 |
+| `multi-tenant.mjs` | 同一用户和角色 ID 在不同租户内真实隔离 |
+| `data-guard.mjs` | Mongo 风格业务 filter、租户条件、规则 where、字段权限合并执行 |
+| `menu-admin.mjs` | 菜单/按钮/API 绑定创建、角色菜单授权、用户端可见树与按钮状态 |
+| `vext/index.mjs` | Vext 插件路由守卫、401/403/200、路由重载保护与宿主数据库所有权 |
 
-- `website/docs/guide/quick-start.md`
-- `website/docs/examples/monsqlize-adapter.md`
+## 夹具边界
+
+`_support/host.mjs` 启动临时 MongoDB 副本集，只用于仓库示例。生产应用应创建并连接自己的 MonSQLize 3.1 实例，把该实例传给 `PermissionCore` 或 Vext 插件，并在 `PermissionCore` 关闭后由宿主关闭数据库。
+
+`archive/v1/` 保存重构前的历史脚本，不属于当前文档或发布验证入口。

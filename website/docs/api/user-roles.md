@@ -1,44 +1,64 @@
-# UserRoleManager
+# User Roles
 
-`UserRoleManager` manages user-role bindings.
+## Purpose and preconditions
 
-It manages which roles a single user has. It does not manage the rules inside those roles.
+`scoped.userRoles` manages the direct role set for a user in one complete scope. It does not create users or authenticate them. Every referenced role must already exist in the same scope.
 
-## Replace all roles
+## Signatures
 
-```typescript
-await pc.users.setUserRoles('u-1', ['support', 'refund-reviewer']);
+```ts
+assign(userId: string, roleId: string, options?: MutationOptions): Promise<MutationResult<UserRoleBindingSet>>
+revoke(userId: string, roleId: string, options?: MutationOptions): Promise<MutationResult<UserRoleBindingSet>>
+set(userId: string, roleIds: readonly string[], options: RequiredRevisionOptions): Promise<MutationResult<UserRoleBindingSet>>
+clear(userId: string, options: RequiredRevisionOptions): Promise<MutationResult<UserRoleBindingSet>>
+getDirect(userId: string): Promise<VersionedResult<UserRoleBindingSet>>
+getEffective(userId: string): Promise<VersionedResult<UserEffectiveRoles>>
+listUsersByRole(roleId: string, query?: CursorQuery): Promise<PageResult<UserRoleBindingSet>>
 ```
 
-Use this for management forms that submit the complete selected role list.
+`assign` is additive and idempotent for one role. `set` replaces the complete direct role set and therefore requires the current user-role-set revision. `revoke` removes one role; `clear` replaces the set with none.
 
-## Add and remove one role
+## Responses and side effects
 
-```typescript
-await pc.users.assign('u-1', 'support');
-await pc.users.revoke('u-1', 'support');
+Mutations return the complete persisted direct set in `data`, advance RBAC/user revisions when changed, write audit evidence, and invalidate the affected subject. Reads separate direct bindings from inherited effective roles.
+
+```json
+{
+  "data": {
+    "userId": "u-1",
+    "roleIds": ["order-reader", "operator"],
+    "revision": 2,
+    "persisted": true
+  },
+  "revision": 2,
+  "operationId": "operation_...",
+  "auditId": "audit_..."
+}
 ```
 
-## Read bindings
+## Failures and limits
 
-```typescript
-const roles = await pc.users.getUserRoles('u-1');
+Missing roles return `ROLE_NOT_FOUND`; stale replacement revisions return `REVISION_CONFLICT`. A user may have at most `128` direct roles. Effective expansion is bounded to `1024` roles, `20000` semantic rules, `50000` sources, and an `8 MiB` snapshot. Empty/non-persisted users are represented explicitly rather than treated as missing user entities.
+
+## Example
+
+```ts
+await scoped.userRoles.assign('u-1', 'order-reader');
+const before = await scoped.userRoles.getDirect('u-1');
+const replaced = await scoped.userRoles.set('u-1', ['operator'], {
+  expectedRevision: before.data.revision,
+});
 ```
 
-## Clear bindings
-
-```typescript
-await pc.users.clearUserRoles('u-1');
+```json
+{
+  "before": ["order-reader"],
+  "after": ["operator"]
+}
 ```
 
-## Cache note
+`set` does not add `operator` alongside the old role; it replaces the direct set.
 
-`assign()`, `revoke()`, `setUserRoles()`, and `clearUserRoles()` invalidate that user's permission cache automatically.
+## Related
 
-```typescript
-await pc.users.setUserRoles('u-1', ['support', 'refund-reviewer']);
-```
-
-Only call `pc.invalidate('u-1')` yourself when user-role bindings are changed outside `UserRoleManager`, such as through a direct storage write or an external synchronization job.
-
-`setUserRoles()` is different from a role-rule batch API. It overwrites the roles for one user and only affects that user's cache. Changing the rules inside a role can affect many users and inherited roles, so role-rule writes stay on `RoleManager`.
+See [Check Permissions](/guide/check-permission), [Role Inheritance](/guide/role-inheritance), and [Roles](/api/roles).

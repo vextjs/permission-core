@@ -2,92 +2,52 @@
 pageType: home
 
 hero:
-  badge: v1.1.0 unreleased preview
+  badge: v2.0.0 preview
   name: permission-core
-  text: Authorization Core
-  tagline: Payment-grade route, data, row, and field permissions for Node.js services.
+  text: Authorization that reaches the data layer
+  tagline: One tenant-aware RBAC model for routes, menus, APIs, rows, and fields in Node.js services.
   image:
     src: /permission-authorization-visual.svg
-    alt: Payment authorization flow diagram
+    alt: Authorization flow from identity through roles to application resources
   actions:
     - theme: brand
-      text: Quick Start
+      text: Start in 10 minutes
       link: /guide/quick-start
     - theme: alt
-      text: API Reference
-      link: /api/permission-core
-    - theme: alt
-      text: Examples
+      text: Explore examples
       link: /examples/basic
 
 features:
-  - title: Three Integration Paths
-    details: Start with HTTP-only, DB-only, or the full standard stack instead of forcing every service into one architecture.
-    link: /guide/quick-start
-  - title: Unified Permission Model
-    details: Use the same action and resource rules for routes, collections, rows, and fields.
-    link: /guide/resource-paths
-  - title: Payment-ready Controls
-    details: Model transaction APIs, ledger rows, refund fields, and management-console saves with explicit rules and cache invalidation.
-    link: /guide/production-deployment
-  - title: Standard Production Stack
-    details: Use cache-hub for permission cache and MonSQLizeStorageAdapter for persistent role and binding data.
-    link: /guide/adapters
-  - title: Role Inheritance
-    details: Inspect own rules, effective inherited rules, and role chains without rebuilding that logic in your app.
-    link: /api/role-manager
-  - title: Row and Field Permissions
-    details: Combine getRowScope, canRow, filterRows, and filterFields for service-layer data authorization.
-    link: /guide/row-level
-  - title: Admin Menu and API Bindings
-    details: Model menus, pages, buttons, and multiple backend APIs per button, then inspect effective authorization trees and audit manifest revisions.
-    link: /guide/menu-permissions
-  - title: Real Tenant Isolation
-    details: Bind the same user ID independently per tenant and app with scoped storage, cache keys, and exact-scope subject checks.
+  - title: MonSQLize 3.1 persistence
+    details: Use the application's connected MonSQLize instance for durable roles, rules, revisions, audit records, and transactions.
+    link: /guide/permission-lifecycle
+  - title: Complete admin permissions
+    details: Manage menus, pages, buttons, API bindings, and role grants, then project a safe tree for each user.
+    link: /guide/menu-management
+  - title: Rows and fields together
+    details: Compose a Mongo-style business filter with tenant scope, policy conditions, and field-level read or write rules.
+    link: /guide/data-permissions
+  - title: Real tenant isolation
+    details: The same user and role identifiers remain independent because every read, write, cache key, and audit entry is scoped.
     link: /guide/multi-tenant
-  - title: Built-in vext Adapter
-    details: Attach req.auth.can/assert, consume native route permissions, enforce any/all groups, and manage lifecycle through the bundled adapter.
-    link: /guide/vext-adapter
+  - title: Native Vext plugin
+    details: Consume route permissions, trusted authentication context, lifecycle hooks, and restart-required route reloads.
+    link: /guide/vext-plugin
+  - title: Observable and fail-closed
+    details: Use revision checks, previews, audit IDs, health state, bounded outputs, and explicit recovery paths in production.
+    link: /guide/production-operations
 ---
 
 # permission-core
 
-permission-core is a framework-neutral fine-grained authorization core for Node.js services. It does not replace your authentication layer or proxy database operations for you. Instead, it gives you a consistent `action + resource` model for:
+permission-core is the authorization layer between a trusted identity and application resources. It answers who may invoke a route, see a menu, call an API, or read and change specific database rows and fields.
 
-- route permission checks
-- collection-level data checks
-- row-level scopes
-- field-level filtering
-- role inheritance and rule merging
-- permission cache invalidation
+It deliberately does **not** perform login, verify credentials, own the application's database connection, or replace backend route checks. The host authenticates the request and owns a connected MonSQLize 3.1 instance; permission-core owns authorization state and decisions.
 
-The current repository is preparing the unreleased `1.1.0` line. Its local gate covers `typecheck`, the complete test suite, package build, runnable examples, and enforced coverage floors of 92% statements, 89.5% branches, 95% functions, and 92% lines.
+## Recommended path
 
-## Start with one path
+1. Complete [Quick Start](/guide/quick-start) for the first allowed and blocked decisions.
+2. Add [data permissions](/guide/data-permissions) or [menu administration](/guide/menu-management) as the application needs them.
+3. Read the [permission lifecycle](/guide/permission-lifecycle) before production rollout.
 
-- Route permissions only: start with the [HTTP-only path](/guide/quick-start).
-- Data permissions only: start with the [DB-only path](/guide/quick-start).
-- Route + data + management APIs: start with the [full standard stack](/guide/quick-start).
-- Admin menus and one-button-to-many-API rules: follow [Menu Permissions](/guide/menu-permissions).
-- Tenant-isolated roles and rules: follow [Multi-tenant Permissions](/guide/multi-tenant).
-- A real vext host: follow the [vext Adapter](/guide/vext-adapter).
-
-If you are unsure which path fits, read the [FAQ](/guide/faq) before wiring a full production stack.
-
-## Run the examples first
-
-From the repository root:
-
-```bash
-npm run example:all
-```
-
-That command runs HTTP-only, DB-only, complete-flow, menu, multi-tenant, and real vext-host examples against the built package output. After that, continue with [Quick Start](/guide/quick-start), [Resource Paths](/guide/resource-paths), and the [PermissionCore API](/api/permission-core).
-
-## How this site is organized
-
-- `guide/` explains integration paths, concepts, production deployment, and common mistakes.
-- `api/` documents the public runtime, managers, adapters, cache, and error codes.
-- `examples/` shows how the pieces fit into Express, vext, management backends, row scopes, fields, and MonSQLize.
-
-If you want runnable files instead of page snippets, read the repository root `examples/` directory as well.
+The five [runnable examples](/examples/basic) use the same public package surface documented here.

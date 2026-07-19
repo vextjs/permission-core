@@ -1,104 +1,71 @@
-# 错误码
+# 错误 API
 
-permission-core 的错误设计目标是“显式失败”，而不是悄悄返回默认结果。对权限系统来说，静默失败往往比抛错更危险，因为它会把“无权限”和“系统状态不对”混成同一种结果。
+## 用途与前置条件
 
-## 常见错误码
+所有领域失败都使用从 `permission-core` 导出的 `PermissionCoreError`。按 `code` 与 `details.kind` 分支，不要解析 message 文本。`can()` 返回的布尔拒绝不是异常；`assert()` 会把同一拒绝转换为 `PERMISSION_DENIED`。
 
-| 错误码 | 含义 | 常见触发位置 |
-|--------|------|-------------|
-| `NOT_INITIALIZED` | 未先调用 `init()` | 运行时主入口 |
-| `PERMISSION_DENIED` | 鉴权失败 | `assert()` |
-| `INVALID_ACTION` | action 非法 | 参数校验 |
-| `INVALID_RESOURCE_PATH` | resource 非法 | 参数校验 |
-| `INVALID_ARGUMENT` | 参数不满足要求 | 公共 API / 管理 API |
-| `ROLE_ALREADY_EXISTS` | 角色 ID 已存在 | `roles.create()` |
-| `ROLE_NOT_FOUND` | 引用的角色不存在 | `roles/users` 管理入口 |
-| `CIRCULAR_INHERITANCE` | 角色继承形成环 | `roles.create/update` |
-| `STORAGE_ERROR` | 存储层异常 | `init()` / 持久化读写 |
+## 签名
 
-## 推荐按层处理
-
-### 中间件层
-
-优先关心：
-
-- `PERMISSION_DENIED`
-- `NOT_INITIALIZED`
-
-前者通常映射成 `403`，后者通常是服务端初始化缺陷，不应被当成普通无权限。
-
-### 管理 API 层
-
-优先关心：
-
-- `ROLE_ALREADY_EXISTS`
-- `ROLE_NOT_FOUND`
-- `CIRCULAR_INHERITANCE`
-- `INVALID_ARGUMENT`
-
-这类错误更适合返回明确的业务错误响应，而不是统一吞成 `500`。
-
-### 适配器层
-
-优先关心：
-
-- `STORAGE_ERROR`
-
-它通常意味着底层存储不可用、初始化失败或持久化读写异常。
-
-## 为什么 `NOT_INITIALIZED` 很重要
-
-这类错误必须单独保留，而不是让 `can()` 在未初始化时默认返回 `false`。否则你无法分辨：
-
-- 这是真的没权限
-- 还是系统根本还没完成初始化
-
-## 推荐测试覆盖
-
-文档和测试至少应覆盖这些场景：
-
-- 忘记 `await pc.init()`
-- 非法 `action`
-- 非法 `resource`
-- 创建已存在的角色
-- 给不存在的角色做绑定或授权
-- 角色继承形成环
-- 底层适配器初始化或持久化失败
-
-## 一个简单的 HTTP 映射建议
-
-| 错误码 | 常见 HTTP 映射 |
-|--------|----------------|
-| `PERMISSION_DENIED` | `403` |
-| `INVALID_ACTION` / `INVALID_RESOURCE_PATH` / `INVALID_ARGUMENT` | `400` |
-| `ROLE_ALREADY_EXISTS` | `409` |
-| `ROLE_NOT_FOUND` | `404` 或明确业务错误 |
-| `CIRCULAR_INHERITANCE` | `409` |
-| `NOT_INITIALIZED` / `STORAGE_ERROR` | `500` |
-
-具体错误处理可以结合 [Express 接入](/zh/examples/express) 一起看。
-
-## 推荐响应体结构
-
-如果你要把错误返回给前端或外部调用方，推荐至少固定：
-
-- `code`
-- `message`
-- `requestId`
-
-例如：
-
-```json
-{
-	"code": "PERMISSION_DENIED",
-	"message": "FORBIDDEN",
-	"requestId": "req-20260512-001"
+```ts
+class PermissionCoreError extends Error {
+  readonly code: PermissionCoreErrorCode;
+  readonly details?: PermissionCoreErrorDetails;
+  readonly retryable: boolean;
+  readonly committed?: boolean;
+  readonly operationId?: string;
 }
 ```
 
-## 下一步看什么
+Details discriminator 包括 `validation`、`limit-exceeded`、`data-value-unsupported`、`close-timeout`、`revision-conflict`、`read-conflict`、`preview-stale`、`cursor-stale`、`preview-required`、`capacity-risk-ack-required`、`persisted-state-invalid`、`unexpected-post-image-field`、`schema-version-mismatch`、`schema-contract-mismatch`、`database-failure`、`audit-lookup`、`reconcile-superseded`。
 
-- 想看更完整的错误处理和接口响应映射：看 [错误处理与响应映射](/zh/guide/error-response-mapping)
-- 想看错误码在真实接口里怎么处理：看 [Express 接入](/zh/examples/express)
-- 想回到运行时主入口：看 [PermissionCore](/zh/api/permission-core)
-- 想看角色和用户管理接口怎么落进后台：看 [管理后台接入](/zh/guide/site-preview-release)
+## 响应与副作用
+
+Vext 插件将错误映射为以下公开 JSON 结构，并保留请求/操作关联：
+
+```json
+{
+  "code": "PERMISSION_DENIED",
+  "message": "The subject is not allowed to invoke this route.",
+  "retryable": false,
+  "requestId": "req-42"
+}
+```
+
+状态为 `500` 时，插件把公开 message 替换为 `Internal Server Error`。仅在存在时包含 `details`、`committed`、`operationId`。
+
+## 失败与限制
+
+| Vext 状态 | 错误码 |
+|---|---|
+| 400 | `INVALID_ARGUMENT`、`INVALID_ACTION`、`INVALID_RESOURCE`、`INVALID_FILTER`、`INVALID_POLICY`、`POLICY_CONTEXT_MISSING`、`INVALID_CURSOR`、`MENU_HIERARCHY_INVALID`、`DATA_OPERATION_UNSUPPORTED`、`DATA_BULK_SCOPE_MUTATION_UNSAFE`；caller-input `LIMIT_EXCEEDED`/`DATA_VALUE_UNSUPPORTED` |
+| 401 | `VEXT_AUTH_REQUIRED`、`INVALID_SUBJECT`、`SCOPE_CONFLICT` |
+| 403 | `PERMISSION_DENIED`、`FIELD_PERMISSION_DENIED` |
+| 404 | `ROLE_NOT_FOUND`、`MENU_NOT_FOUND`、`API_BINDING_NOT_FOUND`、`AUDIT_ENTRY_NOT_FOUND` |
+| 409 | `REVISION_CONFLICT`、`CURSOR_STALE`、`IDEMPOTENCY_CONFLICT`、`PREVIEW_REQUIRED`、`PREVIEW_STALE`、`ROLE_ALREADY_EXISTS`、`ROLE_IN_USE`、`CIRCULAR_INHERITANCE`、`MENU_ALREADY_EXISTS`、`DEPENDENCY_EXISTS`、`API_BINDING_ALREADY_EXISTS`、`STALE_REFERENCE` |
+| 503 | `NOT_INITIALIZED`、`CORE_CLOSED`、`CORE_CLOSE_TIMEOUT`、`SCHEMA_VERSION_MISMATCH`、`SCHEMA_CONTRACT_MISMATCH`、`PERSISTED_STATE_INVALID`、`DATABASE_UNAVAILABLE`、`READ_CONFLICT`、`VEXT_ROUTE_RESTART_REQUIRED`；persisted/budget `LIMIT_EXCEEDED`/`DATA_VALUE_UNSUPPORTED`；retryable `DATABASE_ERROR`/`TRANSACTION_FAILED` |
+| 500 | `INVALID_CONFIGURATION`、`MONSQLIZE_CONTRACT_UNSUPPORTED`、`SCOPE_FIELD_MAPPING_REQUIRED`、`VEXT_MONSQLIZE_REQUIRED`、`VEXT_MONSQLIZE_INCOMPATIBLE`、`VEXT_APP_EXTENSION_CONFLICT`、`VEXT_AUTH_EXTENSION_CONFLICT`、`VEXT_ROUTE_PERMISSION_INVALID`、`INDEX_CONFLICT`；non-retryable `DATABASE_ERROR`/`TRANSACTION_FAILED` |
+
+不要只根据状态码重试。revision/preview/cursor 冲突要重新读取；配置/schema/持久化状态要先修复；不确定写入使用原幂等键。`committed: true` 表示即使后续运维步骤失败，状态变化也已经发生。
+
+## 示例
+
+```ts
+import { PermissionCoreError } from 'permission-core';
+
+try {
+  await subject.assert('delete', 'db:orders');
+} catch (error) {
+  if (error instanceof PermissionCoreError && error.code === 'PERMISSION_DENIED') {
+    return { status: 403, code: error.code };
+  }
+  throw error;
+}
+```
+
+```json
+{ "status": 403, "code": "PERMISSION_DENIED" }
+```
+
+## 相关内容
+
+参见[故障排查](/zh/guide/troubleshooting)、[生产运维](/zh/guide/production-operations)和[Vext 插件 API](/zh/api/vext-plugin)。

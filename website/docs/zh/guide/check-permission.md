@@ -1,169 +1,159 @@
-# 权限鉴权
+# 检查权限
 
-permission-core 提供三组最常用的运行时 API：
+请求时决策使用 subject context，管理查询使用 scoped context。两者都是同一租户范围授权状态上的不可变门面。
 
-- `can()`
-- `cannot()`
-- `assert()`
+## 布尔检查与强制执行
 
-当你进入数据权限场景后，还会继续用到第二组 API：
+```ts
+const subject = pc.forSubject({
+  userId: 'u-1',
+  scope: { tenantId: 'acme' },
+});
 
-- `getRowScope()`
-- `canRow()`
-- `cannotRow()`
-- `assertRow()`
-- `filterRows()`
-
-## 在运行时它们分别适合用在哪里
-
-这三个 API 不只是写法不同，它们本来就是给不同位置用的：
-
-- `can()`：业务逻辑里需要布尔结果
-- `cannot()`：希望条件语义更直接
-- `assert()`：中间件、Service 守卫和失败时直接报错退出的场景
-
-在使用它们之前，先做到一件事：先执行 `await pc.init()`。
-
-## `can`
-
-```typescript
-const ok = await pc.can('user-001', 'invoke', 'GET:/api/orders');
+const allowed = await subject.can('invoke', 'GET:/api/orders');
+const blocked = await subject.cannot('invoke', 'DELETE:/api/orders');
+await subject.assert('invoke', 'GET:/api/orders');
 ```
-
-适合：
-
-- 需要布尔值分支判断
-- 想把权限判断嵌到业务逻辑中
-
-不适合：
-
-- 想把失败直接当异常抛出时
-- 中间件里需要统一终止当前请求时
-
-## `assert`
-
-```typescript
-await pc.assert('user-001', 'invoke', 'GET:/api/orders');
-```
-
-适合：
-
-- 中间件拦截
-- Service / DAO 层前置守卫
-- 想把“无权限”当成异常出口处理
-
-这也是更适合接口入口守卫的写法。
-
-## `cannot`
-
-是 `!can(...)` 的语义包装，适合让业务语义更直接。
-
-最小片段可以先记成：
-
-```typescript
-const blocked = await pc.cannot('user-001', 'delete', 'db:orders');
-```
-
-## `can` 和 `assert` 应该怎么选
-
-| 场景 | 更推荐 |
-|------|--------|
-| 中间件或守卫 | `assert()` |
-| Service 内部条件分支 | `can()` |
-| 需要读起来更自然的否定判断 | `cannot()` |
-
-不要把它们理解为完全等价的三种写法。对权限系统来说，“返回 true/false”和“直接报错退出”通常应该分开使用。
-
-## `write` 的特殊点
-
-`write` 有两层语义：
-
-- 规则侧：`write` 表示同时授予 `create + update`
-- 请求侧：`can(userId, 'write', resource)` 等价于 `create && update`
-
-所以它不是简单别名，而是一个需要在文档和测试里都写清楚的组合动作。
-
-### 为什么这会影响日常使用
-
-因为很多开发者第一直觉会把 `write` 当成“普通写权限”。但在当前设计里，`write` 更像一个快捷动作：
-
-- 在规则中它方便配置
-- 在请求中它更严格
-
-所以读写分明的业务代码，通常更推荐直接传 `create` 或 `update`。
-
-## `getResources`
-
-接口权限场景经常配合：
-
-```typescript
-const resources = await pc.getResources('user-001', 'invoke');
-```
-
-它的返回结构就是字符串数组：
 
 ```json
-[
-	"GET:/api/orders",
-	"POST:/api/orders"
-]
+{ "allowed": true, "blocked": true, "assertResult": "void" }
 ```
 
-用途：
+`can` 返回布尔值，`cannot` 返回精确逻辑取反。允许时 `assert` 完成且没有返回值，否则抛出 `PERMISSION_DENIED`。操作被阻止不代表一定存在显式 deny；默认拒绝也会阻止。
 
-- 菜单和按钮的显示/隐藏
-- 登录后初始化前端资源列表
+接口检查应使用匹配后的路由模板，例如 `GET:/orders/:id`，不要使用带查询参数的具体 URL。授权和检查时必须保持 action 与 resource 命名一致。
 
-限制：
+## 解释一次决策
 
-- 返回结果看起来像有权限，但实际不一定最终放行
-- 最终权限判断仍以 `can()` 为准
-
-也就是说，`getResources()` 更像“前端先参考的一份资源清单”，不是最终放行结果，也不是对象结构。
-
-### 为什么它看起来有权限，实际却不一定能放行
-
-因为它返回的是资源列表，而不是完整的最终判定过程。遇到“通配 allow + 精确 deny”这类组合时，前端只看资源列表可能会高估用户权限。
-
-## 行级权限不应该继续塞回 `can()` 里
-
-`can()` / `assert()` 回答的是“这个集合能不能进入”。
-
-如果你要继续回答“进入以后，哪些记录允许保留”，就该切到：
-
-- `getRowScope()`：拿到标准化范围，适合做查询下推
-- `canRow()` / `cannotRow()` / `assertRow()`：判断单条记录
-- `filterRows()`：过滤列表结果
-
-最小片段可以先记成：
-
-```typescript
-const canReadRow = await pc.canRow('user-001', 'read', 'db:orders', order);
-const cannotReadForeign = await pc.cannotRow('user-001', 'read', 'db:orders', foreignOrder);
-await pc.assertRow('user-001', 'read', 'db:orders', order);
-```
-
-这层分工的好处是：集合门禁、记录范围、字段收口三件事不会混成一个黑盒 API。
-
-## 最常见的一次调用顺序
-
-```typescript
-await pc.assert('user-001', 'invoke', 'GET:/api/orders');
-
-await pc.assert('user-001', 'read', 'db:orders');
-
-const visibleOrders = await pc.filterRows('user-001', 'read', 'db:orders', orders);
-
-return Promise.all(
-	visibleOrders.map(order => pc.filterFields('user-001', 'read', 'db:orders', order)),
+```ts
+const explanation = await subject.explain(
+  'invoke',
+  'DELETE:/api/orders',
 );
 ```
 
-这个顺序体现的是：
+```json
+{
+  "data": {
+    "allowed": false,
+    "action": "invoke",
+    "resource": "DELETE:/api/orders",
+    "reason": "no-allow",
+    "evaluations": [
+      { "action": "invoke", "allowed": false, "reason": "no-allow" }
+    ]
+  },
+  "detailBudget": { "limit": 100, "returned": 0, "truncated": false, "digest": "..." }
+}
+```
 
-- 先拦接口
-- 再拦数据集合
-- 然后收口记录范围
-- 最后过滤字段
+常见原因包括 `allow`、`explicit-deny`、`no-allow`、`policy-unknown`、`role-disabled` 和 `context-missing`。解释轨迹是有界响应；在认定全部来源都已返回前，应检查 `detailBudget`。
 
-如果你要继续看集合、行、字段三层怎么拆，下一篇先看 [行级权限](/zh/guide/row-level)，再看 [字段过滤](/zh/guide/field-filter)。
+## 读取角色及其规则
+
+```ts
+const scoped = pc.scope({ tenantId: 'acme' });
+const role = await scoped.roles.get('order-reader');
+const own = await scoped.roles.getOwnRules('order-reader');
+const effective = await scoped.roles.getEffectiveRules('order-reader');
+const chain = await scoped.roles.getChain('order-reader');
+```
+
+```json
+{
+  "role": { "id": "order-reader", "parentId": null, "revision": 2 },
+  "ownRules": [
+    { "effect": "allow", "action": "invoke", "resource": "GET:/api/orders" }
+  ],
+  "effectiveRuleCount": 1,
+  "chain": [{ "role": { "id": "order-reader" }, "depth": 0, "included": true }]
+}
+```
+
+`getOwnRules` 只返回直接挂在这个角色上的规则。`getEffectiveRules` 还包含继承规则、冲突、来源角色 ID 和菜单生成来源。`getChain` 说明单父角色链上的每个角色为何被包含或排除。
+
+## 读取并替换用户角色
+
+```ts
+await scoped.userRoles.assign('u-1', 'order-reader');
+await scoped.userRoles.assign('u-1', 'operator');
+
+const direct = await scoped.userRoles.getDirect('u-1');
+const saved = await scoped.userRoles.set('u-1', ['order-reader'], {
+  expectedRevision: direct.data.revision,
+});
+const effectiveRoles = await scoped.userRoles.getEffective('u-1');
+```
+
+```json
+{
+  "beforeSet": ["operator", "order-reader"],
+  "afterSet": ["order-reader"],
+  "effective": ["order-reader"]
+}
+```
+
+`assign` 是增量添加，角色已经绑定时保持幂等。`set` 是受 `expectedRevision` 保护的全量替换；列表中缺少的角色会被撤销。管理后台保存完整角色勾选结果时使用 `set`，单个复选框事件不要直接做全量替换。
+
+## 读取用户权限快照
+
+```ts
+const permissions = await subject.getPermissions();
+const invokeResources = await subject.getResources('invoke');
+```
+
+```json
+{
+  "permissions": {
+    "data": {
+      "subject": { "userId": "u-1", "scope": { "tenantId": "acme" } },
+      "directRoleIds": ["order-reader"],
+      "roles": {
+        "total": 1,
+        "items": [{
+          "role": { "id": "order-reader", "status": "enabled", "parentId": null },
+          "direct": true,
+          "viaRoleIds": ["order-reader"],
+          "depth": 0,
+          "included": true
+        }],
+        "truncated": false,
+        "digest": "..."
+      },
+      "rules": {
+        "total": 1,
+        "items": [{
+          "effect": "allow",
+          "action": "invoke",
+          "resource": "GET:/api/orders",
+          "sourceRoleId": "order-reader",
+          "inherited": false,
+          "depth": 0
+        }],
+        "truncated": false,
+        "digest": "..."
+      },
+      "conflicts": { "total": 0, "items": [], "truncated": false, "digest": "..." }
+    },
+    "detailBudget": { "limit": 100, "returned": 2, "truncated": false, "digest": "..." }
+  },
+  "invokeResources": {
+    "data": [{
+      "action": "invoke",
+      "resource": "GET:/api/orders",
+      "conditional": false,
+      "sourceRoleIds": {
+        "total": 1,
+        "items": ["order-reader"],
+        "truncated": false,
+        "digest": "..."
+      }
+    }],
+    "detailBudget": { "limit": 100, "returned": 1, "truncated": false, "digest": "..." }
+  }
+}
+```
+
+`getPermissions()` 返回直接角色 ID、有界的有效角色、有效规则和冲突。`getResources(action?)` 返回有效资源模式，并标记带条件的条目。这些方法是诊断快照，不能替代具体操作鉴权；实际请求仍应带策略上下文调用 `can` 或 `assert`。
+
+继承行为请继续阅读[角色继承](/zh/guide/role-inheritance)。精确签名见[核心与上下文](/zh/api/core-and-contexts)、[角色 API](/zh/api/roles)和[用户角色 API](/zh/api/user-roles)。

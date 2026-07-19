@@ -1,0 +1,375 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { types as utilTypes } from "node:util";
+import type {
+    PermissionAction,
+    PermissionSubject,
+    PolicyContext,
+    SubjectPermissionContext,
+} from "../../types";
+import { PermissionCore } from "../../core/permission-core";
+import {
+    isPermissionCoreError,
+    PermissionCoreError,
+} from "../../core/errors";
+import { digestCanonical } from "../../internal/canonical";
+import { normalizePolicyContext, normalizeSubject } from "../../scope/scope";
+import type {
+    VextMiddleware,
+    VextRequest,
+} from "vextjs";
+import { throwVextPermissionError } from "./errors";
+import type {
+    PermissionVextRequest,
+    VextRequestPermissionApi,
+} from "./types";
+
+const REQUEST_PERMISSION_STATE = Symbol("permission-core.vext.request-state");
+const permissionStates = new WeakSet<object>();
+const permissionApiOwners = new WeakMap<object, VextRequest>();
+const activeRequests = new WeakSet<object>();
+const requestContext = new AsyncLocalStorage<VextRequest>();
+const MAX_CONTEXTS_PER_REQUEST = 32;
+const AUTH_CONTRACT_KEYS = new Set([
+    "isAuthenticated",
+    "permissionSubject",
+    "userId",
+    "scope",
+    "claims",
+    "permission",
+]);
+
+interface RequestPermissionState {
+    resolve(): Promise<VextRequestPermissionApi>;
+}
+
+type SubjectResolver = (
+    auth: Readonly<Record<string, unknown>>,
+    req: VextRequest,
+) => PermissionSubject | Promise<PermissionSubject>;
+
+function authRequired(reason: string) {
+    return new PermissionCoreError("VEXT_AUTH_REQUIRED", "An authenticated permission subject is required.", {
+        details: { kind: "validation", field: "req.auth", reason },
+    });
+}
+
+function invalidSubject(field: string, reason: string, cause?: unknown) {
+    return new PermissionCoreError("INVALID_SUBJECT", `Invalid ${field}: ${reason}.`, {
+        details: { kind: "validation", field, reason },
+        ...(cause === undefined ? {} : { cause }),
+    });
+}
+
+function scopeConflict(reason: string) {
+    return new PermissionCoreError("SCOPE_CONFLICT", "Resolved permission subject conflicts with authenticated scope.", {
+        details: { kind: "validation", field: "subject", reason },
+    });
+}
+
+function extensionConflict(reason: string, cause?: unknown) {
+    return new PermissionCoreError("VEXT_AUTH_EXTENSION_CONFLICT", "The request auth permission extension is unavailable.", {
+        details: { kind: "validation", field: "req.auth.permission", reason },
+        ...(cause === undefined ? {} : { cause }),
+    });
+}
+
+function requestDataProperty(req: VextRequest, key: PropertyKey) {
+    if (utilTypes.isProxy(req)) {
+        throw invalidSubject("req", "cannot be a Proxy");
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(req, key);
+    if (!descriptor || !("value" in descriptor)) return undefined;
+    return descriptor.value;
+}
+
+function snapshotAuth(value: unknown) {
+    if (value === null || typeof value !== "object" || Array.isArray(value) || utilTypes.isProxy(value)) {
+        throw invalidSubject("req.auth", "must be a non-Proxy plain object");
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+        throw invalidSubject("req.auth", "must be a plain object");
+    }
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of Reflect.ownKeys(value)) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (!descriptor || !("value" in descriptor)) {
+            throw invalidSubject(`req.auth.${String(key)}`, "must be a data property");
+        }
+        if (typeof key === "symbol") {
+            continue;
+        }
+        if (key === "__proto__" || key === "prototype" || key === "constructor") {
+            throw invalidSubject("req.auth", "contains an unsupported property key");
+        }
+        if (!descriptor.enumerable) {
+            if (AUTH_CONTRACT_KEYS.has(key)) {
+                throw invalidSubject(`req.auth.${key}`, "must be enumerable");
+            }
+            continue;
+        }
+        Object.defineProperty(snapshot, key, {
+            value: descriptor.value,
+            enumerable: true,
+            writable: false,
+            configurable: false,
+        });
+    }
+    return {
+        source: value as Record<string, unknown>,
+        snapshot: Object.freeze(snapshot) as Readonly<Record<string, unknown>>,
+    };
+}
+
+function normalizeAuthSubject(value: unknown, field: string) {
+    try {
+        return normalizeSubject(value as PermissionSubject);
+    } catch (cause) {
+        if (isPermissionCoreError(cause) && cause.code === "INVALID_SUBJECT") {
+            throw cause;
+        }
+        throw invalidSubject(field, "does not satisfy the permission subject contract", cause);
+    }
+}
+
+function strictDefaultSubject(auth: Readonly<Record<string, unknown>>) {
+    const hasSubject = Object.hasOwn(auth, "permissionSubject");
+    const hasUser = Object.hasOwn(auth, "userId");
+    const hasScope = Object.hasOwn(auth, "scope");
+    const hasClaims = Object.hasOwn(auth, "claims");
+    if (hasSubject && (hasUser || hasScope || hasClaims)) {
+        throw invalidSubject("req.auth", "must use exactly one permission subject representation");
+    }
+    if (hasSubject) {
+        return normalizeAuthSubject(auth.permissionSubject, "req.auth.permissionSubject");
+    }
+    if (!hasUser && !hasScope && !hasClaims) {
+        throw invalidSubject("req.auth", "does not provide a permission subject");
+    }
+    if (!hasUser || !hasScope) {
+        throw invalidSubject("req.auth", "userId and scope must be provided together");
+    }
+    return normalizeAuthSubject({
+        userId: auth.userId,
+        scope: auth.scope,
+        ...(hasClaims ? { claims: auth.claims } : {}),
+    }, "req.auth");
+}
+
+function optionalCanonicalHostSubject(auth: Readonly<Record<string, unknown>>) {
+    const hasSubject = Object.hasOwn(auth, "permissionSubject");
+    const hasUser = Object.hasOwn(auth, "userId");
+    const hasScope = Object.hasOwn(auth, "scope");
+    if (hasSubject && hasUser && hasScope) {
+        throw invalidSubject("req.auth", "contains both canonical subject representations");
+    }
+    if (hasSubject) {
+        return normalizeAuthSubject(auth.permissionSubject, "req.auth.permissionSubject");
+    }
+    if (hasUser && hasScope) {
+        return normalizeAuthSubject({
+            userId: auth.userId,
+            scope: auth.scope,
+            ...(Object.hasOwn(auth, "claims") ? { claims: auth.claims } : {}),
+        }, "req.auth");
+    }
+    return undefined;
+}
+
+function sameSubjectOwner(left: Readonly<PermissionSubject>, right: Readonly<PermissionSubject>) {
+    return digestCanonical({ userId: left.userId, scope: left.scope })
+        === digestCanonical({ userId: right.userId, scope: right.scope });
+}
+
+async function resolvePermissionSubject(
+    auth: Readonly<Record<string, unknown>>,
+    req: VextRequest,
+    resolver?: SubjectResolver,
+) {
+    if (auth.isAuthenticated !== true) {
+        throw authRequired("isAuthenticated must be true");
+    }
+    if (!resolver) {
+        return strictDefaultSubject(auth);
+    }
+
+    const hostSubject = optionalCanonicalHostSubject(auth);
+    let resolved: PermissionSubject;
+    try {
+        resolved = normalizeSubject(await resolver(auth, req));
+    } catch (cause) {
+        if (isPermissionCoreError(cause) && cause.code === "INVALID_SUBJECT") {
+            throw cause;
+        }
+        throw invalidSubject("resolveSubject result", "does not satisfy the permission subject contract", cause);
+    }
+    if (hostSubject && !sameSubjectOwner(hostSubject, resolved)) {
+        throw scopeConflict("resolveSubject returned a different canonical user or scope");
+    }
+    return resolved;
+}
+
+function readExistingPermission(auth: Record<string, unknown>, req: VextRequest) {
+    const descriptor = Object.getOwnPropertyDescriptor(auth, "permission");
+    if (!descriptor) return undefined;
+    if (
+        !("value" in descriptor)
+        || permissionApiOwners.get(descriptor.value as object) !== req
+    ) {
+        throw extensionConflict("is already occupied by another extension");
+    }
+    return descriptor.value as VextRequestPermissionApi;
+}
+
+function createPermissionApi(
+    core: PermissionCore,
+    subject: Readonly<PermissionSubject>,
+    req: VextRequest,
+): VextRequestPermissionApi {
+    const base = core.forSubject(subject);
+    const contexts = new Map<string, SubjectPermissionContext>();
+    const contextFor = (context?: PolicyContext) => {
+        if (context === undefined) return base;
+        const normalized = normalizePolicyContext(context);
+        const key = digestCanonical(normalized);
+        const existing = contexts.get(key);
+        if (existing) return existing;
+        const created = core.forSubject(subject, normalized);
+        if (contexts.size < MAX_CONTEXTS_PER_REQUEST) contexts.set(key, created);
+        return created;
+    };
+    const execute = async <T>(operation: () => Promise<T>) => {
+        try {
+            return await operation();
+        } catch (error) {
+            return throwVextPermissionError(req.app, error);
+        }
+    };
+    const assertOwner = () => {
+        if (requestContext.getStore() !== req || !activeRequests.has(req)) {
+            throw extensionConflict("was used outside its owning request");
+        }
+    };
+    return Object.freeze({
+        subject,
+        can: (action: PermissionAction, resource: string, context?: PolicyContext) =>
+            execute(() => {
+                assertOwner();
+                return contextFor(context).can(action, resource);
+            }),
+        assert: (action: PermissionAction, resource: string, context?: PolicyContext) =>
+            execute(() => {
+                assertOwner();
+                return contextFor(context).assert(action, resource);
+            }),
+    });
+}
+
+async function installPermissionApi(
+    core: PermissionCore,
+    req: VextRequest,
+    resolver?: SubjectResolver,
+) {
+    const authValue = requestDataProperty(req, "auth");
+    if (authValue === undefined) {
+        throw authRequired("req.auth is missing");
+    }
+    const { source: auth, snapshot } = snapshotAuth(authValue);
+    const existing = readExistingPermission(auth, req);
+    if (existing) return existing;
+    const subject = await resolvePermissionSubject(snapshot, req, resolver);
+    if (requestDataProperty(req, "auth") !== auth) {
+        throw invalidSubject("req.auth", "changed while resolving the permission subject");
+    }
+    if (Object.getOwnPropertyDescriptor(auth, "permission")) {
+        throw extensionConflict("was occupied while resolving the permission subject");
+    }
+    const api = createPermissionApi(core, subject, req);
+    try {
+        Object.defineProperty(auth, "permission", {
+            value: api,
+            enumerable: true,
+            writable: false,
+            configurable: false,
+        });
+    } catch (cause) {
+        throw extensionConflict("cannot be defined on req.auth", cause);
+    }
+    permissionApiOwners.set(api, req);
+    return api;
+}
+
+export function createPermissionRequestMiddleware(
+    core: PermissionCore,
+    resolver?: SubjectResolver,
+): VextMiddleware {
+    return async (req, _res, next) => {
+        const runNext = async () => {
+            activeRequests.add(req);
+            try {
+                await requestContext.run(req, next);
+            } finally {
+                activeRequests.delete(req);
+            }
+        };
+        const existing = Object.getOwnPropertyDescriptor(req, REQUEST_PERMISSION_STATE);
+        if (existing) {
+            if (!("value" in existing) || !permissionStates.has(existing.value as object)) {
+                throw extensionConflict("internal request state is already occupied");
+            }
+            await runNext();
+            return;
+        }
+        let pending: Promise<VextRequestPermissionApi> | undefined;
+        const state: RequestPermissionState = Object.freeze({
+            resolve() {
+                pending ??= installPermissionApi(core, req, resolver);
+                return pending;
+            },
+        });
+        permissionStates.add(state);
+        try {
+            Object.defineProperty(req, REQUEST_PERMISSION_STATE, {
+                value: state,
+                enumerable: false,
+                writable: false,
+                configurable: false,
+            });
+        } catch (cause) {
+            throw extensionConflict("cannot install the internal lazy request state", cause);
+        }
+        await runNext();
+    };
+}
+
+export function hasPermissionContext(req: VextRequest): req is PermissionVextRequest {
+    try {
+        const auth = requestDataProperty(req, "auth");
+        if (auth === null || typeof auth !== "object" || utilTypes.isProxy(auth)) return false;
+        const descriptor = Object.getOwnPropertyDescriptor(auth, "permission");
+        return Boolean(
+            descriptor
+            && "value" in descriptor
+            && permissionApiOwners.get(descriptor.value as object) === req,
+        );
+    } catch {
+        return false;
+    }
+}
+
+export async function requirePermissionContext(
+    req: VextRequest,
+): Promise<VextRequestPermissionApi> {
+    if (hasPermissionContext(req)) {
+        return (requestDataProperty(req, "auth") as PermissionVextRequest["auth"]).permission;
+    }
+    try {
+        const state = requestDataProperty(req, REQUEST_PERMISSION_STATE);
+        if (state === null || typeof state !== "object" || !permissionStates.has(state)) {
+            throw authRequired("permission middleware has not installed request state");
+        }
+        return await (state as RequestPermissionState).resolve();
+    } catch (error) {
+        return throwVextPermissionError(req.app, error);
+    }
+}

@@ -1,67 +1,100 @@
-# 多租户权限
+# 多租户模型
 
-新的 subject API 支持真实租户范围。旧的 `userId` API 仍可用，并映射到默认 scope `{ tenantId: "default" }`。
+租户隔离属于每个授权身份的一部分，不是靠约定附加的 filter。角色、用户绑定、规则、菜单、接口绑定、修订、审计状态、缓存键和数据操作都位于规范化 scope 内。
+
+## 关系模型
+
+```mermaid
+erDiagram
+  TENANT ||--o{ SCOPE : contains
+  SCOPE ||--o{ ROLE : defines
+  SCOPE ||--o{ USER_ROLE_SET : owns
+  USER ||--o{ USER_ROLE_SET : has
+  USER_ROLE_SET }o--o{ ROLE : binds
+  ROLE ||--o{ RULE : grants_or_denies
+  ROLE ||--o{ MENU_GRANT : receives
+  SCOPE ||--o{ MENU_NODE : contains
+  MENU_NODE ||--o{ API_BINDING : owns
+```
+
+`tenantId` 必填，`appId`、`moduleId` 和 `namespace` 是可选附加维度。用户由 `userId` 加完整 scope 标识；role ID 也只在相同完整 scope 内有意义。
+
+## 相同标识、隔离状态
 
 ```ts
-import { PermissionCore } from "permission-core";
+const scopeA = { tenantId: 'tenant-a', appId: 'admin' };
+const scopeB = { tenantId: 'tenant-b', appId: 'admin' };
+const tenantA = pc.scope(scopeA);
+const tenantB = pc.scope(scopeB);
 
-const pc = new PermissionCore();
-await pc.init();
+await tenantA.roles.create({ id: 'manager', label: 'A manager' });
+await tenantA.roles.allow('manager', {
+  action: 'read', resource: 'ui:page:tenant-a-dashboard',
+});
+await tenantA.userRoles.assign('same-user', 'manager');
 
-const scope = { tenantId: "tenant-a", appId: "admin" };
-const subject = { ...scope, userId: "u-1" };
-const tenant = pc.scope(scope);
-
-await tenant.roles.create("admin", { label: "管理员" });
-await tenant.roles.allow("admin", "read", "ui:menu:system.user");
-await tenant.users.assign(subject.userId, "admin");
-
-console.log(await pc.canSubject(subject, "read", "ui:menu:system.user")); // true
-console.log(await pc.canSubject(
-  { ...subject, tenantId: "tenant-b" },
-  "read",
-  "ui:menu:system.user",
-)); // false
-
-await pc.close();
+await tenantB.roles.create({ id: 'manager', label: 'B manager' });
+await tenantB.roles.allow('manager', {
+  action: 'read', resource: 'ui:page:tenant-b-dashboard',
+});
+await tenantB.userRoles.assign('same-user', 'manager');
 ```
 
-仓库内的双租户反证可以直接运行：
-
-```bash
-npm run example:multi-tenant
+```json
+{
+  "tenantAOwnResource": true,
+  "tenantACrossResource": false,
+  "tenantBOwnResource": true,
+  "tenantBCrossResource": false
+}
 ```
 
-`PermissionScope` 字段：
+数据库可以在两个租户保存相同 `roleId` 与 `userId`，但它们的规范 scope key 和索引不同。公开管理 API 不存在全局角色查询或无 scope 用户分配。
 
-| 字段 | 用途 |
-|---|---|
-| `tenantId` | 真实租户边界 |
-| `appId` | 同一租户内的应用边界 |
-| `moduleId` | 可选模块边界 |
-| `namespace` | 可选权限域边界 |
+## 构造可信 subject
 
-官方存储适配器和规则缓存都会包含 `scopeKey`，同一个 `userId` 和 `roleId` 可以在不同租户下拥有不同权限。
+scope 必须来自服务端已认证状态或可信服务端 resolver。不能因为请求里存在任意 `x-tenant-id` 或 body 字段，就直接复制到 `PermissionSubject`。两个可信来源不一致时返回 `SCOPE_CONFLICT`，不能任选一个。
 
-`MonSQLizeStorageAdapterOptions.namespace` 只是物理 collection 前缀，不是业务租户，也不等于 `PermissionScope.namespace`。
+```ts
+const subject = pc.forSubject({
+  userId: session.userId,
+  scope: {
+    tenantId: session.tenantId,
+    appId: 'admin',
+  },
+  claims: { merchantId: session.merchantId },
+});
+```
 
-## 边界规则
+scope 与 subject ID 会去除首尾空白，限制为 128 UTF-8 字节，并拒绝控制字符、异常 Unicode、未知字段和保留标识。
 
-- 每个 subject API 都要求非空 `tenantId`；JavaScript 运行时缺少该字段时会直接失败，不会退回默认租户。
-- `pc.scope(scope).forSubject(subject)` 要求 subject scope 与绑定 scope 完全一致。
-- 相同 `userId` 和 `roleId` 可以存在于多个租户，但角色、规则、用户绑定、缓存、菜单资产、revision 和审计都按 `scopeKey` 分区。
-- 旧的 `can(userId, ...)`、`roles`、`users` 只使用配置的 `defaultScope`。租户请求内不要把旧 API 与 subject API 混用。
+## 在业务数据中强制 scope
 
-## 生产存储
+授权集合必须给使用中的每个 scope 维度配置字段映射：
 
-`MemoryAdapter` 只能证明隔离，重启后数据会丢失。单进程可使用 `FileAdapter`，共享生产环境使用 `MonSQLizeStorageAdapter`。如果同时启用菜单模块，还必须配置对应的 `FileMenuStorageAdapter` 或 `MonSQLizeMenuStorageAdapter`；核心 storage 不会自动持久化菜单资产。
+```ts
+const orders = subject.data.collection('orders', {
+  resource: 'db:orders',
+  scopeFields: {
+    tenantId: 'tenantId',
+    appId: 'applicationId',
+  },
+});
+```
 
-## 失败恢复
+读写会为这些字段添加精确标量相等条件。数组、对象、缺失或不一致值都不算该租户值。插入会注入可信 scope 值；更新不能把 scope 字段改到授权范围外。
 
-| 错误 | 含义 | 恢复方式 |
-|---|---|---|
-| `INVALID_ARGUMENT`: `tenantId must be a non-empty string` | subject 没有显式租户 | 先恢复认证得到的租户身份，不要用全局默认值替代 |
-| `INVALID_ARGUMENT`: `subject scope does not match` | subject 跨越了已绑定 scope | 使用认证 subject 重新创建 scoped context |
-| 用户正确但无权限 | 角色或用户绑定创建在另一个 scope | 通过同一个 `pc.scope(scope)` 检查角色和绑定 |
+## 持久化、缓存与审计隔离
 
-框架中的 header/claim 冲突处理见 [vext 适配器](/zh/guide/vext-adapter)。
+权限集合使用规范 scope key 和 scope 感知唯一索引，修订向量也在该 scope 内推进。语义缓存键包含 core namespace、scope、subject、claims/context 指纹和读取族；失效只针对受影响的 scope/role/user 键族，不会清理另一个租户。
+
+变更审计证据包含 scope 所属修订与操作身份。日志和指标应暴露租户安全 hash 或已批准标签，不能把不可信租户字符串作为唯一关联键。
+
+## 运维检查
+
+- 在两个 scope 使用相同用户和角色 ID，包含跨资源拒绝测试。
+- 对每个 `scopeFields` 维度测试 find、count、insert、update 和 delete。
+- 每个服务实例与 Vext 认证接入必须使用相同 scope 维度。
+- scope 模型变化属于 Schema 契约变化，不是一个 UI 配置项。
+
+先运行[多租户示例](/zh/examples/multi-tenant)，再通过[核心与上下文 API](/zh/api/core-and-contexts)查看准确 subject 与 scope 签名。

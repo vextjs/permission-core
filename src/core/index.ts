@@ -1,6 +1,3 @@
-/**
- * core 模块公开入口。
- */
-export * from "./context";
-export * from "./errors";
-export * from "./permission-core";
+export { PermissionCore } from "./permission-core";
+export { PermissionCoreError } from "./errors";
+export type { PermissionCoreErrorOptions } from "./errors";

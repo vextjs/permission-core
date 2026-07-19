@@ -1,41 +1,53 @@
-# matchResource
+# Match Resource
 
-`matchResource` checks whether a resource pattern matches a target resource.
+## Purpose and preconditions
+
+`permission-core/match` exposes the built-in resource matcher without constructing a core. Use it in configuration tooling or tests that need exactly the same built-in HTTP/API/data/UI pattern semantics. It does not evaluate actions, roles, deny precedence, conditions, or custom resource schemes.
+
+## Signatures
+
+```ts
+import { matchResource } from 'permission-core/match';
+
+matchResource(pattern: string, resource: string): boolean
+```
+
+The first argument is a rule-side pattern; the second is a concrete request resource. Reversing them changes the meaning.
+
+## Responses and side effects
+
+The function is synchronous, pure, and returns only `true` or `false`. Invalid or mixed-scheme input returns `false`; it does not throw and does not normalize caller state.
+
+```json
+{
+  "http": true,
+  "api": true,
+  "field": true,
+  "invalid": false
+}
+```
+
+HTTP/API `*` is a trailing segment wildcard that requires at least one remaining segment. `:param` consumes one segment. Data field patterns support exact paths, `profile.*`, and field-wide `*`. The rule-side global `*` matches any valid built-in concrete resource.
+
+## Failures and limits
+
+Custom schemes configured on `PermissionCore` are intentionally unavailable from this standalone function; use a core decision for them. Query strings/fragments, malformed templates, concrete wildcards, unknown schemes, and resources longer than the built-in grammar accepts return `false`. `matchResource` does not implement action-side `write` semantics.
 
 ## Example
 
-```typescript
-import { matchResource } from 'permission-core/match';
-
-matchResource('GET:/api/orders', 'GET:/api/orders'); // true
-matchResource('GET:/api/*', 'GET:/api/orders'); // true
-matchResource('*', 'POST:/api/refunds'); // true
+```ts
+const result = {
+  exact: matchResource('GET:/orders/:id', 'GET:/orders/42'),
+  subtree: matchResource('api:POST:/api/orders/*', 'api:POST:/api/orders/export'),
+  field: matchResource('db:orders:field:profile.*', 'db:orders:field:profile.name'),
+  tooShort: matchResource('GET:/orders/*', 'GET:/orders'),
+};
 ```
 
-## Use cases
+```json
+{ "exact": true, "subtree": true, "field": true, "tooShort": false }
+```
 
-- tests for permission rules
-- diagnostics for wildcard behavior
-- custom tooling around resource patterns
+## Related
 
-Runtime permission decisions should usually go through `PermissionCore.can()` or `PermissionCore.assert()`.
-
-## Matching rules
-
-| Pattern | Target | Result | Reason |
-|---|---|---:|---|
-| `*` | `api:POST:/api/refunds` | true | Global wildcard |
-| `GET:/api/*` | `GET:/api/orders` | true | Same scheme/method and trailing wildcard |
-| `GET:/api/*` | `POST:/api/orders` | false | HTTP method differs |
-| `db:orders:*` | `db:orders:amount` | true | Same resource hierarchy |
-| `db:*` | `api:GET:/orders` | false | Wildcards do not cross resource schemes |
-| `GET:/api/*/items` | `GET:/api/orders/items` | false | Built-in wildcard is suffix-oriented, not a middle-segment glob |
-
-The matcher is scheme-aware. A custom scheme registered through `pc.resourceSchemes.register()` uses its own `validate` and `match` functions inside core checks, role writes, menu validation, and authorization trees. The standalone `permission-core/match` helper covers built-in matching; applications should not use it to bypass a custom registry.
-
-## Common mistakes
-
-- Matching a concrete URL with query strings instead of the normalized route template.
-- Assuming an HTTP wildcard can authorize `db:` or `ui:` resources.
-- Using resource-list matching as the final decision instead of `can()`/`assert()` with deny priority.
-- Treating `*` as an arbitrary regular expression.
+See [Resources and Rules](/guide/resources-and-rules), [Resource Schemes](/api/resource-schemes), and [Check Permissions](/guide/check-permission).

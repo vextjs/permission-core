@@ -1,378 +1,690 @@
-import type { CacheLike } from "cache-hub";
-
-import { Checker } from "../check/checker";
+import type { CacheLike, HealthView, MonSQLizeInstance } from "monsqlize";
+import type {
+    BoundedHealthCount,
+    EffectivePermissionSnapshot,
+    EffectiveResourcePattern,
+    PermissionAction,
+    PermissionCoreHealth,
+    PermissionCoreLifecycle,
+    PermissionCoreOptions,
+    PermissionExplanation,
+    PermissionScope,
+    PermissionSubject,
+    PolicyContext,
+    SubjectPermissionContext,
+    SubjectRuntimeResult,
+    ScopedPermissionContext,
+} from "../types";
 import { ResourceSchemeRegistry } from "../check/resource-schemes";
-import { PermissionCache } from "../cache";
-import type { CacheOptions, PermissionScope, PermissionSubject, ResourceSchemeDefinition } from "../types";
-import { DEFAULT_PERMISSION_SCOPE, assertPermissionSubject, getSubjectScope, normalizePermissionScope } from "../scope/scope";
-import { ScopedStorageProxy, toScopedStorageAdapter, type ScopedStorageAdapter } from "../scope/scoped-storage";
-import { PermissionCoreError, PermissionCoreErrorCode } from "./errors";
-import { RoleManager, UserRoleManager } from "../rbac";
-import { MemoryAdapter, type StorageAdapter } from "../storage";
-import { isCacheLike } from "../utils/validation";
+import { PermissionSemanticCache } from "../cache";
+import {
+    CANONICAL_CONTRACT_VERSION,
+    digestCanonical,
+} from "../internal/canonical";
+import { deepFreeze } from "../internal/plain-data";
+import { SignedTokenCodec } from "../internal/signed-token";
+import { createSubjectDataRuntime } from "../data";
+import {
+    ApiBindingImpactMutationService,
+    ApiBindingMutationService,
+    MenuManifestService,
+    MenuNodeImpactMutationService,
+    MenuNodeMutationService,
+    MenuQueryService,
+    RoleMenuAuthorizationResolver,
+    RoleMenuPermissionMutationService,
+    RoleMenuPermissionQueryService,
+    RoleMenuPermissionRepairService,
+    StructuralStaleReferenceService,
+} from "../menu";
+import { PermissionRepository } from "../persistence/repository";
+import { RbacQueryService } from "../rbac/queries";
+import { RbacPreviewService } from "../rbac/preview";
+import { createScopedPermissionContext, createSubjectPermissionContext, type ScopedRbacServices } from "../rbac/public-context";
+import { RoleMutationService } from "../rbac/role-mutations";
+import { RuleMutationService } from "../rbac/rule-mutations";
+import { UserRoleMutationService } from "../rbac/user-role-mutations";
+import { normalizePolicyContext, normalizeScope, normalizeSubject } from "../scope/scope";
+import {
+    resolvePermissionCoreOptions,
+    type ResolvedPermissionCoreOptions,
+} from "./config";
+import { PermissionCoreError } from "./errors";
 
-import { PermissionCoreContext, PermissionCoreScopeContext } from "./context";
-
-/**
- * PermissionCore 构造参数。
- */
-export interface PermissionCoreOptions {
-    /** 自定义存储适配器；默认使用 {@link MemoryAdapter}。 */
-    storage?: StorageAdapter;
-    /** 自定义缓存实例或轻量缓存配置。 */
-    cache?: CacheLike | CacheOptions;
-    /** 是否启用 strict 模式；默认开启。 */
-    strict?: boolean;
-    /** 旧 userId API 与默认 managers 使用的 scope。 */
-    defaultScope?: PermissionScope;
-    /** 启动时注册的自定义资源 scheme。 */
-    resourceSchemes?: ResourceSchemeDefinition[];
+interface MutableDatabaseHealth {
+    status: "up" | "down" | "unknown";
+    lastCheckedAt?: number;
+    errorCode?: string;
 }
 
-/**
- * permission-core 的统一运行时入口。
- *
- * 它负责把存储、缓存、RBAC 管理器和鉴权执行器组装成稳定的对外 API。
- */
+const EMPTY_BOUNDED_HEALTH_COUNT: BoundedHealthCount = Object.freeze({
+    value: 0,
+    cap: 1000 as const,
+    truncated: false,
+});
+
+const REQUIRED_MONSQLIZE_METHODS = [
+    "collection",
+    "db",
+    "getDefaults",
+    "health",
+    "withTransaction",
+] as const;
+
+const REQUIRED_CACHE_METHODS = ["get", "set", "del", "delPattern"] as const;
+
+function unsupported(field: string, reason: string): PermissionCoreError {
+    return new PermissionCoreError(
+        "MONSQLIZE_CONTRACT_UNSUPPORTED",
+        `MonSQLize contract is missing ${field}: ${reason}.`,
+        { details: { kind: "validation", field, reason } },
+    );
+}
+
+function assertMonSQLizeCapabilities(monsqlize: MonSQLizeInstance) {
+    const runtime = monsqlize as unknown as Record<string, unknown>;
+    for (const method of REQUIRED_MONSQLIZE_METHODS) {
+        if (typeof runtime[method] !== "function") {
+            throw unsupported(`monsqlize.${method}`, "function is required");
+        }
+    }
+
+    let defaults: unknown;
+    try {
+        defaults = monsqlize.getDefaults();
+    } catch (cause) {
+        throw new PermissionCoreError(
+            "MONSQLIZE_CONTRACT_UNSUPPORTED",
+            "MonSQLize getDefaults() failed during capability probing.",
+            { details: { kind: "validation", field: "monsqlize.getDefaults", reason: "call failed" }, cause },
+        );
+    }
+    if (defaults === null || typeof defaults !== "object" || Array.isArray(defaults)) {
+        throw unsupported("monsqlize.getDefaults", "must return an object snapshot");
+    }
+    const findMaxLimit = (defaults as Record<string, unknown>).findMaxLimit;
+    if (!Number.isSafeInteger(findMaxLimit) || (findMaxLimit as number) < 1) {
+        throw unsupported("monsqlize.getDefaults().findMaxLimit", "must be a positive safe integer");
+    }
+
+    let database: unknown;
+    try {
+        database = monsqlize.db();
+    } catch (cause) {
+        throw new PermissionCoreError(
+            "MONSQLIZE_CONTRACT_UNSUPPORTED",
+            "MonSQLize db() failed during capability probing.",
+            { details: { kind: "validation", field: "monsqlize.db", reason: "call failed" }, cause },
+        );
+    }
+    if (database === null || typeof database !== "object" || typeof (database as Record<string, unknown>).admin !== "function") {
+        throw unsupported("monsqlize.db().admin", "database admin accessor is required");
+    }
+    let admin: unknown;
+    try {
+        admin = (database as { admin(): unknown }).admin();
+    } catch (cause) {
+        throw new PermissionCoreError(
+            "MONSQLIZE_CONTRACT_UNSUPPORTED",
+            "MonSQLize db().admin() failed during capability probing.",
+            { details: { kind: "validation", field: "monsqlize.db().admin", reason: "call failed" }, cause },
+        );
+    }
+    if (admin === null || typeof admin !== "object" || typeof (admin as Record<string, unknown>).serverStatus !== "function") {
+        throw unsupported("monsqlize.db().admin().serverStatus", "function is required");
+    }
+    const configuredMaxTimeMS = (defaults as Record<string, unknown>).maxTimeMS;
+    const maxTimeMS = configuredMaxTimeMS === undefined ? 2_000 : configuredMaxTimeMS;
+    if (!Number.isSafeInteger(maxTimeMS) || (maxTimeMS as number) < 1) {
+        throw unsupported("monsqlize.getDefaults().maxTimeMS", "must be a positive safe integer when provided");
+    }
+    return Object.freeze({ findMaxLimit: findMaxLimit as number, maxTimeMS: maxTimeMS as number });
+}
+
+function assertCacheCapabilities(cache: CacheLike) {
+    if (cache === null || typeof cache !== "object") {
+        throw unsupported("monsqlize.getCache", "must return a cache object");
+    }
+    const runtime = cache as unknown as Record<string, unknown>;
+    for (const method of REQUIRED_CACHE_METHODS) {
+        if (typeof runtime[method] !== "function") {
+            throw unsupported(`monsqlize.getCache().${method}`, "function is required when permission cache is enabled");
+        }
+    }
+}
+
+function isPermissionCoreError(value: unknown): value is PermissionCoreError {
+    return value instanceof PermissionCoreError;
+}
+
+function databaseUnavailable(cause?: unknown) {
+    return new PermissionCoreError(
+        "DATABASE_UNAVAILABLE",
+        "MonSQLize health check did not report an available connection.",
+        {
+            details: { kind: "database-failure", stage: "health" },
+            cause,
+        },
+    );
+}
+
+function validateHealthView(value: HealthView): value is HealthView {
+    return value !== null
+        && typeof value === "object"
+        && (value.status === "up" || value.status === "down")
+        && typeof value.connected === "boolean";
+}
+
+function waitWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
+        timer.unref?.();
+        promise.then(
+            (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            (error) => {
+                clearTimeout(timer);
+                reject(error);
+            },
+        );
+    });
+}
+
 export class PermissionCore {
-    private readonly storage: StorageAdapter;
-    private readonly scopedStorage: ScopedStorageAdapter;
-    private readonly cache: PermissionCache;
-    private readonly checker: Checker;
-    private readonly defaultScope: PermissionScope;
-    private readonly strict: boolean;
-    private initialized = false;
+    private readonly options: ResolvedPermissionCoreOptions;
+    private readonly schemes: ResourceSchemeRegistry;
+    private readonly schemaContractKey: string;
+    private lifecycle: PermissionCoreLifecycle = "new";
+    private databaseHealth: MutableDatabaseHealth = { status: "unknown" };
+    private indexedContractMismatchScopes = EMPTY_BOUNDED_HEALTH_COUNT;
+    private pendingCacheOutcomes = EMPTY_BOUNDED_HEALTH_COUNT;
+    private lastMismatchScopeHash?: string;
+    private coreNamespaceHash?: string;
+    private dataMaxTimeMS?: number;
+    private repository?: PermissionRepository;
+    private queryService?: RbacQueryService;
+    private rbacServices?: ScopedRbacServices;
+    private semanticCache?: PermissionSemanticCache;
+    private initPromise?: Promise<PermissionCoreHealth>;
+    private closePromise?: Promise<void>;
+    private closeRequested = false;
+    private activeOperationLeases = 0;
+    private readonly operationDrainWaiters = new Set<() => void>();
+    private lastInitError?: { code: string; message: string };
 
-    /** 角色管理入口。 */
-    readonly roles: RoleManager;
-    /** 用户与角色绑定管理入口。 */
-    readonly users: UserRoleManager;
-    /** 当前运行时共享的资源 scheme 注册表。 */
-    readonly resourceSchemes: ResourceSchemeRegistry;
-
-    /**
-     * @param options 存储、缓存与 strict 模式配置。
-     */
-    constructor(options: PermissionCoreOptions = {}) {
-        // 默认走 MemoryAdapter，方便文档示例、单测和最小接入直接启动。
-        const rawStorage = options.storage ?? new MemoryAdapter();
-        this.defaultScope = normalizePermissionScope(options.defaultScope ?? DEFAULT_PERMISSION_SCOPE);
-        this.strict = options.strict ?? true;
-        this.resourceSchemes = new ResourceSchemeRegistry(options.resourceSchemes);
-        this.scopedStorage = toScopedStorageAdapter(rawStorage, this.defaultScope);
-        this.storage = new ScopedStorageProxy(this.scopedStorage, this.defaultScope);
-        this.cache = new PermissionCache(this.normalizeCacheOptions(options.cache));
-        this.checker = new Checker(this.storage, this.cache, this.strict, this.defaultScope, this.resourceSchemes);
-        this.roles = new RoleManager(this.storage, this.cache, () => this.checkInitialized(), this.defaultScope, this.resourceSchemes);
-        this.users = new UserRoleManager(this.storage, this.cache, () => this.checkInitialized(), this.defaultScope);
+    constructor(options: PermissionCoreOptions) {
+        this.options = resolvePermissionCoreOptions(options);
+        this.schemes = new ResourceSchemeRegistry(this.options.resourceSchemes);
+        this.schemaContractKey = digestCanonical({
+            canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
+            schemaVersion: 2,
+            schemeContractDigest: this.schemes.schemeContractDigest,
+        });
     }
 
-    /**
-     * 初始化底层存储并进入可用状态。
-     */
-    async init(): Promise<void> {
-        await this.storage.init();
-        this.initialized = true;
-    }
+    async init(): Promise<PermissionCoreHealth> {
+        if (this.lifecycle === "closing" || this.lifecycle === "closed" || this.closeRequested) {
+            throw new PermissionCoreError("CORE_CLOSED", "PermissionCore is closing or closed.");
+        }
+        if (this.lifecycle === "ready") {
+            return this.snapshotHealth();
+        }
+        if (this.initPromise) {
+            return this.initPromise;
+        }
 
-    /**
-     * 关闭底层存储并释放运行时资源。
-     */
-    async close(): Promise<void> {
+        this.lifecycle = "initializing";
+        const operation = this.performInit();
+        this.initPromise = operation;
         try {
-            await this.storage.close();
+            return await operation;
         } finally {
-            await this.cache.close();
-            this.initialized = false;
+            if (this.initPromise === operation) {
+                this.initPromise = undefined;
+            }
         }
     }
 
-    /**
-     * 判断某个用户是否拥有指定权限。
-     */
-    async can(userId: string, action: string, resource: string) {
-        this.checkInitialized();
-        return this.checker.can(userId, action, resource);
-    }
-
-    /**
-     * 判断某个用户是否不拥有指定权限。
-     */
-    async cannot(userId: string, action: string, resource: string) {
-        this.checkInitialized();
-        return this.checker.cannot(userId, action, resource);
-    }
-
-    /**
-     * 对某个资源执行断言式鉴权。
-     */
-    async assert(userId: string, action: string, resource: string) {
-        this.checkInitialized();
-        return this.checker.assert(userId, action, resource);
-    }
-
-    /**
-     * 获取某个用户在指定 `db:` 资源上的行级范围。
-     */
-    async getRowScope(
-        userId: string,
-        action: string,
-        resource: string,
-        context?: Record<string, unknown>,
-    ) {
-        this.checkInitialized();
-        return this.checker.getRowScope(userId, action, resource, context);
-    }
-
-    /**
-     * 判断某个用户是否可以访问指定数据行。
-     */
-    async canRow(
-        userId: string,
-        action: string,
-        resource: string,
-        row: Record<string, unknown>,
-        context?: Record<string, unknown>,
-    ) {
-        this.checkInitialized();
-        return this.checker.canRow(userId, action, resource, row, context);
-    }
-
-    /**
-     * 判断某个用户是否不能访问指定数据行。
-     */
-    async cannotRow(
-        userId: string,
-        action: string,
-        resource: string,
-        row: Record<string, unknown>,
-        context?: Record<string, unknown>,
-    ) {
-        this.checkInitialized();
-        return this.checker.cannotRow(userId, action, resource, row, context);
-    }
-
-    /**
-     * 对指定数据行执行断言式鉴权。
-     */
-    async assertRow(
-        userId: string,
-        action: string,
-        resource: string,
-        row: Record<string, unknown>,
-        context?: Record<string, unknown>,
-    ) {
-        this.checkInitialized();
-        return this.checker.assertRow(userId, action, resource, row, context);
-    }
-
-    /**
-     * 过滤当前用户可见的数据行。
-     */
-    async filterRows<T extends Record<string, unknown>>(
-        userId: string,
-        action: string,
-        resource: string,
-        rows: T[],
-        context?: Record<string, unknown>,
-    ) {
-        this.checkInitialized();
-        return this.checker.filterRows(userId, action, resource, rows, context);
-    }
-
-    /**
-     * 过滤当前用户可见的数据字段。
-     */
-    async filterFields<T extends Record<string, unknown>>(
-        userId: string,
-        action: string,
-        resource: string,
-        data: T,
-        context?: Record<string, unknown>,
-    ) {
-        this.checkInitialized();
-        return this.checker.filterFields(userId, action, resource, data, context);
-    }
-
-    /**
-     * 获取某个用户合并后的全部权限规则。
-     */
-    async getPermissions(userId: string) {
-        this.checkInitialized();
-        return this.checker.getPermissions(userId);
-    }
-
-    /**
-     * 获取某个用户在指定动作维度下可见的资源列表。
-     */
-    async getResources(userId: string, action?: string) {
-        this.checkInitialized();
-        return this.checker.getResources(userId, action);
-    }
-
-    /**
-     * 判断某个 subject 是否拥有指定权限。
-     */
-    async canSubject(subject: PermissionSubject, action: string, resource: string) {
-        this.checkInitialized();
-        assertPermissionSubject(subject);
-        return this.createChecker(getSubjectScope(subject)).can(subject.userId, action, resource);
-    }
-
-    /**
-     * 判断某个 subject 是否不拥有指定权限。
-     */
-    async cannotSubject(subject: PermissionSubject, action: string, resource: string) {
-        return !(await this.canSubject(subject, action, resource));
-    }
-
-    /**
-     * 对 subject 执行断言式鉴权。
-     */
-    async assertSubject(subject: PermissionSubject, action: string, resource: string) {
-        this.checkInitialized();
-        assertPermissionSubject(subject);
-        return this.createChecker(getSubjectScope(subject)).assert(subject.userId, action, resource);
-    }
-
-    /**
-     * 获取某个 subject 合并后的全部规则。
-     */
-    async getPermissionsForSubject(subject: PermissionSubject) {
-        this.checkInitialized();
-        assertPermissionSubject(subject);
-        return this.createChecker(getSubjectScope(subject)).getPermissions(subject.userId);
-    }
-
-    /**
-     * 获取某个 subject 在动作维度下可见的资源列表。
-     */
-    async getResourcesForSubject(subject: PermissionSubject, action?: string) {
-        this.checkInitialized();
-        assertPermissionSubject(subject);
-        return this.createChecker(getSubjectScope(subject)).getResources(subject.userId, action);
-    }
-
-    /**
-     * 绑定 `userId` 并返回链式上下文。
-     *
-     * 上下文只暴露按用户执行的鉴权 API；缓存失效、角色管理和用户绑定管理仍保留在主类实例上。
-     */
-    for(userId: string) {
-        this.checkInitialized();
-        return new PermissionCoreContext(this.checker, userId);
-    }
-
-    /**
-     * 绑定 subject 并返回链式上下文。
-     */
-    forSubject(subject: PermissionSubject) {
-        this.checkInitialized();
-        assertPermissionSubject(subject);
-        return new PermissionCoreContext(
-            this.createChecker(getSubjectScope(subject)),
-            subject.userId,
-        );
-    }
-
-    /**
-     * 绑定 scope 并返回该 scope 内的管理与鉴权上下文。
-     */
-    scope(scope: PermissionScope) {
-        this.checkInitialized();
-        const normalizedScope = normalizePermissionScope(scope);
-        const checker = this.createChecker(normalizedScope);
-        return new PermissionCoreScopeContext(
-            checker,
-            this.createRoleManager(normalizedScope),
-            this.createUserRoleManager(normalizedScope),
-            normalizedScope,
-            (userId) => this.cache.invalidate(userId, normalizedScope),
-            () => this.cache.invalidateScope(normalizedScope),
-        );
-    }
-
-    /**
-     * 失效某个用户的规则缓存。
-     */
-    async invalidate(userId: string): Promise<void> {
-        this.checkInitialized();
-        await this.cache.invalidate(userId, this.defaultScope);
-    }
-
-    /**
-     * 失效某个 subject 的规则缓存。
-     */
-    async invalidateSubject(subject: PermissionSubject): Promise<void> {
-        this.checkInitialized();
-        assertPermissionSubject(subject);
-        await this.cache.invalidate(subject.userId, getSubjectScope(subject));
-    }
-
-    /**
-     * 失效某个 scope 下全部用户的规则缓存。
-     */
-    async invalidateScope(scope: PermissionScope): Promise<void> {
-        this.checkInitialized();
-        await this.cache.invalidateScope(normalizePermissionScope(scope));
-    }
-
-    /**
-     * 全量失效所有规则缓存。
-     */
-    async invalidateAll(): Promise<void> {
-        this.checkInitialized();
-        await this.cache.invalidateAll();
-    }
-
-    /**
-     * 确保当前运行时已完成初始化。
-     */
-    private checkInitialized() {
-        if (!this.initialized) {
-            throw new PermissionCoreError(
-                PermissionCoreErrorCode.NOT_INITIALIZED,
-                "Must call await pc.init() before using any API",
+    private async performInit() {
+        try {
+            const capabilities = assertMonSQLizeCapabilities(this.options.monsqlize);
+            this.schemes.verifyProbes();
+            const repository = new PermissionRepository(
+                this.options.monsqlize,
+                this.options.collectionPrefix,
+                {
+                    schemeContractDigest: this.schemes.schemeContractDigest,
+                    schemaContractKey: this.schemaContractKey,
+                },
+                capabilities.findMaxLimit,
             );
+            const namespace = repository.getScopeStateNamespace();
+            const coreNamespaceHash = digestCanonical({
+                version: 2,
+                namespace,
+                collectionPrefix: this.options.collectionPrefix,
+                schemeContractDigest: this.schemes.schemeContractDigest,
+            });
+
+            let cache: CacheLike | undefined;
+            if (this.options.cache.enabled) {
+                try {
+                    cache = this.options.monsqlize.getCache();
+                } catch (cause) {
+                    throw new PermissionCoreError(
+                        "MONSQLIZE_CONTRACT_UNSUPPORTED",
+                        "MonSQLize getCache() failed while permission cache was enabled.",
+                        { details: { kind: "validation", field: "monsqlize.getCache", reason: "call failed" }, cause },
+                    );
+                }
+                assertCacheCapabilities(cache);
+            }
+            const semanticCache = cache === undefined
+                ? undefined
+                : new PermissionSemanticCache(
+                    cache,
+                    coreNamespaceHash,
+                    this.options.cache.enabled ? this.options.cache.ttlMs : 0,
+                    this.schemes,
+                );
+            const invalidateCache = semanticCache === undefined
+                ? undefined
+                : (targets: readonly string[]) => semanticCache.invalidate(targets);
+
+            await this.refreshDatabaseHealth(true);
+            await repository.ensureIndexes();
+            await repository.getDatabaseTime();
+            await repository.probeTransaction();
+            const repositoryHealth = await repository.readHealth(this.schemaContractKey);
+            this.indexedContractMismatchScopes = repositoryHealth.indexedContractMismatchScopes;
+            this.pendingCacheOutcomes = repositoryHealth.pendingCacheOutcomes;
+            this.lastMismatchScopeHash = repositoryHealth.lastMismatchScopeHash;
+            this.repository = repository;
+            const tokens = new SignedTokenCodec(this.options.tokenSecret, coreNamespaceHash);
+            const roleMenuResolver = new RoleMenuAuthorizationResolver(repository, this.schemes);
+            const queryService = new RbacQueryService(
+                repository,
+                this.schemes,
+                tokens,
+                roleMenuResolver,
+            );
+            const roleMutations = new RoleMutationService(repository, this.schemes, invalidateCache);
+            const ruleMutations = new RuleMutationService(
+                repository,
+                this.schemes,
+                invalidateCache,
+                roleMenuResolver,
+            );
+            this.queryService = queryService;
+            const menuQueries = new MenuQueryService(repository, this.schemes, tokens);
+            const menuNodes = new MenuNodeMutationService(repository, this.schemes, invalidateCache);
+            const menuNodeImpacts = new MenuNodeImpactMutationService(repository, this.schemes, tokens, invalidateCache);
+            const apiBindings = new ApiBindingMutationService(repository, this.schemes, invalidateCache);
+            const apiBindingImpacts = new ApiBindingImpactMutationService(repository, this.schemes, tokens, invalidateCache);
+            const menuManifest = new MenuManifestService(repository, this.schemes, tokens, invalidateCache);
+            const staleReferences = new StructuralStaleReferenceService(repository, this.schemes, tokens, invalidateCache);
+            this.rbacServices = Object.freeze({
+                queries: queryService,
+                roles: roleMutations,
+                previews: new RbacPreviewService(repository, this.schemes, tokens, roleMutations, ruleMutations),
+                userRoles: new UserRoleMutationService(repository, this.schemes, invalidateCache),
+                roleMenu: Object.freeze({
+                    mutations: new RoleMenuPermissionMutationService(repository, this.schemes, tokens, invalidateCache),
+                    queries: new RoleMenuPermissionQueryService(
+                        repository,
+                        this.schemes,
+                        tokens,
+                        roleMenuResolver,
+                    ),
+                    repair: new RoleMenuPermissionRepairService(repository, this.schemes, tokens, invalidateCache),
+                }),
+                menuManagement: Object.freeze({
+                    queries: menuQueries,
+                    nodes: menuNodes,
+                    nodeImpacts: menuNodeImpacts,
+                    bindings: apiBindings,
+                    bindingImpacts: apiBindingImpacts,
+                    manifest: menuManifest,
+                    stale: staleReferences,
+                }),
+            });
+            this.semanticCache = semanticCache;
+            this.coreNamespaceHash = coreNamespaceHash;
+            this.dataMaxTimeMS = capabilities.maxTimeMS;
+            this.lastInitError = undefined;
+            if (this.lifecycle === "initializing") {
+                this.lifecycle = "ready";
+            }
+            return this.snapshotHealth();
+        } catch (error) {
+            const normalized = isPermissionCoreError(error)
+                ? error
+                : databaseUnavailable(error);
+            this.lastInitError = { code: normalized.code, message: normalized.message };
+            if (this.lifecycle === "initializing") {
+                this.lifecycle = "new";
+            }
+            throw normalized;
         }
     }
 
-    /**
-     * 将直接传入的缓存实例归一化成 `PermissionCache` 可消费的配置结构。
-     */
-    private normalizeCacheOptions(cache: CacheLike | CacheOptions | undefined) {
-        // 允许用户直接传 cache-hub 兼容实例，也允许继续传轻量配置对象。
-        if (isCacheLike(cache)) {
-            return { cache };
+    private async refreshDatabaseHealth(throwOnDown: boolean) {
+        const checkedAt = Date.now();
+        try {
+            const health = await this.options.monsqlize.health();
+            if (!validateHealthView(health)) {
+                throw unsupported("monsqlize.health", "must return the documented HealthView");
+            }
+            if (health.status !== "up" || !health.connected) {
+                this.databaseHealth = {
+                    status: "down",
+                    lastCheckedAt: checkedAt,
+                    errorCode: "DATABASE_UNAVAILABLE",
+                };
+                if (throwOnDown) {
+                    throw databaseUnavailable();
+                }
+                return;
+            }
+            this.databaseHealth = { status: "up", lastCheckedAt: checkedAt };
+        } catch (error) {
+            if (isPermissionCoreError(error) && error.code === "MONSQLIZE_CONTRACT_UNSUPPORTED") {
+                throw error;
+            }
+            this.databaseHealth = {
+                status: "down",
+                lastCheckedAt: checkedAt,
+                errorCode: "DATABASE_UNAVAILABLE",
+            };
+            if (throwOnDown) {
+                throw isPermissionCoreError(error) ? error : databaseUnavailable(error);
+            }
+        }
+    }
+
+    async health(): Promise<PermissionCoreHealth> {
+        if (this.lifecycle === "ready") {
+            await this.refreshDatabaseHealth(false);
+            if (this.databaseHealth.status === "up" && this.repository) {
+                try {
+                    const repositoryHealth = await this.repository.readHealth(this.schemaContractKey);
+                    this.indexedContractMismatchScopes = repositoryHealth.indexedContractMismatchScopes;
+                    this.pendingCacheOutcomes = repositoryHealth.pendingCacheOutcomes;
+                    this.lastMismatchScopeHash = repositoryHealth.lastMismatchScopeHash;
+                } catch {
+                    this.databaseHealth = {
+                        status: "down",
+                        lastCheckedAt: Date.now(),
+                        errorCode: "DATABASE_UNAVAILABLE",
+                    };
+                }
+            }
+        }
+        return this.snapshotHealth();
+    }
+
+    forSubject(subject: PermissionSubject, context?: PolicyContext): SubjectPermissionContext {
+        const queryService = this.requireQueryService();
+        const repository = this.requireRepository();
+        const normalizedSubject = normalizeSubject(subject);
+        const normalizedContext = normalizePolicyContext(context);
+        const coreNamespaceHash = this.coreNamespaceHash;
+        const dataMaxTimeMS = this.dataMaxTimeMS;
+        if (!coreNamespaceHash || dataMaxTimeMS === undefined) {
+            throw new PermissionCoreError("NOT_INITIALIZED", "PermissionCore data runtime is unavailable.");
+        }
+        const run = <T>(operation: () => Promise<T>) => this.runPermissionOperation(operation);
+        const data = createSubjectDataRuntime({
+            monsqlize: this.options.monsqlize,
+            repository,
+            queryService,
+            schemes: this.schemes,
+            subject: normalizedSubject,
+            context: normalizedContext,
+            run,
+            coreNamespaceHash,
+            tokenSecret: this.options.tokenSecret,
+            maxTimeMS: dataMaxTimeMS,
+        });
+        return createSubjectPermissionContext(
+            repository,
+            queryService,
+            this.schemes,
+            normalizedSubject,
+            normalizedContext,
+            (operation) => this.runPermissionOperation(operation),
+            data,
+            this.semanticCache,
+        );
+    }
+
+    scope(scopeInput: PermissionScope): ScopedPermissionContext {
+        const services = this.requireRbacServices();
+        const scope = normalizeScope(scopeInput);
+        return createScopedPermissionContext(
+            scope,
+            services,
+            (operation) => this.runPermissionOperation(operation),
+        );
+    }
+
+    can(subject: PermissionSubject, action: PermissionAction, resource: string, context?: PolicyContext) {
+        return this.forSubject(subject, context).can(action, resource);
+    }
+
+    cannot(subject: PermissionSubject, action: PermissionAction, resource: string, context?: PolicyContext) {
+        return this.forSubject(subject, context).cannot(action, resource);
+    }
+
+    assert(subject: PermissionSubject, action: PermissionAction, resource: string, context?: PolicyContext) {
+        return this.forSubject(subject, context).assert(action, resource);
+    }
+
+    getPermissions(
+        subject: PermissionSubject,
+        context?: PolicyContext,
+    ): Promise<SubjectRuntimeResult<EffectivePermissionSnapshot>> {
+        return this.forSubject(subject, context).getPermissions();
+    }
+
+    getResources(
+        subject: PermissionSubject,
+        action?: PermissionAction,
+        context?: PolicyContext,
+    ): Promise<SubjectRuntimeResult<EffectiveResourcePattern[]>> {
+        return this.forSubject(subject, context).getResources(action);
+    }
+
+    explain(
+        subject: PermissionSubject,
+        action: PermissionAction,
+        resource: string,
+        context?: PolicyContext,
+    ): Promise<SubjectRuntimeResult<PermissionExplanation>> {
+        return this.forSubject(subject, context).explain(action, resource);
+    }
+
+    private requireQueryService() {
+        if (this.lifecycle === "closing" || this.lifecycle === "closed" || this.closeRequested) {
+            throw new PermissionCoreError("CORE_CLOSED", "PermissionCore is closing or closed.");
+        }
+        if (this.lifecycle !== "ready" || !this.queryService) {
+            throw new PermissionCoreError("NOT_INITIALIZED", "PermissionCore has not been initialized.");
+        }
+        return this.queryService;
+    }
+
+    private requireRepository() {
+        this.requireQueryService();
+        if (!this.repository) {
+            throw new PermissionCoreError("NOT_INITIALIZED", "PermissionCore repository is unavailable.");
+        }
+        return this.repository;
+    }
+
+    private requireRbacServices() {
+        this.requireQueryService();
+        if (!this.rbacServices) {
+            throw new PermissionCoreError("NOT_INITIALIZED", "PermissionCore RBAC services are unavailable.");
+        }
+        return this.rbacServices;
+    }
+
+    private async runPermissionOperation<T>(operation: () => Promise<T>): Promise<T> {
+        this.requireQueryService();
+        this.activeOperationLeases += 1;
+        try {
+            return await operation();
+        } finally {
+            this.activeOperationLeases -= 1;
+            if (this.activeOperationLeases === 0) {
+                for (const resolve of this.operationDrainWaiters) {
+                    resolve();
+                }
+                this.operationDrainWaiters.clear();
+            }
+        }
+    }
+
+    async close(): Promise<void> {
+        if (this.lifecycle === "closed") {
+            return;
+        }
+        if (this.closePromise) {
+            return this.closePromise;
         }
 
-        return cache ?? {};
+        this.closeRequested = true;
+        this.lifecycle = "closing";
+        const operation = this.performClose();
+        this.closePromise = operation;
+        try {
+            await operation;
+        } finally {
+            if (this.closePromise === operation) {
+                this.closePromise = undefined;
+            }
+        }
     }
 
-    private createScopedStorage(scope: PermissionScope) {
-        return new ScopedStorageProxy(this.scopedStorage, scope);
+    private async performClose() {
+        const startedAt = Date.now();
+        const pendingInit = this.initPromise;
+        if (pendingInit) {
+            const remaining = Math.max(0, this.options.closeDrainTimeoutMs - (Date.now() - startedAt));
+            try {
+                await waitWithin(pendingInit.catch(() => undefined), remaining);
+            } catch {
+                throw new PermissionCoreError(
+                    "CORE_CLOSE_TIMEOUT",
+                    "PermissionCore close drain timed out.",
+                    {
+                        details: {
+                            kind: "close-timeout",
+                            timeoutMs: this.options.closeDrainTimeoutMs,
+                            activeOperationLeases: 0,
+                            activeBorrowedTransactions: 0,
+                        },
+                    },
+                );
+            }
+        }
+
+        if (this.activeOperationLeases > 0) {
+            const remaining = Math.max(0, this.options.closeDrainTimeoutMs - (Date.now() - startedAt));
+            try {
+                await waitWithin(new Promise<void>((resolve) => {
+                    if (this.activeOperationLeases === 0) {
+                        resolve();
+                    } else {
+                        this.operationDrainWaiters.add(resolve);
+                    }
+                }), remaining);
+            } catch {
+                throw new PermissionCoreError(
+                    "CORE_CLOSE_TIMEOUT",
+                    "PermissionCore close drain timed out.",
+                    {
+                        details: {
+                            kind: "close-timeout",
+                            timeoutMs: this.options.closeDrainTimeoutMs,
+                            activeOperationLeases: this.activeOperationLeases,
+                            activeBorrowedTransactions: 0,
+                        },
+                    },
+                );
+            }
+        }
+
+        this.repository = undefined;
+        this.queryService = undefined;
+        this.rbacServices = undefined;
+        this.semanticCache?.detach();
+        this.dataMaxTimeMS = undefined;
+        this.lifecycle = "closed";
     }
 
-    private createChecker(scope: PermissionScope) {
-        return new Checker(this.createScopedStorage(scope), this.cache, this.strict, scope, this.resourceSchemes);
-    }
-
-    private createRoleManager(scope: PermissionScope) {
-        return new RoleManager(
-            this.createScopedStorage(scope),
-            this.cache,
-            () => this.checkInitialized(),
-            scope,
-            this.resourceSchemes,
-        );
-    }
-
-    private createUserRoleManager(scope: PermissionScope) {
-        return new UserRoleManager(
-            this.createScopedStorage(scope),
-            this.cache,
-            () => this.checkInitialized(),
-            scope,
-        );
+    private snapshotHealth(): PermissionCoreHealth {
+        const ready = this.lifecycle === "ready";
+        const database = { ...this.databaseHealth };
+        const cacheHealth = this.semanticCache?.snapshotHealth(ready) ?? {
+            readIncidentActive: false,
+            invalidationIncidentActive: false,
+            hits: 0,
+            misses: 0,
+            readFallbacks: 0,
+            invalidationFailures: 0,
+        };
+        const degraded = ready
+            && database.status === "up"
+            && (
+                this.indexedContractMismatchScopes.value > 0
+                || this.pendingCacheOutcomes.value > 0
+                || cacheHealth.readIncidentActive
+                || cacheHealth.invalidationIncidentActive
+            );
+        const snapshot: PermissionCoreHealth = {
+            status: !ready || database.status !== "up" ? "down" : degraded ? "degraded" : "up",
+            lifecycle: this.lifecycle,
+            initialized: ready,
+            ...(this.coreNamespaceHash ? { coreNamespaceHash: this.coreNamespaceHash } : {}),
+            ...(this.coreNamespaceHash ? {
+                namespace: {
+                    identitySource: "monsqlize-collection-namespace",
+                    collectionPrefix: this.options.collectionPrefix,
+                    usesDefaultCollectionPrefix: this.options.usesDefaultCollectionPrefix,
+                    schemeContractDigest: this.schemes.schemeContractDigest,
+                },
+            } : {}),
+            database,
+            schema: {
+                expectedVersion: 2,
+                expectedSchemeContractDigest: this.schemes.schemeContractDigest,
+                expectedSchemaContractKey: this.schemaContractKey,
+                indexedContractMismatchScopes: { ...this.indexedContractMismatchScopes },
+                detectionCoverage: "supported-writer-state",
+                ...(this.lastMismatchScopeHash ? {
+                    lastMismatchScopeHash: this.lastMismatchScopeHash,
+                    lastMismatchReason: "scheme-contract" as const,
+                } : {}),
+            },
+            tokens: {
+                keySource: this.options.tokenKeySource,
+                crossInstanceStable: this.options.tokenKeySource === "configured",
+            },
+            cache: {
+                permissionLayer: this.options.cache.enabled ? "enabled" : "bypassed",
+                consistencyAssurance: this.options.cache.enabled ? "caller-attested" : "not-applicable",
+                backendState: "opaque",
+                ...cacheHealth,
+            },
+            audit: {
+                pendingCacheOutcomes: { ...this.pendingCacheOutcomes },
+            },
+            ...(this.lastInitError ? { lastInitError: { ...this.lastInitError } } : {}),
+        };
+        return deepFreeze(snapshot);
     }
 }

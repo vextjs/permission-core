@@ -1,113 +1,64 @@
-# UserRoleManager
+# 用户角色 API
 
-`pc.users` 负责用户和角色绑定关系。它关注的是“某个用户拥有哪些角色”，而不是“这些角色内部有哪些规则”。
+## 用途与前置条件
 
-## 完整 API
+`scoped.userRoles` 管理某个用户在一个完整 scope 内的直接角色集合。它不创建用户，也不认证用户。引用的每个角色必须已存在于同一 scope。
 
-| 方法 | 签名 | 说明 |
-|------|------|------|
-| `assign` | `(userId, roleId)` | 给用户绑定一个角色；角色必须存在 |
-| `revoke` | `(userId, roleId)` | 从用户上解绑一个角色 |
-| `getUserRoles` | `(userId)` | 读取当前用户的角色列表 |
-| `setUserRoles` | `(userId, roleIds)` | 批量覆盖用户角色 |
-| `clearUserRoles` | `(userId)` | 清空用户所有角色 |
+## 签名
 
-## 关键行为
-
-### 公开写入方法会自动触发 `invalidate(userId)`
-
-这和 `RoleManager` 的全量失效不同。因为用户绑定变化只影响当前用户，所以首版设计选择精确失效，保证权限立即生效，同时避免无意义的全量清缓存。
-
-### `setUserRoles()` 更适合后台保存操作
-
-如果你的管理后台是“表单整体保存用户角色”，那么 `setUserRoles()` 会比多次 `assign/revoke` 更稳定，因为它代表的是一次明确的整体覆盖。
-
-它覆盖的是某一个用户的角色绑定，不是角色规则批量 API。角色内部规则仍然归 `RoleManager` 管。
-
-### `setUserRoles()` 应先全量校验
-
-更稳妥的做法是先验证所有 `roleId` 都存在，再统一写入，避免出现半成功半失败的绑定状态。
-
-如果你的后台页是多选框、穿梭框或批量勾选角色，提交前也更适合先把 `roleIds` 去重，再交给 `setUserRoles()` 做整体覆盖。
-
-## 典型用法
-
-```typescript
-await pc.users.assign('user-001', 'viewer');
-await pc.users.assign('user-001', 'auditor');
-
-await pc.users.setUserRoles('user-002', ['editor', 'viewer']);
-
-const roles = await pc.users.getUserRoles('user-002');
+```ts
+assign(userId: string, roleId: string, options?: MutationOptions): Promise<MutationResult<UserRoleBindingSet>>
+revoke(userId: string, roleId: string, options?: MutationOptions): Promise<MutationResult<UserRoleBindingSet>>
+set(userId: string, roleIds: readonly string[], options: RequiredRevisionOptions): Promise<MutationResult<UserRoleBindingSet>>
+clear(userId: string, options: RequiredRevisionOptions): Promise<MutationResult<UserRoleBindingSet>>
+getDirect(userId: string): Promise<VersionedResult<UserRoleBindingSet>>
+getEffective(userId: string): Promise<VersionedResult<UserEffectiveRoles>>
+listUsersByRole(roleId: string, query?: CursorQuery): Promise<PageResult<UserRoleBindingSet>>
 ```
 
-## 解绑或清空角色怎么调用
+`assign` 是针对单个角色的追加操作，并具备幂等语义。`set` 替换完整直接角色集合，因此需要当前 user-role-set revision。`revoke` 移除一个角色；`clear` 将集合替换为空。
 
-```typescript
-await pc.users.revoke('user-001', 'auditor');
-await pc.users.clearUserRoles('user-002');
-```
+## 响应与副作用
 
-- `revoke()` 适合从一个用户上移除某个具体角色
-- `clearUserRoles()` 更适合整体清空当前用户的全部角色
-
-## 调用结果示例
-
-### 这些方法成功时都返回 `Promise<void>`
-
-- `assign`
-- `revoke`
-- `setUserRoles`
-- `clearUserRoles`
-
-例如：
-
-```typescript
-await pc.users.assign('user-001', 'viewer');
-// Promise<void>
-```
-
-### `getUserRoles()` 返回角色 ID 数组
-
-```typescript
-const roles = await pc.users.getUserRoles('user-002');
-```
-
-返回结果结构如下：
+变更在 `data` 中返回完整持久化直接集合；发生变化时推进 RBAC/user revision、写入审计证据并使受影响主体缓存失效。读取会区分直接绑定与继承得到的有效角色。
 
 ```json
-[
-	"editor",
-	"viewer"
-]
+{
+  "data": {
+    "userId": "u-1",
+    "roleIds": ["order-reader", "operator"],
+    "revision": 2,
+    "persisted": true
+  },
+  "revision": 2,
+  "operationId": "operation_...",
+  "auditId": "audit_..."
+}
 ```
 
-如果当前用户还没有绑定任何角色，返回结果就是空数组：
+## 失败与限制
+
+角色不存在返回 `ROLE_NOT_FOUND`；替换 revision 过期返回 `REVISION_CONFLICT`。一个用户最多有 `128` 个直接角色。有效展开上限为 `1024` 个角色、`20000` 条语义规则、`50000` 个来源和 `8 MiB` 快照。空的/未持久化用户会被显式表示，而不是被当作缺失的用户实体。
+
+## 示例
+
+```ts
+await scoped.userRoles.assign('u-1', 'order-reader');
+const before = await scoped.userRoles.getDirect('u-1');
+const replaced = await scoped.userRoles.set('u-1', ['operator'], {
+  expectedRevision: before.data.revision,
+});
+```
 
 ```json
-[]
+{
+  "before": ["order-reader"],
+  "after": ["operator"]
+}
 ```
 
-## 适合场景
+`set` 不会在旧角色旁追加 `operator`，而是替换直接集合。
 
-- 用户权限配置后台
-- 登录后权限初始化
-- 批量同步外部用户角色关系
+## 相关内容
 
-## 和 RoleManager 的边界
-
-- `pc.roles` 维护“角色是什么、规则是什么”
-- `pc.users` 维护“某个用户绑定了哪些角色”
-
-这两个入口应该在职责上严格分开，否则后续缓存失效和管理流程会变得混乱。
-
-## 常见误区
-
-- 因为用户绑定变化而直接 `invalidateAll()`
-- 调完 `assign()`、`revoke()`、`setUserRoles()` 或 `clearUserRoles()` 后又重复手工 `invalidate(userId)`
-- 用多次 `assign/revoke` 替代“整表保存”式的 `setUserRoles()`
-- 把角色规则管理逻辑混进用户绑定入口
-
-如果你要把角色页和用户页一起做成后台页面，可以继续看 [管理后台接入](/zh/guide/site-preview-release)。
-
-如果你想看资源匹配的纯函数边界，可继续看 [matchResource](/zh/api/match-resource)。
+参见[检查权限](/zh/guide/check-permission)、[角色继承](/zh/guide/role-inheritance)和[角色 API](/zh/api/roles)。

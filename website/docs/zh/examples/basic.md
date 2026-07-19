@@ -1,66 +1,64 @@
-# 基础示例
+# 基础 RBAC
 
-这个示例展示最小 `HTTP-only` 路径，适合第一次跑通 permission-core。
+## 场景
 
-```typescript
-import { MemoryAdapter, PermissionCore } from 'permission-core';
+这是第一个完整 RBAC 路径：创建角色与规则、给用户分配角色、检查 allow/默认拒绝、对比追加型 `assign` 与替换型 `set`，并读取自身/有效授权状态。
 
-const pc = new PermissionCore({ storage: new MemoryAdapter() });
-await pc.init();
+## 运行
 
-await pc.roles.create('viewer', { label: '只读用户' });
-await pc.roles.allow('viewer', 'invoke', 'GET:/api/articles');
-await pc.users.assign('user-001', 'viewer');
-
-await pc.assert('user-001', 'invoke', 'GET:/api/articles');
+```bash
+npm run example:basic
 ```
 
-## 这个示例实际跑通了什么
+规范源码是 `examples/basic.mjs` 中 `docs:basic:start` 到 `docs:basic:end` 的内容，并使用 `examples/_support/host.mjs` 中的共享宿主 fixture。
 
-虽然代码很短，但它已经把 `HTTP-only` 最基本的一次跑通流程串起来了：
+## 源码解读
 
-1. 初始化运行时
-2. 创建角色
-3. 给角色配置接口规则
-4. 给用户绑定角色
-5. 在运行时做接口权限断言
+```js
+await scoped.userRoles.assign('u-1', 'order-reader');
+const subject = core.forSubject({ userId: 'u-1', scope });
+const allowed = await subject.can('invoke', 'GET:/api/orders');
+const cannotDelete = await subject.cannot('invoke', 'DELETE:/api/orders');
 
-也就是说，这不是“玩具片段”，而是一段可以直接帮助你理解接入顺序的最小示例。
+const before = await scoped.userRoles.getDirect('u-1');
+await scoped.userRoles.set('u-1', ['order-reader'], {
+  expectedRevision: before.data.revision,
+});
+```
 
-这个示例刻意不引入：
+`cannotDelete: true` 表示对应 `can()` 为 false，因为没有 delete allow。它不表示授予了 delete 权限，也不表示分配了单独 deny。
 
-- `db:` 资源
-- 字段过滤
-- 生产存储
+## 预期输出
 
-目的就是先跑通最简单的接入方式。
+```json
+{
+  "example": "basic",
+  "ok": true,
+  "userRoles": {
+    "afterAssign": ["order-reader"],
+    "beforeSet": ["operator", "order-reader"],
+    "afterSet": ["order-reader"],
+    "effective": ["order-reader"]
+  },
+  "permissionChecks": {
+    "allowed": true,
+    "cannotDelete": true,
+    "deleteReason": "no-allow"
+  },
+  "reads": {
+    "ownRules": ["allow:invoke:GET:/api/orders"],
+    "effectiveRules": ["allow:invoke:GET:/api/orders"],
+    "roleChain": ["order-reader"],
+    "permissionRuleCount": 1,
+    "resources": ["GET:/api/orders"]
+  }
+}
+```
 
-## 如果你想把它再往前走一步
+## 生产边界
 
-通常下一步会是下面两种方向之一：
+示例只为可重复执行而启动内存 MongoDB replica set。生产环境由宿主提供已连接的 MonSQLize 3.1 实例、可信租户/用户身份、token secret 和进程生命周期。示例先关闭 PermissionCore，再关闭宿主数据库。
 
-### 方向一：继续留在 `HTTP-only`
+## 相关内容
 
-补：
-
-- 多个接口规则
-- `getResources()`
-- 中间件接入
-
-### 方向二：升级到数据权限
-
-补：
-
-- `db:<collection>[:<field>]` 资源
-- `filterFields()`
-- Service / DAO 层的集合权限判断
-
-## 对照阅读建议
-
-看完这个示例后，最适合继续读的是：
-
-- [快速开始](/zh/guide/quick-start)
-- [Express 接入](/zh/examples/express)
-- [资源路径模型](/zh/guide/resource-paths)
-
-真实应用和仓库维护示例还必须在结束时执行 `await pc.close()`；这样从 Memory 切换到 File/MonSQLize 时，调用结构不需要重写。
+参见[快速开始](/zh/guide/quick-start)、[检查权限](/zh/guide/check-permission)和[用户角色 API](/zh/api/user-roles)。

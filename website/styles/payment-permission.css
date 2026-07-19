@@ -84,6 +84,25 @@ body {
   outline-offset: 3px;
 }
 
+.pc-skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 10000;
+  padding: 10px 14px;
+  border: 1px solid var(--pc-border-strong);
+  border-radius: 4px;
+  background: var(--pc-surface-strong);
+  color: var(--pc-ink);
+  font-weight: 700;
+  text-decoration: none;
+  transform: translateY(calc(-100% - 16px));
+}
+
+.pc-skip-link:focus {
+  transform: translateY(0);
+}
+
 .pc-home-feature__link {
   display: block;
   height: 100%;
@@ -92,12 +111,17 @@ body {
 }
 
 @media (min-width: 960px) {
-  html:has(.rp-doc-layout__container),
-  body:has(.rp-doc-layout__container) {
+  html:has(.rp-doc-layout__container) {
     height: auto;
     min-height: 100%;
     overflow-x: hidden;
     overflow-y: auto;
+  }
+
+  body:has(.rp-doc-layout__container) {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
   }
 
   body:has(.rp-doc-layout__container) .rp-doc-layout__container {
@@ -289,6 +313,19 @@ body::after {
 .rp-home-hero .rp-home-hero__subtitle,
 .rp-home-feature__title {
   letter-spacing: 0;
+}
+
+.rp-home-hero .rp-home-hero__title {
+  margin: 0;
+}
+
+.pc-nav-menu__trigger {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: 0;
+  cursor: pointer;
 }
 
 .rp-home-hero .rp-home-hero__title-brand {

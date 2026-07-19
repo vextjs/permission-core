@@ -1,121 +1,47 @@
-# 介绍
+# 简介
 
-permission-core 不是“数据库插件”，也不是“某个框架专用中间件合集”。更容易理解的说法是：它是一套专门用来做权限判断的通用底层能力。
+permission-core 是面向 MonSQLize 3.1 Node.js 应用的细粒度授权库，将持久化 RBAC 管理与接口、菜单、API、数据行和字段的运行时检查统一起来。
 
-它通过一套稳定的模型来表达权限：
+## 模块负责什么
 
-- 角色与用户绑定
-- allow / deny 规则
-- `invoke` 接口动作
-- `read/create/update/delete/write` 数据动作
-- `<METHOD>:<path>`（`path` 指规范化后的命中路由路径，模板路由优先）与 `db:<collection>[:<field>]` 两类资源
+- 带租户范围的角色、单父角色继承和用户直接角色绑定
+- 基于类型化 `action + resource` 的 allow 与 deny 规则
+- 菜单节点、接口绑定、角色菜单授权、修订和审计记录
+- 用户决策、解释、可见菜单投影和授权集合
+- 可选的语义缓存，底层复用宿主 MonSQLize 缓存
 
-## 它到底解决什么问题
+每次管理写入都通过 MonSQLize 事务持久化，并返回修订与审计证据。必要的 scope、策略上下文、数据库状态或来源完整性不可用时，运行时默认拒绝。
 
-如果把权限系统拆开看，接入方通常会同时面对四类问题：
+## 宿主负责什么
 
-- 规则怎么定义
-- 规则怎么绑定到用户
-- 运行时怎么判断权限
-- 规则结果怎么缓存与失效
+应用仍然负责认证、请求身份、密钥、MonSQLize 连接、业务集合、HTTP 错误序列化和运维策略。宿主必须构造可信的 `PermissionSubject`；模块不会自动信任任意租户或用户请求头。
 
-permission-core 的职责就是把这四类问题整理成一套统一做法，而不是让每个业务项目各写一套：
+permission-core 不是身份提供方、登录模块、ORM、API 网关，也不是只在前端隐藏菜单的工具。
 
-- `roles` / `users` 解决配置侧问题
-- `can` / `assert` / `getRowScope` / `filterRows` / `filterFields` 解决运行时问题
-- `cache-hub` 兼容缓存解决性能和失效问题
-- `StorageAdapter` 解决规则与绑定数据放在哪里的问题
-- scoped API 解决 tenant/app 下角色、规则、绑定和缓存的真实隔离
-- `permission-core/menu` 解决菜单、页面、按钮、多 API binding、授权树和审计
-- `permission-core/adapters/vext` 解决 Vext plugin、middleware、原生 route guard 与 manifest 接入
+## 运行模型
 
-## 它和“数据库权限系统”有什么区别
+```mermaid
+flowchart LR
+  A["已认证身份"] --> B["PermissionSubject"]
+  B --> C["租户范围内的角色"]
+  C --> D["有效 allow 与 deny 规则"]
+  D --> E["接口与 API 决策"]
+  D --> F["可见菜单与按钮"]
+  D --> G["授权 Mongo 集合"]
+```
 
-这是最容易误解的地方。permission-core 支持 `db:` 资源，但这不代表它本质上是某个数据库的插件。
+scope 至少包含 `tenantId`，还可以包含 `appId`、`moduleId` 或 `namespace`。另一个 scope 可以使用相同 `userId` 和 `roleId`，但不会共享绑定或规则。
 
-更准确的说法是：
+## 支持边界
 
-- 它用 `db:<collection>[:<field>]` 统一描述数据资源
-- 它用可持久化的 `where` 条件描述行级范围
-- 它允许把规则持久化到 `monsqlize`
-- 但它没有把权限模型绑死在 MongoDB 或某个 ORM 上
+| 范围 | 支持契约 |
+|---|---|
+| 运行时 | Node.js 18 或更高版本 |
+| 持久化 | 已连接的 `monsqlize@3.1.0` 实例；MongoDB 是当前支持的数据库路径 |
+| 框架 | 框架无关核心，以及可选的 `permission-core/plugins/vext` |
+| 缓存 | 默认关闭；可选择使用调用方确认一致性的 MonSQLize 缓存 |
+| 认证 | 由宿主提供；登录不属于本包职责 |
 
-也正因为如此，`HTTP-only` 和 `DB-only` 才能共用一套内核，而不是拆成两套系统。
+## 选择下一项任务
 
-## 为什么文档一直强调三条接入路径
-
-因为真正让接入者困惑的，不是权限模型本身，而是下面两个问题经常被写在一起：
-
-- 我需不需要 `db:` 权限
-- 我要不要把规则存到 `monsqlize`
-
-这两件事不是同一层决策，所以 v1 文档明确拆成三条官方接入路径：
-
-- `HTTP-only`
-- `DB-only`
-- `Full standard stack`
-
-接入路径决定资源和 API，存储实现决定规则与绑定放在哪里。两者彼此独立，不应互相暗示。
-
-## 什么时候适合用它
-
-适合以下几类场景：
-
-- 你想在 Express、Koa、vext 或其他 Node.js 框架里统一做接口权限判断。
-- 你想在 Service / DAO 层做数据权限与字段过滤，但不想把业务逻辑绑死在具体数据库权限模型上。
-- 你想把“角色、规则、缓存、继承链”这套逻辑沉淀成一个可复用的内核，而不是散落在各业务项目里。
-
-## 不解决什么
-
-v1 明确不覆盖以下能力：
-
-- 嵌套字段权限
-- ORM 自动拦截
-- 多数据库区分
-
-行级权限已经纳入当前方案，但表达方式不是把条件写进资源字符串，而是通过规则的 `where` 条件 DSL 来描述。
-
-这些边界不是缺陷，而是为了保证首版实现和文档都足够稳定。
-
-## 首次接入先走这条主路径
-
-如果你是第一次接入，先不要在 API 页、示例页和管理后台页之间来回跳。先按这一条主路径读：
-
-1. [快速开始](/zh/guide/quick-start)
-2. [常见问题](/zh/guide/faq)
-3. [资源路径模型](/zh/guide/resource-paths)
-4. [角色与规则](/zh/guide/roles-and-rules)
-5. [权限鉴权](/zh/guide/check-permission)
-6. [接入检查清单](/zh/guide/integration-checklist)
-
-当你已经准备开始写接入代码，再继续看 [接入阅读顺序](/zh/guide/implementation-reading-order)。
-
-## 主路径之后按场景补读
-
-### 你在做权限模型或后台规则维护
-
-1. [角色与规则](/zh/guide/roles-and-rules)
-2. [RoleManager](/zh/api/role-manager)
-3. [UserRoleManager](/zh/api/user-roles)
-4. [管理后台接入](/zh/guide/site-preview-release)
-
-### 你在做框架接入或 Service 分层
-
-1. [框架接入](/zh/guide/framework-integration)
-2. [Express 接入](/zh/examples/express)
-3. [vext 接入](/zh/examples/vext)
-4. [PermissionCore](/zh/api/permission-core)
-
-### 你在做数据权限落地
-
-1. [行级权限](/zh/guide/row-level)
-2. [字段过滤](/zh/guide/field-filter)
-3. [字段权限示例](/zh/examples/field-permission)
-4. [PermissionCore](/zh/api/permission-core)
-
-### 你在做菜单后台、多租户或 Vext 接入
-
-1. 菜单、页面、按钮和一个操作多个接口：[菜单权限](/zh/guide/menu-permissions)
-2. tenant/app 隔离：[多租户权限](/zh/guide/multi-tenant)
-3. 真实 Vext route guard：[vext 适配器](/zh/guide/vext-adapter)
-4. 上线前统一回到 [接入检查清单](/zh/guide/integration-checklist) 和 [生产部署](/zh/guide/production-deployment)
+从[快速开始](/zh/guide/quick-start)进入。核心已经运行时，可继续处理[权限检查](/zh/guide/check-permission)、[数据权限](/zh/guide/data-permissions)或[菜单管理](/zh/guide/menu-management)。

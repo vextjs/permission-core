@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20.19'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            website/package-lock.json
+
+      - name: Install package dependencies
+        run: npm ci
+
+      - name: Install website dependencies
+        run: npm --prefix website ci
+
+      - name: Run the package release gate
+        run: npm run prepublishOnly
+
+      - name: Resolve preview version
+        id: preview
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Build the preview documentation
+        env:
+          PERMISSION_CORE_DOCS_BASE: /permission-core/next/
+          PERMISSION_CORE_DOCS_SITE_URL: https://vextjs.github.io/permission-core/next
+          PERMISSION_CORE_DOCS_CHANNEL: preview
+          PERMISSION_CORE_DOCS_VERSION: ${{ steps.preview.outputs.version }}
+          RSPRESS_PERSISTENT_CACHE: 'false'
+        run: npm --prefix website run build
+
+      - name: Check preview generated HTML
+        run: npm run test:docs:rendered -- --root=website/dist --channel=preview --contract=full --base=/permission-core/next/

@@ -10,14 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.1.0] - Unreleased
+## [2.0.0] - Unreleased
 
 ### Added
 
-- Added scoped multi-tenant permission APIs, tenant-aware storage/cache semantics, `permission-core/menu`, and `permission-core/adapters/vext`.
-- Added menu permissions, multi-tenant, and vext adapter examples and documentation pages.
-- Added persistent File and MonSQLize menu storage, manifest replacement and audit diffs, versioned menu snapshots, resource and manifest extension registries, and real Vext route guard integration.
-- Added enforced global and high-risk module coverage thresholds plus tarball consumer verification requirements.
+- Added a MonSQLize 3.1-backed tenant-scoped RBAC runtime, menu/API authorization, guarded data collections, revisioned previews, audit evidence, and optional semantic caching.
+- Added the optional `permission-core/plugins/vext` integration and retained `permission-core/match` as the standalone built-in matcher.
+- Added five runnable scenarios and a task-first documentation site with 34 English/Chinese page pairs. See [`changelogs/unreleased.md`](./changelogs/unreleased.md) for the complete change set.
+
+### Changed
+
+- Made MonSQLize 3.1 the only persistence contract and reduced the public package surface to `.`, `./match`, and `./plugins/vext`.
+- Replaced the previous adapter-oriented API with scoped management and subject contexts; this unreleased major line does not carry a migration guide.
 
 ---
 
@@ -42,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [Detailed Changelogs](./changelogs/)
 
 [1.0.10]: https://github.com/vextjs/permission-core/compare/v1.0.9...v1.0.10
-[1.1.0]: https://github.com/vextjs/permission-core/compare/v1.0.10...HEAD
+[2.0.0]: https://github.com/vextjs/permission-core/compare/v1.0.10...HEAD
 [1.0.6]: https://github.com/vextjs/permission-core/compare/v1.0.5...v1.0.6
 [1.0.7]: https://github.com/vextjs/permission-core/compare/v1.0.6...v1.0.7
 [1.0.8]: https://github.com/vextjs/permission-core/compare/v1.0.7...v1.0.8

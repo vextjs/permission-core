@@ -2,20 +2,17 @@
 
 ## Added
 
-- Added scoped multi-tenant permission APIs with isolated roles, user bindings, rules, caches, and storage adapters.
-- Added the optional `permission-core/menu` entry for menu trees, pages, buttons, API bindings, authorization explanations, manifest synchronization, revisioned snapshots, audits, and Memory/File/MonSQLize persistence.
-- Added the built-in optional `permission-core/adapters/vext` integration with native route permission metadata, tenant resolution, middleware/provider helpers, plugin lifecycle support, and real-host tests.
+- Added the MonSQLize 3.1-backed `PermissionCore` runtime with tenant-scoped roles, inheritance, user bindings, rules, revisioned mutations, previews, audit evidence, and fail-closed subject decisions.
+- Added menu nodes, API bindings, role-menu authorization, manifest import/export, visible-tree/button/route projections, source integrity, impact analysis, and explicit stale-source repair.
+- Added `AuthorizedCollection` for tenant, row, field, Mongo-style filter, write, pagination, and host-transaction enforcement.
+- Added the optional `permission-core/plugins/vext` entry with native route metadata, lazy trusted subjects, manifest validation, HTTP error mapping, restart-required reload handling, and Vext-owned core shutdown.
+- Added opt-in semantic authorization caching through the host MonSQLize cache, with revision-bound values, targeted invalidation, incident health, and durable cache-outcome reconciliation.
+- Added built-in HTTP/API/data/UI resource grammars, deterministic custom resource schemes, and the standalone `permission-core/match` entry.
 
 ## Fixed
 
-- Aligned README and website examples with the current RoleManager API, fixed local English docs paths, and refreshed the verified regression suite to 113 tests.
-- Kept the released support baseline at `1.0.10` while preparing the unreleased `1.1.0` line.
-- Canonicalized row-condition matching so semantically equal `where` rules dedupe and revoke consistently regardless of object key order, logical child order, and `in` / `nin` value order.
-- Kept documentation sidebars fixed on desktop while restoring normal page-level scrolling without a narrow inner document scrollbar.
-- Documented the role-rule batch API boundary, clarified automatic cache invalidation in manager APIs, fixed stale English `grant()` examples, and aligned the Chinese docs.
-- Added CSS-driven motion to the documentation home authorization visual, including route/row/field data flow, policy node pulses, shield breathing, audit panel activity, and reduced-motion-safe timing.
-- Tightened the documentation home hero alignment and vertical rhythm so the visual panel and feature cards sit closer to the payment authorization theme.
-- Replaced the default one-line home footer with a vext-style multi-column documentation footer.
-- Synchronized the documentation nav with an explicit `v1.1.0 Unreleased` label.
-- Hardened permission snapshots, custom default-scope invalidation, resource-scheme snapshots, scoped-adapter detection, menu snapshot cache keys, and scoped MemoryAdapter role ID roundtrips.
-- Changed FileAdapter persistence to write a complete same-directory temporary snapshot and atomically replace the target file, preserving the last successful file when replacement fails.
+- Made MonSQLize 3.1 the only database contract and reduced the package surface to `.`, `./match`, and `./plugins/vext`; permission-core never owns or closes the host database.
+- Canonicalized row conditions and permission sources so equivalent manual/menu rules deduplicate without losing provenance, while deny-first evaluation remains deterministic.
+- Hardened stable reads, revision vectors, idempotent replay, preview tokens, capacity limits, persisted-state validation, and old-fill-after-invalidation cache races.
+- Hardened Vext request ownership, route-manifest commit ordering, `any`/`all` contract digests, startup rollback, cross-entry error identity, and real TCP status mapping.
+- Rebuilt the documentation as 34 English/Chinese page pairs with a task-first manifest, exact source owners, complete response examples, five runnable scenarios, rendered-route checks, and stable/preview channel assembly.

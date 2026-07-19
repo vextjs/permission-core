@@ -25,19 +25,81 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: website/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            website/package-lock.json
+
+      - name: Resolve stable release
+        id: stable
+        shell: bash
+        run: |
+          version="$(npm view permission-core version)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ steps.stable.outputs.version }}
+          path: _docs-stable
+
+      - name: Verify stable release source
+        working-directory: _docs-stable
+        env:
+          EXPECTED_VERSION: ${{ steps.stable.outputs.version }}
+        run: node -e "const p=require('./package.json'); if(p.version!==process.env.EXPECTED_VERSION) throw new Error('stable tag/package mismatch')"
+
+      - name: Install package dependencies
+        run: npm ci
 
       - name: Install website dependencies
         working-directory: website
         run: npm ci
 
-      - name: Build website
-        working-directory: website
+      - name: Resolve preview version
+        id: preview
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Check preview source and First Success
+        run: |
+          npm run test:docs
+          npm run docs:first-success
+
+      - name: Install stable website dependencies
+        working-directory: _docs-stable/website
+        run: npm ci
+
+      - name: Build stable website
+        working-directory: _docs-stable/website
+        env:
+          PERMISSION_CORE_DOCS_BASE: /permission-core/
+          PERMISSION_CORE_DOCS_SITE_URL: https://vextjs.github.io/permission-core
+          PERMISSION_CORE_DOCS_CHANNEL: stable
+          PERMISSION_CORE_DOCS_VERSION: ${{ steps.stable.outputs.version }}
+          RSPRESS_PERSISTENT_CACHE: 'false'
         run: npm run build
+
+      - name: Check stable generated HTML
+        run: npm run test:docs:rendered -- --root=_docs-stable/website/dist --channel=stable --contract=channel --base=/permission-core/
+
+      - name: Build preview website
+        working-directory: website
+        env:
+          PERMISSION_CORE_DOCS_BASE: /permission-core/next/
+          PERMISSION_CORE_DOCS_SITE_URL: https://vextjs.github.io/permission-core/next
+          PERMISSION_CORE_DOCS_CHANNEL: preview
+          PERMISSION_CORE_DOCS_VERSION: ${{ steps.preview.outputs.version }}
+          RSPRESS_PERSISTENT_CACHE: 'false'
+        run: npm run build
+
+      - name: Check preview generated HTML
+        run: npm run test:docs:rendered -- --root=website/dist --channel=preview --contract=full --base=/permission-core/next/
+
+      - name: Assemble stable and preview docs
+        run: npm run docs:assemble -- --stable=_docs-stable/website/dist --preview=website/dist --output=pages-dist
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: website/dist
+          path: pages-dist
 
   deploy:
     needs: build

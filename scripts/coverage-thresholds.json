@@ -6,7 +6,7 @@
         "lines": 92
     },
     "groups": {
-        "src/adapters/vext/": {
+        "src/plugins/vext/": {
             "statements": 90,
             "branches": 83,
             "functions": 96,

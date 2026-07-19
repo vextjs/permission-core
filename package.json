@@ -1,6 +1,6 @@
 {
     "name": "permission-core",
-    "version": "1.1.0",
+    "version": "2.0.0",
     "description": "Fine-grained RBAC and resource permission core for Node.js, with route permissions, data scopes, role inheritance, and wildcard matching.",
     "keywords": [
         "rbac",
@@ -30,15 +30,10 @@
             "import": "./dist/match.js",
             "require": "./dist/match.cjs"
         },
-        "./menu": {
-            "types": "./dist/menu.d.ts",
-            "import": "./dist/menu.js",
-            "require": "./dist/menu.cjs"
-        },
-        "./adapters/vext": {
-            "types": "./dist/adapters/vext.d.ts",
-            "import": "./dist/adapters/vext.js",
-            "require": "./dist/adapters/vext.cjs"
+        "./plugins/vext": {
+            "types": "./dist/plugins/vext.d.ts",
+            "import": "./dist/plugins/vext.js",
+            "require": "./dist/plugins/vext.cjs"
         }
     },
     "files": [
@@ -63,29 +58,32 @@
     "scripts": {
         "build": "tsup",
         "test": "vitest run",
+        "test:contract": "vitest run test/contract",
+        "test:unit": "vitest run test/unit",
+        "test:integration": "vitest run test/integration",
+        "test:complexity": "node ./scripts/check-complexity.mjs",
         "test:coverage": "vitest run --coverage && node ./scripts/check-coverage.mjs",
-    "test:package": "node ./scripts/package-install-smoke.mjs",
-    "test:docs": "node ./scripts/check-docs.mjs",
+        "test:package": "node ./scripts/package-install-smoke.mjs",
+        "test:docs": "node ./scripts/check-docs.mjs",
+        "test:docs:rendered": "node ./scripts/check-docs-rendered.mjs",
+        "docs:first-success": "npm run build && node ./scripts/docs-first-success-smoke.mjs",
+        "docs:assemble": "node ./scripts/assemble-docs-site.mjs",
         "test:watch": "vitest",
         "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
-        "example:http": "npm run build && node ./examples/http-only.mjs",
-        "example:db": "npm run build && node ./examples/db-only.mjs",
-        "example:complete": "npm run build && node ./examples/complete-flow.mjs",
-        "example:menu": "npm run build && node ./examples/menu-permissions.mjs",
+        "example:basic": "npm run build && node ./examples/basic.mjs",
         "example:multi-tenant": "npm run build && node ./examples/multi-tenant.mjs",
-        "example:vext": "npm run build && node ./examples/vext-adapter/index.mjs",
-        "example:all": "npm run build && node ./examples/http-only.mjs && node ./examples/db-only.mjs && node ./examples/complete-flow.mjs && node ./examples/menu-permissions.mjs && node ./examples/multi-tenant.mjs && node ./examples/vext-adapter/index.mjs",
+        "example:data-guard": "npm run build && node ./examples/data-guard.mjs",
+        "example:menu-admin": "npm run build && node ./examples/menu-admin.mjs",
+        "example:vext": "npm run build && node ./examples/vext/index.mjs",
+        "example:all": "npm run build && node ./examples/basic.mjs && node ./examples/multi-tenant.mjs && node ./examples/data-guard.mjs && node ./examples/menu-admin.mjs && node ./examples/vext/index.mjs",
         "test:audit": "npm audit --omit=dev --registry=https://registry.npmjs.org/",
-    "test:all": "npm run typecheck && npm run test:coverage && npm run test:docs && npm run build && npm run example:all && npm run test:package",
+        "test:all": "npm run typecheck && npm run test:complexity && npm run test:coverage && npm run test:docs && npm run build && npm run example:all && npm run test:package",
         "test:all:with-audit": "npm run test:all && npm run test:audit",
         "prepublishOnly": "npm run test:all:with-audit"
     },
-    "dependencies": {
-        "cache-hub": "2.2.4",
-        "monsqlize": "2.0.3"
-    },
     "peerDependencies": {
-        "vextjs": ">=0.3.26"
+        "monsqlize": "3.1.0",
+        "vextjs": "0.3.26"
     },
     "peerDependenciesMeta": {
         "vextjs": {
@@ -95,6 +93,9 @@
     "devDependencies": {
         "@types/node": "22.19.19",
         "@vitest/coverage-v8": "3.2.6",
+        "mongodb-memory-server": "10.4.3",
+        "monsqlize": "3.1.0",
+        "parse5": "7.3.0",
         "tsup": "8.5.1",
         "typescript": "5.9.3",
         "vextjs": "0.3.26",

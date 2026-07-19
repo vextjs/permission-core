@@ -1,9 +1,30 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { defineConfig } from "@rspress/core";
 import { pluginSitemap } from "@rspress/plugin-sitemap";
+import {
+    docsPages,
+    guideGroups,
+    localizeDocsLink,
+    pageLink,
+} from "./docs-manifest.mjs";
 
 const DEFAULT_DOCS_BASE = "/permission-core/";
 const DEFAULT_DOCS_SITE_URL = "https://vextjs.github.io/permission-core";
+
+// Stable and preview use different bases in one release flow. Rspress 2.0.11
+// does not include `base` in its persistent-cache digest.
+process.env.RSPRESS_PERSISTENT_CACHE = "false";
+
+type DocsChannel = "stable" | "preview";
+
+function resolveDocsChannel(value?: string): DocsChannel {
+    const channel = value?.trim() || "preview";
+    if (channel !== "stable" && channel !== "preview") {
+        throw new Error(`Unsupported PERMISSION_CORE_DOCS_CHANNEL: ${channel}`);
+    }
+    return channel;
+}
 
 function normalizeDocsBase(value?: string) {
     const raw = value?.trim() || DEFAULT_DOCS_BASE;
@@ -46,6 +67,18 @@ const docsBase = normalizeDocsBase(process.env.PERMISSION_CORE_DOCS_BASE);
 const docsSiteUrl = trimTrailingSlash(
     process.env.PERMISSION_CORE_DOCS_SITE_URL || DEFAULT_DOCS_SITE_URL,
 );
+const docsChannel = resolveDocsChannel(process.env.PERMISSION_CORE_DOCS_CHANNEL);
+const packageVersion = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"),
+).version as string;
+const docsVersion = process.env.PERMISSION_CORE_DOCS_VERSION?.trim() || packageVersion;
+const docsHead: [string, Record<string, string>][] = [
+    ["meta", { name: "permission-core-docs-channel", content: docsChannel }],
+    ["meta", { name: "permission-core-docs-version", content: docsVersion }],
+];
+if (docsChannel === "preview") {
+    docsHead.push(["meta", { name: "robots", content: "noindex,follow" }]);
+}
 
 const navSource: LocalizedNavItem[] = [
     {
@@ -57,7 +90,7 @@ const navSource: LocalizedNavItem[] = [
     {
         en: "API Reference",
         zh: "API 参考",
-        link: "/api/permission-core",
+        link: "/api/core-and-contexts",
         activeMatch: "/api/",
     },
     {
@@ -67,8 +100,8 @@ const navSource: LocalizedNavItem[] = [
         activeMatch: "/examples/",
     },
     {
-        en: "v1.1.0 Unreleased",
-        zh: "v1.1.0 未发布",
+        en: `v${docsVersion} ${docsChannel === "stable" ? "Stable" : "Preview"}`,
+        zh: `v${docsVersion} ${docsChannel === "stable" ? "稳定版" : "预览版"}`,
         items: [
             {
                 en: "GitHub",
@@ -84,84 +117,39 @@ const navSource: LocalizedNavItem[] = [
     },
 ];
 
+const manifestItem = (item: (typeof docsPages)[number]): LocalizedLink => ({
+    en: item.labels.en,
+    zh: item.labels.zh,
+    link: pageLink(item),
+});
+
 const sidebarSource: Record<"guide" | "api" | "examples", SidebarGroup[]> = {
-    guide: [
-        {
-            en: "Start",
-            zh: "开始",
-            items: [
-                { en: "Introduction", zh: "介绍", link: "/guide/introduction" },
-                { en: "Quick Start", zh: "快速开始", link: "/guide/quick-start" },
-                { en: "FAQ", zh: "常见问题", link: "/guide/faq" },
-                { en: "Integration Checklist", zh: "接入检查清单", link: "/guide/integration-checklist" },
-                { en: "Reading Order", zh: "接入阅读顺序", link: "/guide/implementation-reading-order" },
-            ],
-        },
-        {
-            en: "Core Concepts",
-            zh: "核心概念",
-            items: [
-                { en: "Resource Paths", zh: "资源路径模型", link: "/guide/resource-paths" },
-                { en: "Menu Permissions", zh: "菜单权限", link: "/guide/menu-permissions" },
-                { en: "Multi-tenant Permissions", zh: "多租户权限", link: "/guide/multi-tenant" },
-                { en: "Roles and Rules", zh: "角色与规则", link: "/guide/roles-and-rules" },
-                { en: "Permission Checks", zh: "权限鉴权", link: "/guide/check-permission" },
-                { en: "Row-level Permissions", zh: "行级权限", link: "/guide/row-level" },
-                { en: "Field Filtering", zh: "字段过滤", link: "/guide/field-filter" },
-                { en: "Permission Cache", zh: "权限缓存", link: "/guide/cache" },
-            ],
-        },
-        {
-            en: "Integration & Production",
-            zh: "集成与生产",
-            items: [
-                { en: "Framework Integration", zh: "框架接入", link: "/guide/framework-integration" },
-                { en: "vext Adapter", zh: "vext 适配器", link: "/guide/vext-adapter" },
-                { en: "Management Console", zh: "管理后台接入", link: "/guide/site-preview-release" },
-                { en: "Production Deployment", zh: "生产部署与监控", link: "/guide/production-deployment" },
-                { en: "Compatibility Matrix", zh: "兼容性矩阵", link: "/guide/compatibility-matrix" },
-                { en: "Error Response Mapping", zh: "错误处理与响应映射", link: "/guide/error-response-mapping" },
-                { en: "Storage Adapters", zh: "存储适配器", link: "/guide/adapters" },
-                { en: "Custom Adapter", zh: "自定义适配器", link: "/guide/custom-adapter" },
-                { en: "Migration Guide", zh: "迁移指南", link: "/guide/migration" },
-            ],
-        },
-    ],
+    guide: guideGroups.map((group) => ({
+        en: group.labels.en,
+        zh: group.labels.zh,
+        items: docsPages
+            .filter((item) => item.section === "guide" && item.navGroup === group.id)
+            .sort((left, right) => left.order - right.order)
+            .map(manifestItem),
+    })),
     api: [
         {
             en: "API Reference",
             zh: "API 参考",
-            items: [
-                { en: "PermissionCore", zh: "PermissionCore", link: "/api/permission-core" },
-                { en: "Scoped Permissions", zh: "Scoped Permissions", link: "/api/scoped-permissions" },
-                { en: "Menu Module", zh: "Menu Module", link: "/api/menu" },
-                { en: "vext Adapter", zh: "vext Adapter", link: "/api/vext-adapter" },
-                { en: "PermissionCoreContext", zh: "PermissionCoreContext", link: "/api/context" },
-                { en: "PermissionCache", zh: "PermissionCache", link: "/api/permission-cache" },
-                { en: "RoleManager", zh: "RoleManager", link: "/api/role-manager" },
-                { en: "UserRoleManager", zh: "UserRoleManager", link: "/api/user-roles" },
-                { en: "StorageAdapter", zh: "StorageAdapter", link: "/api/storage-adapter" },
-                { en: "MemoryAdapter", zh: "MemoryAdapter", link: "/api/memory-adapter" },
-                { en: "FileAdapter", zh: "FileAdapter", link: "/api/file-adapter" },
-                { en: "MonSQLizeStorageAdapter", zh: "MonSQLizeStorageAdapter", link: "/api/monsqlize-storage-adapter" },
-                { en: "matchResource", zh: "matchResource", link: "/api/match-resource" },
-                { en: "Error Codes", zh: "错误码", link: "/api/errors" },
-            ],
+            items: docsPages
+                .filter((item) => item.section === "api")
+                .sort((left, right) => left.order - right.order)
+                .map(manifestItem),
         },
     ],
     examples: [
         {
             en: "Examples",
             zh: "示例",
-            items: [
-                { en: "Basic Example", zh: "基础示例", link: "/examples/basic" },
-                { en: "Express Integration", zh: "Express 接入", link: "/examples/express" },
-                { en: "vext Integration", zh: "vext 接入", link: "/examples/vext" },
-                { en: "Row-level Permissions", zh: "行级权限", link: "/examples/row-level" },
-                { en: "Field Permissions", zh: "字段权限", link: "/examples/field-permission" },
-                { en: "Management Backend", zh: "管理后台保存", link: "/examples/management-backend" },
-                { en: "MonSQLize Adapter", zh: "MonSQLize 适配器", link: "/examples/monsqlize-adapter" },
-            ],
+            items: docsPages
+                .filter((item) => item.section === "examples")
+                .sort((left, right) => left.order - right.order)
+                .map(manifestItem),
         },
     ],
 };
@@ -169,11 +157,7 @@ const sidebarSource: Record<"guide" | "api" | "examples", SidebarGroup[]> = {
 const isExternalLink = (link: string) => /^https?:\/\//.test(link);
 
 function localizeLink(link: string, locale: Locale) {
-    if (locale === "en" || isExternalLink(link)) {
-        return link;
-    }
-
-    return link === "/" ? "/zh/" : `/zh${link}`;
+    return isExternalLink(link) ? link : localizeDocsLink(link, locale);
 }
 
 function isMenu(item: LocalizedNavItem): item is LocalizedMenu {
@@ -232,7 +216,16 @@ export default defineConfig({
     icon: "/favicon.svg",
     globalStyles: path.join(__dirname, "styles", "payment-permission.css"),
     description:
-        "A payment-grade fine-grained authorization core for Node.js route permissions, data scopes, field filtering, role rules, and cache invalidation.",
+        "Fine-grained authorization for Node.js with MonSQLize-backed RBAC, route, menu, row, and field permissions.",
+    builderConfig: {
+        source: {
+            define: {
+                __PERMISSION_CORE_DOCS_CHANNEL__: JSON.stringify(docsChannel),
+                __PERMISSION_CORE_DOCS_VERSION__: JSON.stringify(docsVersion),
+            },
+        },
+    },
+    head: docsHead,
     outDir: "dist",
     locales: [
         {
@@ -240,7 +233,7 @@ export default defineConfig({
             label: "English",
             title: "permission-core",
             description:
-                "A payment-grade fine-grained authorization core for Node.js services.",
+                "Fine-grained authorization for Node.js services backed by MonSQLize 3.1.",
         },
         {
             lang: "zh",
@@ -267,7 +260,7 @@ export default defineConfig({
                 label: "English",
                 title: "permission-core",
                 description:
-                    "A payment-grade fine-grained authorization core for Node.js services.",
+                    "Fine-grained authorization for Node.js services backed by MonSQLize 3.1.",
                 nav: englishNav,
                 sidebar: englishSidebars,
             },
@@ -285,13 +278,6 @@ export default defineConfig({
             ...englishSidebars,
             ...chineseSidebars,
         },
-        socialLinks: [
-            {
-                icon: "github",
-                mode: "link",
-                content: "https://github.com/vextjs/permission-core",
-            },
-        ],
         footer: {
             message: "Released under the Apache License 2.0.",
         },

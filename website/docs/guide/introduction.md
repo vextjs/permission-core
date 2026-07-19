@@ -1,42 +1,47 @@
 # Introduction
 
-permission-core is a fine-grained authorization kernel for Node.js. It is designed for applications that need route permissions, data permissions, role inheritance, row scopes, field filtering, and management-console friendly rule storage.
+permission-core is a fine-grained authorization library for Node.js applications that use MonSQLize 3.1. It combines durable RBAC management with runtime checks for routes, menus, APIs, rows, and fields.
 
-## What it does
+## What it owns
 
-- Checks whether a user can perform an `action` on a `resource`.
-- Stores roles, rules, and user-role bindings through a `StorageAdapter`.
-- Resolves inherited roles and merges multiple role rules.
-- Applies deny-first permission checks.
-- Exposes row-scope and field-filter helpers for service-layer data authorization.
-- Keeps permission cache invalidation explicit.
-- Isolates roles, rules, bindings, and cache entries by tenant/application scope.
-- Adds optional menu/page/button/API-binding workflows through `permission-core/menu`.
-- Adds a built-in Vext plugin, middleware, route guard, and manifest adapter through `permission-core/adapters/vext`.
+- tenant-scoped roles, one-parent inheritance, and direct user-role bindings
+- allow and deny rules over typed `action + resource` pairs
+- menu nodes, API bindings, role-menu grants, revisions, and audit records
+- subject decisions, explanations, visible menu projections, and authorized collections
+- optional semantic caching backed by the host MonSQLize cache
 
-## What it does not do
+Every management mutation is persisted through MonSQLize transactions and returns revision and audit evidence. Runtime decisions fail closed when required scope, policy context, database state, or source integrity is unavailable.
 
-permission-core is not an authentication system. It does not issue tokens, manage sessions, hash passwords, own your database schema, or replace audit logging. Your application still owns identity, request context, secrets, compliance controls, and database queries.
+## What the host owns
 
-## Main resource shapes
+The application still owns authentication, request identity, secrets, its MonSQLize connection, business collections, HTTP error serialization, and operational policy. It must construct a trusted `PermissionSubject`; arbitrary tenant or user headers are not trusted automatically.
 
-| Resource | Shape | Typical action |
-|----------|-------|----------------|
-| Route | `<METHOD>:<path>` | `invoke` |
-| Collection | `db:<collection>` | `read`, `create`, `update`, `delete`, `write` |
-| Field | `db:<collection>:<field>` | `read`, `create`, `update`, `delete`, `write` |
-| Menu/page/button | `ui:<asset-kind>:<code>` | `read`, `invoke` |
-| Bound backend API | `api:<METHOD>:<path>` | `invoke` |
+permission-core is not an identity provider, login module, ORM, API gateway, or frontend-only menu filter.
 
-Menu visibility is not the final backend security boundary. A page or button may be visible for navigation purposes, while the bound API must still be authorized on the server.
+## Runtime model
 
-## Recommended next step
+```mermaid
+flowchart LR
+  A["Authenticated identity"] --> B["PermissionSubject"]
+  B --> C["Tenant-scoped roles"]
+  C --> D["Effective allow and deny rules"]
+  D --> E["Route and API decisions"]
+  D --> F["Visible menus and buttons"]
+  D --> G["Authorized Mongo collection"]
+```
 
-Start with [Quick Start](/guide/quick-start), then choose the task that matches your application:
+A scope contains at least `tenantId` and can add `appId`, `moduleId`, or `namespace`. The same `userId` and `roleId` may exist in another scope without sharing bindings or rules.
 
-- Admin menus, pages, buttons, and multiple APIs per operation: [Menu Permissions](/guide/menu-permissions)
-- Tenant/application isolation: [Multi-tenant Permissions](/guide/multi-tenant)
-- A Vext host with native route guards: [vext Adapter](/guide/vext-adapter)
-- Role editing screens and operational APIs: [Management Console](/guide/site-preview-release)
+## Supported boundary
 
-Before production, finish the [Integration Checklist](/guide/integration-checklist) and [Production Deployment](/guide/production-deployment) paths.
+| Surface | Supported contract |
+|---|---|
+| Runtime | Node.js 18 or newer |
+| Persistence | A connected `monsqlize@3.1.0` instance; MongoDB is the supported database path |
+| Framework | Framework-neutral core plus optional `permission-core/plugins/vext` |
+| Cache | Disabled by default; optional caller-attested MonSQLize cache |
+| Authentication | Supplied by the host; login is outside this package |
+
+## Choose the next task
+
+Begin with [Quick Start](/guide/quick-start). If you already have the core running, continue with [permission checks](/guide/check-permission), [data permissions](/guide/data-permissions), or [menu management](/guide/menu-management).

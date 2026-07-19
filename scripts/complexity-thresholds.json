@@ -1,0 +1,13 @@
+{
+    "totals": {
+        "filesOver500": 24,
+        "filesOver1000": 6,
+        "functionsOver50": 165,
+        "maxFunctionLines": 233,
+        "maxSourceFileLines": 2100
+    },
+    "files": {
+        "src/menu/source-rewrite.ts": 750,
+        "src/menu/source-rewrite-plan.ts": 450
+    }
+}

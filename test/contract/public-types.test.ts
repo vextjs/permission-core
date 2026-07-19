@@ -1,0 +1,120 @@
+import type { MonSQLizeInstance } from "monsqlize";
+import { describe, expect, it } from "vitest";
+import {
+    PermissionCore,
+    type PermissionCoreErrorDetails,
+    type PermissionCoreHealth,
+    type PermissionCoreOptions,
+    type PermissionSubject,
+    type ApiBindingManager,
+    type MenuManager,
+    type MenuManifestManager,
+    type RoleMenuPermissionManager,
+    type SubjectMenuRuntime,
+    type AuthorizedCollection,
+    type SubjectDataRuntime,
+    type SubjectPermissionContext,
+} from "../../src";
+
+describe("B1 public type contract", () => {
+    it("keeps the cache union and public surface closed", () => {
+        type HasLogin = "login" extends keyof PermissionCore ? true : false;
+        type HasStorage = "storage" extends keyof PermissionCoreOptions ? true : false;
+        const hasLogin: HasLogin = false;
+        const hasStorage: HasStorage = false;
+        expect(hasLogin).toBe(false);
+        expect(hasStorage).toBe(false);
+    });
+});
+
+describe("B4 menu public type contract", () => {
+    it("exports the complete frozen manager method sets from the root", () => {
+        const menuKeys = [
+            "manifest", "create", "get", "list", "getTree", "update", "previewUpdate", "executeUpdate",
+            "previewMove", "move", "previewReorder", "reorder", "previewSetStatus", "setStatus",
+            "getRemovalImpact", "previewRemove", "remove", "findStaleReferences",
+            "previewRepairStaleReferences", "repairStaleReferences",
+        ] as const satisfies readonly (keyof MenuManager)[];
+        const manifestKeys = ["preview", "import", "export", "exportPage"] as const satisfies readonly (keyof MenuManifestManager)[];
+        const apiKeys = [
+            "create", "get", "list", "update", "previewSetStatus", "setStatus", "getRemovalImpact",
+            "previewUpdate", "executeUpdate", "previewRemove", "remove", "previewReplace", "replace",
+        ] as const satisfies readonly (keyof ApiBindingManager)[];
+        const roleMenuKeys = [
+            "preview", "grant", "revoke", "deny", "set", "getDirect", "listDirect", "getEffective",
+            "getAuthorizationTree", "listStale", "previewRepairStale", "repairStale",
+        ] as const satisfies readonly (keyof RoleMenuPermissionManager)[];
+        const subjectMenuKeys = ["getVisibleTree", "getButtonMap", "getRouteState"] as const satisfies readonly (keyof SubjectMenuRuntime)[];
+        const menuComplete: Exclude<keyof MenuManager, typeof menuKeys[number]> extends never ? true : false = true;
+        const manifestComplete: Exclude<keyof MenuManifestManager, typeof manifestKeys[number]> extends never ? true : false = true;
+        const apiComplete: Exclude<keyof ApiBindingManager, typeof apiKeys[number]> extends never ? true : false = true;
+        const roleMenuComplete: Exclude<keyof RoleMenuPermissionManager, typeof roleMenuKeys[number]> extends never ? true : false = true;
+        const subjectMenuComplete: Exclude<keyof SubjectMenuRuntime, typeof subjectMenuKeys[number]> extends never ? true : false = true;
+
+        expect([menuComplete, manifestComplete, apiComplete, roleMenuComplete, subjectMenuComplete]).toEqual([
+            true, true, true, true, true,
+        ]);
+    });
+});
+
+describe("B5 data public type contract", () => {
+    it("exports only the frozen AuthorizedCollection safe subset", () => {
+        const collectionKeys = [
+            "find", "findOne", "count", "findAndCount", "findPage",
+            "insertOne", "updateOne", "updateMany", "deleteOne", "deleteMany",
+        ] as const satisfies readonly (keyof AuthorizedCollection<object>)[];
+        const complete: Exclude<keyof AuthorizedCollection<object>, typeof collectionKeys[number]> extends never ? true : false = true;
+        type HasRaw = "raw" extends keyof AuthorizedCollection<object> ? true : false;
+        type HasAggregate = "aggregate" extends keyof AuthorizedCollection<object> ? true : false;
+        type HasWatch = "watch" extends keyof AuthorizedCollection<object> ? true : false;
+        const hasRaw: HasRaw = false;
+        const hasAggregate: HasAggregate = false;
+        const hasWatch: HasWatch = false;
+        const dataKey: "data" extends keyof SubjectPermissionContext ? true : false = true;
+
+        expect([complete, hasRaw, hasAggregate, hasWatch, dataKey]).toEqual([true, false, false, false, true]);
+    });
+});
+
+if (false) {
+    const monsqlize = null as unknown as MonSQLizeInstance;
+    const minimal: PermissionCoreOptions = { monsqlize };
+    const disabled: PermissionCoreOptions = { monsqlize, cache: { enabled: false } };
+    const enabled: PermissionCoreOptions = {
+        monsqlize,
+        cache: { enabled: true, consistency: "ordered-bounded-stale" },
+    };
+    const health = null as unknown as PermissionCoreHealth;
+    const subject: PermissionSubject = {
+        userId: "u-1",
+        scope: { tenantId: "tenant-a" },
+    };
+    const detail: PermissionCoreErrorDetails = { kind: "validation", reason: "example" };
+    const data = null as unknown as SubjectDataRuntime;
+    const orders = data.collection<
+        { _id: string; tenantId: string; amount: number },
+        { amount: number }
+    >("orders", { resource: "db:orders", scopeFields: { tenantId: "tenantId" } });
+    void orders.insertOne({ amount: 10 });
+    void [minimal, disabled, enabled, health, subject, detail, data, orders];
+
+    // @ts-expect-error Empty cache objects are not a third configuration state.
+    new PermissionCore({ monsqlize, cache: {} });
+    // @ts-expect-error Enabled cache requires the consistency attestation.
+    new PermissionCore({ monsqlize, cache: { enabled: true } });
+    // @ts-expect-error Disabled cache cannot carry a TTL.
+    new PermissionCore({ monsqlize, cache: { enabled: false, ttlMs: 1000 } });
+    // @ts-expect-error StorageAdapter is not part of the v2 constructor.
+    new PermissionCore({ monsqlize, storage: {} });
+    // @ts-expect-error Authentication state cannot inject roles into the trusted subject.
+    const invalidSubject: PermissionSubject = { userId: "u-1", scope: { tenantId: "t" }, roles: ["admin"] };
+    // @ts-expect-error Error details must use a declared discriminator.
+    const invalidDetails: PermissionCoreErrorDetails = { arbitrary: true };
+    // @ts-expect-error The create shape is distinct from the read document shape.
+    void orders.insertOne({ _id: "caller", tenantId: "tenant", amount: 10 });
+    // @ts-expect-error Collection creation does not accept a second policy context.
+    void data.collection("orders", { resource: "db:orders", scopeFields: { tenantId: "tenantId" } }, {});
+    // @ts-expect-error Raw Mongo handles are not part of the protected surface.
+    void orders.raw();
+    void [invalidSubject, invalidDetails];
+}
