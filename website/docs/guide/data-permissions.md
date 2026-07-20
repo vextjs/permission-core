@@ -26,6 +26,11 @@ const orders = pc.forSubject({
 
 const rows = await orders.find({ status: 'paid' });
 ```
+
+`scopeFields: { tenantId: 'tenantId' }` does not hard-code the tenant value to `tenantId`, and it does not write a tenant value. The left `tenantId` means `subject.scope.tenantId`; the right `'tenantId'` is the field path inside each business document. When the current subject scope is `{ tenantId: 'acme' }`, every real Mongo operation also requires the document `tenantId` field to equal `acme`.
+
+If you write `scopeFields: { tenantId: 'acme' }`, permission-core maps `subject.scope.tenantId` to the document field named `acme`. That is only meaningful when your documents really contain an `acme` field; it is usually not the intended tenant mapping.
+
 ```text
 调用方 filter AND 精确租户条件 AND 命中的 allow AND NOT 命中的 deny
 ```

@@ -2,7 +2,7 @@
 pageType: home
 
 hero:
-  badge: v2.0.0 预览版
+  badge: v2.0.0
   name: permission-core
   text: 深入数据层的权限控制
   tagline: 用一套租户感知的 RBAC 模型统一控制 Node.js 服务的接口、菜单、数据行与字段。

@@ -1428,11 +1428,21 @@ function verifySourceBackedClaims() {
     }
 
     const changelog = read(path.join(projectRoot, "CHANGELOG.md"));
-    if (!changelog.includes(`## [${packageJson.version}] - Unreleased`)) {
-        failures.push("CHANGELOG unreleased heading does not match package.json version");
+    const currentHeading = new RegExp(
+        `## \\[${escapeRegExp(packageJson.version)}\\] - (?:Unreleased|\\d{4}-\\d{2}-\\d{2})`,
+        "u",
+    );
+    if (!currentHeading.test(changelog)) {
+        failures.push("CHANGELOG current version heading does not match package.json version");
     }
-    if (!changelog.includes("changelogs/unreleased.md")) {
-        failures.push("CHANGELOG unreleased entry does not link to the detailed unreleased changelog");
+    const releasedChangelogPath = `changelogs/v${packageJson.version}.md`;
+    const linksCurrentRelease = changelog.includes(releasedChangelogPath);
+    const linksUnreleased = changelog.includes("changelogs/unreleased.md");
+    if (!linksCurrentRelease && !linksUnreleased) {
+        failures.push("CHANGELOG current entry does not link to its detailed changelog");
+    }
+    if (linksCurrentRelease && !fs.existsSync(path.join(projectRoot, releasedChangelogPath))) {
+        failures.push(`CHANGELOG detailed release file is missing: ${releasedChangelogPath}`);
     }
 
     const publicTypes = [

@@ -2,7 +2,7 @@
 pageType: home
 
 hero:
-  badge: v2.0.0 preview
+  badge: v2.0.0
   name: permission-core
   text: Authorization that reaches the data layer
   tagline: Use one tenant-aware RBAC model to control Node.js APIs, menus, data rows, and fields.

@@ -30,6 +30,10 @@ const orders = pc.forSubject({
 const rows = await orders.find({ status: 'paid' });
 ```
 
+这里的 `scopeFields: { tenantId: 'tenantId' }` 不是把租户固定为 `tenantId`，也不是写入租户值。左侧 `tenantId` 指 `subject.scope.tenantId`，右侧 `'tenantId'` 指业务文档里的字段路径。因此当当前 subject 的 scope 是 `{ tenantId: 'acme' }` 时，集合会在每次真实 Mongo 操作中强制加入“文档 `tenantId` 字段等于 `acme`”这一类精确条件。
+
+如果写成 `scopeFields: { tenantId: 'acme' }`，含义会变成把 `subject.scope.tenantId` 映射到文档字段 `acme`，也就是检查文档的 `acme` 字段，而不是检查文档的 `tenantId` 字段。只有当业务文档真的有这个字段时才有意义；通常这不是想要的多租户映射。
+
 | 调用 | 参数与来源 | 状态/原始返回 |
 |---|---|---|
 | [`roles.allow(roleId, rule)`](/zh/api/roles#roles-allow) | `where` 是持久化策略 AST；`valueFrom='claims.merchantId'` 在请求时读取可信 claim | 写入角色规则并返回 mutation envelope |
