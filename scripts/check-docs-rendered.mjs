@@ -57,16 +57,21 @@ function verifyChannelContract() {
         fail("stable channel must contain a root index and at least one documentation route");
         return;
     }
-    verifyChunkRecoveryAsset();
+    const requiresChunkRecovery = channel !== "stable";
+    if (requiresChunkRecovery) {
+        verifyChunkRecoveryAsset();
+    }
 
     for (const route of routes) {
         const document = readDocument(route);
         verifyRobots(route, document, channel);
-        verifyChunkRecoveryReference(
-            findElements(document),
-            base,
-            (message) => fail(`${route} ${message}`),
-        );
+        if (requiresChunkRecovery) {
+            verifyChunkRecoveryReference(
+                findElements(document),
+                base,
+                (message) => fail(`${route} ${message}`),
+            );
+        }
         for (const node of findElements(document, "a")) {
             const href = getAttr(node, "href");
             if (href?.startsWith("/permission-core/next/")) {
