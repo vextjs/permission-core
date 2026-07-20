@@ -8,7 +8,7 @@
 
 | 目标 | 入口 |
 |---|---|
-| 在测试中验证资源模式 | [`matchResource(pattern, resource)`](#match-resource) |
+| 在测试中验证资源模式 | [`matchResource(pattern, resource)`](#match-resource-method) |
 | 复现 `can/assert` 的字符串匹配结果 | 传入同一 action/resource 资源字符串 |
 | 理解 `*`、`:param` 和字段通配 | [示例](#example) |
 | 判断是否需要自定义资源方案 | [资源方案 API](/zh/api/resource-schemes) |
@@ -25,7 +25,7 @@ matchResource(pattern: string, resource: string): boolean
 
 ## 方法详解
 
-<span id="match-resource"></span>
+<span id="match-resource-method"></span>
 ### `matchResource(pattern, resource)`
 
 <!-- docs:method name=matchResource locale=zh -->
@@ -63,6 +63,8 @@ HTTP/API `*` 是尾部 segment wildcard，要求至少剩余一个 segment。`:p
 ## 失败与限制
 
 在 `PermissionCore` 配置的自定义方案有意不通过该独立函数使用；应通过 core 判断。query string/fragment、错误模板、具体资源 wildcard、未知 scheme 及超出内置语法限制的资源都返回 `false`。`matchResource` 不实现 action 侧 `write` 语义。
+
+<span id="example"></span>
 
 ## 示例
 

@@ -192,6 +192,8 @@ scope 字段由权限门面注入或校验，业务代码不能通过 filter/upd
 }
 ```
 
+<span id="failures-and-limits"></span>
+
 ## 失败与限制
 
 重要错误包括 `PERMISSION_DENIED`、`FIELD_PERMISSION_DENIED`、`POLICY_CONTEXT_MISSING`、`INVALID_FILTER`、`DATA_VALUE_UNSUPPORTED`、`DATA_OPERATION_UNSUPPORTED`、`SCOPE_FIELD_MAPPING_REQUIRED`、`DATA_BULK_SCOPE_MUTATION_UNSAFE`。Filter 限制为深度 `12`、`256` 个节点、`32` 个逻辑子项、`100` 个集合项和 `128 KiB`。分页最大为 `min(200, MonSQLize findMaxLimit)`。Update 支持 `$set`、`$unset`、`$inc`、`$mul`、`$min`、`$max`、`$addToSet`、`$push`、`$pull`，限制 `128` 个路径和 `64 KiB` 输入。

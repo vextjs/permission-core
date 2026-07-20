@@ -38,7 +38,7 @@ interface MutationResult<T> {
 
 ## 方法与字段详解
 
-<span id="audit-health-init"></span>
+<span id="audit-init"></span>
 ### `pc.init()`
 
 <!-- docs:method name=init locale=zh -->
@@ -49,7 +49,7 @@ interface MutationResult<T> {
 - **原始返回**：`Promise<PermissionCoreHealth>`，直接返回 health 对象，没有 `data` envelope。
 - **失败**：配置、schema contract、索引或数据库失败会阻止 ready，并在可用时记录 `lastInitError`。
 
-<span id="audit-health-health"></span>
+<span id="audit-health"></span>
 ### `pc.health()`
 
 <!-- docs:method name=health locale=zh -->
@@ -103,6 +103,8 @@ interface MutationResult<T> {
 ```
 
 这是 `PermissionCoreHealth` 原始对象的节选。健康响应没有 `committed` 或 `operationId`；那些字段属于 mutation response。
+
+<span id="failures-and-limits"></span>
 
 ## 失败与限制
 

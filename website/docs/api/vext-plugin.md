@@ -45,6 +45,8 @@ The table explains object fields that are easy to confuse at call sites. Require
 <!-- docs:params owner=PermissionVextPluginOptions locale=en -->
 ### `PermissionVextPluginOptions`
 <!-- docs:params owner=VextRoutePermission locale=en -->
+<span id="route-options-permission"></span>
+
 ### `RouteOptions.permission`
 ## Export Details
 

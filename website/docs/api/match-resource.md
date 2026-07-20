@@ -11,7 +11,7 @@ This section narrows the public contract for this method family. Read it before 
 
 | Goal | Entry point |
 |---|---|
-| Verify resource patterns in tests | [`matchResource(pattern, resource)`](#match-resource) |
+| Verify resource patterns in tests | [`matchResource(pattern, resource)`](#match-resource-method) |
 | Reproduce the string matching part of `can/assert` | Pass the same action/resource resource string |
 | Understand `*`, `:param`, and field wildcards | [Example](#example) |
 | Decide whether a custom resource scheme is needed | [Resource Schemes API](/api/resource-schemes) |
@@ -29,7 +29,7 @@ matchResource(pattern: string, resource: string): boolean
 
 This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
-<span id="match-resource"></span>
+<span id="match-resource-method"></span>
 ### `matchResource(pattern, resource)`
 <!-- docs:method name=matchResource locale=en -->
 

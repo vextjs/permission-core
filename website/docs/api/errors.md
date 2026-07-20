@@ -34,7 +34,7 @@ class PermissionCoreError extends Error {
 Every error carries a stable public code and a discriminated details object. Logs and HTTP mappers should keep these structured fields.
 
 <!-- docs:params owner=PermissionCoreError locale=en -->
-<span id="permission-core-error-class"></span>
+<span id="permission-core-error"></span>
 ### `PermissionCoreError`
 <!-- docs:method name=PermissionCoreError locale=en -->
 

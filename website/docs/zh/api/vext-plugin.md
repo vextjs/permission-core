@@ -55,6 +55,8 @@ interface PermissionVextPluginOptions {
 
 <!-- docs:params owner=VextRoutePermission locale=zh -->
 
+<span id="route-options-permission"></span>
+
 ### `RouteOptions.permission`
 
 | 值 | 路由语义 |

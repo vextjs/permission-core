@@ -42,7 +42,7 @@ interface MutationResult<T> {
 
 The methods below are the public health and audit surface. They are intentionally small so operators can use them from readiness probes and incident tooling.
 
-<span id="audit-health-init"></span>
+<span id="audit-init"></span>
 ### `pc.init()`
 <!-- docs:method name=init locale=en -->
 
@@ -51,7 +51,7 @@ The methods below are the public health and audit surface. They are intentionall
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
 
-<span id="audit-health-health"></span>
+<span id="audit-health"></span>
 ### `pc.health()`
 <!-- docs:method name=health locale=en -->
 
