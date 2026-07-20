@@ -139,6 +139,7 @@ body {
     width: var(--rp-sidebar-width, 320px);
     height: auto;
     margin-top: 0;
+    margin-left: 0;
     max-height: none;
     z-index: var(--rp-z-index-sidebar, 50);
     background: var(--pc-bg);
@@ -178,6 +179,7 @@ body {
     bottom: 0;
     width: var(--rp-outline-width, 268px);
     height: auto;
+    margin-right: 0;
     max-height: none;
     z-index: var(--rp-z-index-aside, 40);
     background: var(--pc-bg);

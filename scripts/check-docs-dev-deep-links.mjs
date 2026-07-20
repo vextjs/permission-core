@@ -222,6 +222,8 @@ async function verifyBrowserSidebarNavigation(origin) {
         await waitForRenderedRoute(client, "quick-start", { tolerateInitialEvents: true });
         await verifyDocsLayoutAtViewport(client, origin, "core-concepts", 956);
         await verifyDocsLayoutAtViewport(client, origin, "core-concepts", 1280);
+        await verifyDocsLayoutAtViewport(client, origin, "core-concepts", 1920);
+        await verifyDocsLayoutAtViewport(client, origin, "manage-roles-and-users", 1920);
         await setDesktopViewport(client, 956);
         await navigateToGuideRoute(client, origin, "quick-start");
         await waitForRenderedRoute(client, "quick-start", { tolerateInitialEvents: true });
@@ -467,6 +469,12 @@ function assertStableDocsLayout(state, slug) {
                 + JSON.stringify(layout, null, 2),
             );
         }
+        if (layout.doc && layout.doc.left < layout.sidebar.right - 1) {
+            throw new Error(
+                `${slug} document column overlaps the sidebar: `
+                + JSON.stringify(layout, null, 2),
+            );
+        }
         if (layout.sidebar.backgroundTransparent) {
             throw new Error(
                 `${slug} sidebar is not an opaque layer: `
@@ -479,6 +487,18 @@ function assertStableDocsLayout(state, slug) {
                 + JSON.stringify(layout, null, 2),
             );
         }
+    }
+
+    if (
+        layout.viewportWidth >= 1280
+        && layout.outline
+        && layout.doc
+        && layout.outline.left < layout.doc.right - 1
+    ) {
+        throw new Error(
+            `${slug} outline overlaps the document column: `
+            + JSON.stringify(layout, null, 2),
+        );
     }
 
     if (layout.panelLeaks.length > 0) {
@@ -558,6 +578,7 @@ async function getBrowserState(client) {
                 sidebar: rect(".rp-doc-layout__sidebar"),
                 doc: rect(".rp-doc-layout__doc"),
                 docContainer,
+                outline: rect(".rp-doc-layout__outline"),
                 h1: rect("h1"),
                 sidebarStyle,
                 sidebarBackgroundTransparent: transparentBackground(sidebarStyle?.backgroundColor),
