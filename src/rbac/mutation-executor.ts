@@ -200,6 +200,11 @@ function scopeAggregateSnapshot(state: ScopeStateView) {
     };
 }
 
+function monotonicMutationTime(databaseNow: number, state: ScopeStateView) {
+    // Transaction retries can observe state committed after an earlier server-time sample.
+    return Math.max(databaseNow, state.updatedAt);
+}
+
 function internalVector(
     state: ScopeStateView,
     entities: readonly { kind: InternalEntityRevisionKind; id: string; revision: number }[],
@@ -309,9 +314,10 @@ export class ManagementMutationExecutor {
             desired = "degraded";
         }
         try {
-            const now = await this.repository.getDatabaseTime();
+            const databaseNow = await this.repository.getDatabaseTime();
             await this.repository.withTransaction(async (transaction) => {
                 const state = await this.repository.scopeStates.read(document.scope, transaction.session);
+                const now = monotonicMutationTime(databaseNow, state);
                 const updated = await this.repository.audits.recordCacheOutcome(
                     document.scope,
                     document.operationId,
@@ -422,7 +428,6 @@ export class ManagementMutationExecutor {
             return this.buildResult(settled, true, input.decodeReplay, input.replayDetails);
         }
 
-        const now = await this.repository.getDatabaseTime();
         const operationId = `operation_${randomUUID()}`;
         const auditId = `audit_${randomUUID()}`;
         let committed: InternalAuditEntryDocument;
@@ -441,7 +446,9 @@ export class ManagementMutationExecutor {
                 if (concurrentReplay !== null) {
                     return concurrentReplay;
                 }
-                const state = await this.repository.scopeStates.ensureForMutation(scope, transaction.session, now);
+                const databaseNow = await this.repository.getDatabaseTime();
+                const state = await this.repository.scopeStates.ensureForMutation(scope, transaction.session, databaseNow);
+                const now = monotonicMutationTime(databaseNow, state);
                 const reader = new RbacScopeReader(
                     this.repository,
                     this.resourceSchemes,

@@ -664,6 +664,36 @@ describe("B3 RBAC transactions on MonSQLize 3.1", () => {
         }, { cache: 0 })).toMatchObject({ roleIds: ["operator", "reader"], revision: 2 });
     }, TEST_TIMEOUT);
 
+    it("keeps user role timestamps monotonic when a database time sample is stale", async () => {
+        const scope = nextScope("user-stale-time");
+        await roles.create(scope, { id: "reader", label: "Reader" });
+        await roles.create(scope, { id: "operator", label: "Operator" });
+        const first = await userRoles.assign(scope, "u-stale-time", "reader");
+        expect(first.data.createdAt).toBeTypeOf("number");
+
+        const originalGetDatabaseTime = repository.getDatabaseTime.bind(repository);
+        repository.getDatabaseTime = async () => first.data.createdAt! - 1;
+        try {
+            const second = await userRoles.assign(scope, "u-stale-time", "operator");
+            expect(second).toMatchObject({
+                changed: true,
+                data: { roleIds: ["operator", "reader"], revision: 2, persisted: true },
+            });
+            expect(second.data.updatedAt).toBeGreaterThanOrEqual(second.data.createdAt!);
+            expect(await repository.collections.userRoleSets.findOne({
+                scopeKey: digestCanonical(scope),
+                userId: "u-stale-time",
+            }, { cache: 0 })).toMatchObject({
+                roleIds: ["operator", "reader"],
+                revision: 2,
+                createdAt: second.data.createdAt,
+                updatedAt: second.data.updatedAt,
+            });
+        } finally {
+            repository.getDatabaseTime = originalGetDatabaseTime;
+        }
+    }, TEST_TIMEOUT);
+
     it("round-trips 24-hex permission identities without changing host collection conversion", async () => {
         const tenantId = "a".repeat(24);
         const roleId = "b".repeat(24);
