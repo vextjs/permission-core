@@ -110,7 +110,7 @@ body {
   text-decoration: none;
 }
 
-@media (min-width: 960px) {
+@media (min-width: 769px) {
   html:has(.rp-doc-layout__container) {
     height: auto;
     min-height: 100%;
@@ -140,10 +140,16 @@ body {
     height: auto;
     margin-top: 0;
     max-height: none;
+    z-index: var(--rp-z-index-sidebar, 50);
+    background: var(--pc-bg);
+    box-shadow: 1px 0 0 var(--pc-border);
     overflow-y: auto;
+    isolation: isolate;
   }
 
   body:has(.rp-doc-layout__container) .rp-doc-layout__doc {
+    position: relative;
+    z-index: 0;
     height: auto;
     min-height: calc(100vh - var(--rp-nav-height, 64px));
     margin-left: var(--rp-sidebar-width, 320px);
@@ -155,6 +161,8 @@ body {
 
   body:has(.rp-doc-layout__container) .rp-doc-layout__doc-container {
     min-height: 0;
+    max-width: 100%;
+    overflow-x: clip;
   }
 }
 
@@ -171,7 +179,11 @@ body {
     width: var(--rp-outline-width, 268px);
     height: auto;
     max-height: none;
+    z-index: var(--rp-z-index-aside, 40);
+    background: var(--pc-bg);
+    box-shadow: -1px 0 0 var(--pc-border);
     overflow-y: auto;
+    isolation: isolate;
   }
 
   body:has(.rp-doc-layout__container) .rp-doc-layout__doc {
@@ -669,6 +681,23 @@ body::after {
   border-radius: 8px;
   background: var(--pc-code-bg) !important;
   box-shadow: var(--pc-code-shadow);
+}
+
+.rspress-doc :where(.rp-codeblock),
+.rp-doc :where(.rp-codeblock),
+.rspress-doc :where(.rp-table-scroll-container),
+.rp-doc :where(.rp-table-scroll-container) {
+  max-width: 100%;
+  contain: paint;
+}
+
+.rspress-doc :where(.rp-codeblock__content),
+.rp-doc :where(.rp-codeblock__content),
+.rspress-doc :where(.rp-codeblock__content__scroll-container),
+.rp-doc :where(.rp-codeblock__content__scroll-container) {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .pc-mermaid {

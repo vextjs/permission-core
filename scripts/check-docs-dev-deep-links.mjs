@@ -217,6 +217,13 @@ async function verifyBrowserSidebarNavigation(origin) {
         await client.send("Page.enable");
         await client.send("Network.enable");
         await client.send("Log.enable");
+        await setDesktopViewport(client, 956);
+        await client.send("Page.reload", { ignoreCache: true });
+        await waitForRenderedRoute(client, "quick-start", { tolerateInitialEvents: true });
+        await verifyDocsLayoutAtViewport(client, origin, "core-concepts", 956);
+        await verifyDocsLayoutAtViewport(client, origin, "core-concepts", 1280);
+        await setDesktopViewport(client, 956);
+        await navigateToGuideRoute(client, origin, "quick-start");
         await waitForRenderedRoute(client, "quick-start", { tolerateInitialEvents: true });
 
         client.clearEvents();
@@ -246,6 +253,27 @@ async function verifyBrowserSidebarNavigation(origin) {
         await stopProcessTree(browser);
         await removeChromeProfile(profileRoot);
     }
+}
+
+async function verifyDocsLayoutAtViewport(client, origin, slug, width) {
+    await setDesktopViewport(client, width);
+    await navigateToGuideRoute(client, origin, slug);
+    await waitForRenderedRoute(client, slug);
+}
+
+async function setDesktopViewport(client, width) {
+    await client.send("Emulation.setDeviceMetricsOverride", {
+        width,
+        height: 750,
+        deviceScaleFactor: 1,
+        mobile: false,
+    });
+}
+
+async function navigateToGuideRoute(client, origin, slug) {
+    await client.send("Page.navigate", {
+        url: `${origin}${base}zh/guide/${slug}.html`,
+    });
 }
 
 function findChromeExecutable() {
@@ -399,6 +427,7 @@ async function waitForRenderedRoute(client, slug, options = {}) {
             && latestState.h1
             && latestState.mainTextLength > 100
         ) {
+            assertStableDocsLayout(latestState, slug);
             return latestState;
         }
         await new Promise((resolve) => setTimeout(resolve, 350));
@@ -412,17 +441,129 @@ async function waitForRenderedRoute(client, slug, options = {}) {
     );
 }
 
+function assertStableDocsLayout(state, slug) {
+    const layout = state.layout;
+    if (!layout) {
+        throw new Error(`browser did not expose layout metrics for ${slug}`);
+    }
+
+    if (layout.bodyScrollWidth > layout.viewportWidth + 1) {
+        throw new Error(
+            `${slug} creates page-level horizontal overflow: `
+            + JSON.stringify(layout, null, 2),
+        );
+    }
+
+    if (layout.viewportWidth > 768) {
+        if (!layout.sidebar || !layout.h1) {
+            throw new Error(
+                `${slug} is missing sidebar or heading geometry: `
+                + JSON.stringify(layout, null, 2),
+            );
+        }
+        if (layout.h1.left < layout.sidebar.right + 24) {
+            throw new Error(
+                `${slug} content is too close to or under the sidebar: `
+                + JSON.stringify(layout, null, 2),
+            );
+        }
+        if (layout.sidebar.backgroundTransparent) {
+            throw new Error(
+                `${slug} sidebar is not an opaque layer: `
+                + JSON.stringify(layout, null, 2),
+            );
+        }
+        if (layout.sidebarStyle?.position !== "fixed") {
+            throw new Error(
+                `${slug} sidebar must stay in the fixed desktop layer: `
+                + JSON.stringify(layout, null, 2),
+            );
+        }
+    }
+
+    if (layout.panelLeaks.length > 0) {
+        throw new Error(
+            `${slug} has content panels escaping the document column: `
+            + JSON.stringify(layout.panelLeaks, null, 2),
+        );
+    }
+}
+
 async function getBrowserState(client) {
     const raw = await client.evaluate(`(() => JSON.stringify({
         url: location.href,
         title: document.title,
         lang: document.documentElement.lang,
         h1: document.querySelector('h1')?.textContent?.trim() || null,
-        mainTextLength: document.querySelector('main')?.innerText?.trim().length ?? 0,
-        bodyTextLength: document.body.innerText.trim().length,
+        mainTextLength: (() => {
+            const main = document.querySelector('main');
+            return main?.innerText?.trim().length ?? 0;
+        })(),
+        bodyTextLength: document.body?.innerText?.trim().length ?? 0,
         recoveryLoaded: [...document.scripts].some((script) => script.src.includes('chunk-load-recovery.js')),
         guideLinkCount: [...document.querySelectorAll('a[href]')]
             .filter((link) => String(link.getAttribute('href')).includes('/zh/guide/')).length,
+        layout: (() => {
+            const rect = (selector) => {
+                const element = document.querySelector(selector);
+                if (!element) return null;
+                const value = element.getBoundingClientRect();
+                return {
+                    left: Math.round(value.left),
+                    right: Math.round(value.right),
+                    top: Math.round(value.top),
+                    width: Math.round(value.width),
+                    height: Math.round(value.height),
+                };
+            };
+            const style = (selector) => {
+                const element = document.querySelector(selector);
+                if (!element) return null;
+                const value = getComputedStyle(element);
+                return {
+                    backgroundColor: value.backgroundColor,
+                    zIndex: value.zIndex,
+                    position: value.position,
+                };
+            };
+            const transparentBackground = (color) => (
+                !color
+                || color === "transparent"
+                || color === "rgba(0, 0, 0, 0)"
+            );
+            const docContainer = rect(".rp-doc-layout__doc-container");
+            const panelLeaks = docContainer
+                ? [...document.querySelectorAll(".rp-codeblock, .rp-table-scroll-container, .pc-mermaid")]
+                    .map((element) => {
+                        const value = element.getBoundingClientRect();
+                        return {
+                            tag: element.tagName.toLowerCase(),
+                            className: typeof element.className === "string"
+                                ? element.className
+                                : String(element.className?.baseVal || ""),
+                            left: Math.round(value.left),
+                            right: Math.round(value.right),
+                            text: (element.textContent || "").trim().slice(0, 80),
+                        };
+                    })
+                    .filter((item) => (
+                        item.left < docContainer.left - 1
+                        || item.right > docContainer.right + 1
+                    ))
+                : [];
+            const sidebarStyle = style(".rp-doc-layout__sidebar");
+            return {
+                viewportWidth: window.innerWidth,
+                bodyScrollWidth: document.body.scrollWidth,
+                sidebar: rect(".rp-doc-layout__sidebar"),
+                doc: rect(".rp-doc-layout__doc"),
+                docContainer,
+                h1: rect("h1"),
+                sidebarStyle,
+                sidebarBackgroundTransparent: transparentBackground(sidebarStyle?.backgroundColor),
+                panelLeaks,
+            };
+        })(),
     }))()`);
     return JSON.parse(raw);
 }
@@ -657,9 +798,15 @@ async function stopProcessTree(processHandle) {
     }
 
     if (process.platform === "win32") {
-        execFileSync("taskkill", ["/PID", String(processHandle.pid), "/T", "/F"], {
-            stdio: "ignore",
-        });
+        try {
+            execFileSync("taskkill", ["/PID", String(processHandle.pid), "/T", "/F"], {
+                stdio: "ignore",
+            });
+        } catch (error) {
+            if (processHandle.exitCode === null && isWinProcessAlive(processHandle.pid)) {
+                throw error;
+            }
+        }
     } else {
         processHandle.kill("SIGTERM");
     }
@@ -668,4 +815,20 @@ async function stopProcessTree(processHandle) {
         once(processHandle, "exit"),
         new Promise((resolve) => setTimeout(resolve, 5_000)),
     ]);
+}
+
+function isWinProcessAlive(pid) {
+    try {
+        const output = execFileSync("tasklist", [
+            "/FI",
+            `PID eq ${pid}`,
+            "/NH",
+        ], {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+        });
+        return output.includes(String(pid));
+    } catch {
+        return false;
+    }
 }
