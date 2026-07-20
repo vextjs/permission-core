@@ -2,7 +2,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "parse5";
-import { docsPages } from "../website/docs-manifest.mjs";
+import {
+    docsPages,
+    docsPagesForLocale,
+    primaryNextForLocale,
+    supportsLocale,
+} from "../website/docs-manifest.mjs";
 import {
     apiMethodContracts,
     apiMethodEvidenceLabels,
@@ -38,7 +43,9 @@ if (failures.length > 0) {
     }
     process.exitCode = 1;
 } else {
-    const routeCount = contract === "full" ? docsPages.length * 2 : listHtmlFiles(distRoot).length - 1;
+    const routeCount = contract === "full"
+        ? docsPagesForLocale("en").length + docsPagesForLocale("zh").length
+        : listHtmlFiles(distRoot).length - 1;
     console.log(
         `Rendered documentation checks passed: ${routeCount} routes, channel=${channel}, contract=${contract}`,
     );
@@ -50,10 +57,16 @@ function verifyChannelContract() {
         fail("stable channel must contain a root index and at least one documentation route");
         return;
     }
+    verifyChunkRecoveryAsset();
 
     for (const route of routes) {
         const document = readDocument(route);
         verifyRobots(route, document, channel);
+        verifyChunkRecoveryReference(
+            findElements(document),
+            base,
+            (message) => fail(`${route} ${message}`),
+        );
         for (const node of findElements(document, "a")) {
             const href = getAttr(node, "href");
             if (href?.startsWith("/permission-core/next/")) {
@@ -64,6 +77,7 @@ function verifyChannelContract() {
 }
 
 function verifyFullContract() {
+    verifyChunkRecoveryAsset();
     const expectedPages = buildExpectedPages();
     const expectedRoutes = new Set(expectedPages.keys());
     const actualRoutes = new Set(
@@ -156,6 +170,7 @@ function analyzePage({
             add(`home does not expose the generated channel/version label: v${versionMeta} ${channelLabel}`);
         }
     }
+    verifyChunkRecoveryReference(elements, expectedBase, add);
 
     verifyRobots(route, document, expectedChannel, pageFailures);
 
@@ -195,7 +210,7 @@ function analyzePage({
         }
     }
 
-    if (!alternateFound) {
+    if (counterpart && !alternateFound) {
         add(`is missing an alternate locale link to ${counterpart}`);
     }
 
@@ -252,7 +267,7 @@ function verifyRenderedStructure({
 
     if (isHome) return;
 
-    const sectionPages = docsPages
+    const sectionPages = docsPagesForLocale(locale)
         .filter((candidate) => candidate.section === page.section)
         .sort((left, right) => left.order - right.order);
     verifySidebar(route, locale, page, sectionPages, elements, expectedBase, add);
@@ -264,7 +279,7 @@ function verifyRenderedStructure({
     verifyPrevNext(route, locale, page, sectionPages, elements, expectedBase, add);
 
     const primaryNext = localizedRenderedRoute(
-        docsPages.find((candidate) => candidate.path === page.primaryNext),
+        docsPages.find((candidate) => candidate.path === primaryNextForLocale(page, locale)),
         locale,
     );
     const linkedRoutes = new Set(
@@ -287,10 +302,19 @@ function verifyTopNavigation(route, locale, elements, expectedBase, add) {
         return;
     }
 
+    const navigationPages = {
+        guide: docsPages.find((page) => page.id === "introduction"),
+        api: docsPages.find((page) => page.id === "core-and-contexts"),
+        examples: docsPages.find((page) => page.id === "basic-example"),
+    };
+    if (Object.values(navigationPages).some((page) => !page)) {
+        add("manifest is missing a top-navigation target");
+        return;
+    }
     const expected = [
-        [locale === "zh" ? "指南" : "Guide", localizedRenderedRoute(docsPages[1], locale)],
-        [locale === "zh" ? "API 参考" : "API Reference", localizedRenderedRoute(docsPages[17], locale)],
-        [locale === "zh" ? "示例" : "Examples", localizedRenderedRoute(docsPages[29], locale)],
+        [locale === "zh" ? "指南" : "Guide", localizedRenderedRoute(navigationPages.guide, locale)],
+        [locale === "zh" ? "API 参考" : "API Reference", localizedRenderedRoute(navigationPages.api, locale)],
+        [locale === "zh" ? "示例" : "Examples", localizedRenderedRoute(navigationPages.examples, locale)],
     ];
     const actual = findElements(nav, "a")
         .filter((node) => hasClass(node, "rp-nav-menu__item__container"))
@@ -317,7 +341,7 @@ function verifySidebar(route, locale, page, sectionPages, elements, expectedBase
             return [normalizeText(textContent(node)), target?.route ?? null];
         });
     const expected = sectionPages.map((candidate) => [
-        candidate.labels[locale],
+        candidate.navLabels[locale],
         localizedRenderedRoute(candidate, locale),
     ]);
     verifySequence("sidebar", actual, expected, add);
@@ -390,7 +414,7 @@ function verifyDiagramRenderingContract(locale, page, main, add) {
     const fallbacks = findElements(main).filter(
         (node) => hasClass(node, "pc-diagram-text"),
     );
-    if (!contract) {
+    if (!contract?.locales[locale]) {
         if (fallbacks.length > 0) add("contains a diagram fallback outside the diagram contract");
         return;
     }
@@ -563,9 +587,9 @@ function verifyDirectionalLink(direction, actual, expected, locale, route, expec
     );
     if (
         actualRoute !== localizedRenderedRoute(expected, locale) ||
-        normalizeText(textContent(title)) !== expected.labels[locale]
+        normalizeText(textContent(title)) !== expected.navLabels[locale]
     ) {
-        add(`${direction} page link does not match ${expected.labels[locale]} (${localizedRenderedRoute(expected, locale)})`);
+        add(`${direction} page link does not match ${expected.navLabels[locale]} (${localizedRenderedRoute(expected, locale)})`);
     }
 }
 
@@ -585,6 +609,23 @@ function verifyRobots(route, document, expectedChannel, targetFailures = failure
     }
     if (expectedChannel === "stable" && robots.some((value) => value.includes("noindex"))) {
         targetFailures.push(`${route} stable page must not contain a preview noindex directive`);
+    }
+}
+
+function verifyChunkRecoveryAsset() {
+    const assetPath = path.join(distRoot, "chunk-load-recovery.js");
+    if (!fs.existsSync(assetPath) || fs.statSync(assetPath).size === 0) {
+        fail("rendered site is missing chunk-load-recovery.js");
+    }
+}
+
+function verifyChunkRecoveryReference(elements, expectedBase, add) {
+    const expectedSource = `${expectedBase}chunk-load-recovery.js`;
+    const matches = elements.filter(
+        (node) => node.tagName === "script" && getAttr(node, "src") === expectedSource,
+    );
+    if (matches.length !== 1) {
+        add(`must load one chunk recovery guard: ${expectedSource}`);
     }
 }
 
@@ -767,18 +808,22 @@ function buildExpectedPages() {
     for (const page of docsPages) {
         const englishRoute = markdownToHtml(page.path);
         const chineseRoute = `zh/${englishRoute}`;
-        pages.set(englishRoute, {
-            locale: "en",
-            counterpart: chineseRoute,
-            isHome: page.path === "index.md",
-            page,
-        });
-        pages.set(chineseRoute, {
-            locale: "zh",
-            counterpart: englishRoute,
-            isHome: page.path === "index.md",
-            page,
-        });
+        if (supportsLocale(page, "en")) {
+            pages.set(englishRoute, {
+                locale: "en",
+                counterpart: supportsLocale(page, "zh") ? chineseRoute : null,
+                isHome: page.path === "index.md",
+                page,
+            });
+        }
+        if (supportsLocale(page, "zh")) {
+            pages.set(chineseRoute, {
+                locale: "zh",
+                counterpart: supportsLocale(page, "en") ? englishRoute : null,
+                isHome: page.path === "index.md",
+                page,
+            });
+        }
     }
     return pages;
 }

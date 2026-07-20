@@ -3,7 +3,10 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
     docsPages,
+    docsPagesForLocale,
     guideGroups,
+    primaryNextForLocale,
+    supportsLocale,
     validateDocsManifest,
 } from "../website/docs-manifest.mjs";
 import {
@@ -40,6 +43,7 @@ verifyCriticalPages();
 verifyCriticalPairStructure();
 verifyJsonCodeBlocks();
 verifyApiReferenceContracts();
+verifyChineseApiIntentNavigation();
 verifyApiMethodComprehensionContracts();
 verifyApiMethodNegativeFixtures();
 verifyExampleRoleContracts();
@@ -62,8 +66,13 @@ if (failures.length > 0) {
     }
     process.exitCode = 1;
 } else {
+    const routeCount = localeMode === "en"
+        ? englishPages.length
+        : localeMode === "zh"
+            ? chinesePages.length
+            : englishPages.length + chinesePages.length;
     console.log(
-        `Documentation checks passed: mode=${localeMode}, ${englishPages.length} page routes, critical contracts, and internal links`,
+        `Documentation checks passed: mode=${localeMode}, ${routeCount} page routes, critical contracts, and internal links`,
     );
 }
 
@@ -78,8 +87,8 @@ function parseLocaleMode(args) {
 
 function activeLocales() {
     return [
-        ...(localeMode === "zh" ? [] : [["EN", "en", docsRoot]]),
-        ...(localeMode === "en" ? [] : [["ZH", "zh", path.join(docsRoot, "zh")]]),
+        ...(localeMode === "zh" ? [] : [["EN", "en", docsRoot, docsPagesForLocale("en")]]),
+        ...(localeMode === "en" ? [] : [["ZH", "zh", path.join(docsRoot, "zh"), docsPagesForLocale("zh")]]),
     ];
 }
 
@@ -104,11 +113,12 @@ function verifyManifestContracts() {
         failures.push("manifest: " + failure);
     }
 
-    const expected = docsPages.map((item) => item.path).sort();
-    if (JSON.stringify(expected) !== JSON.stringify(englishPages)) {
+    const expectedEnglish = docsPagesForLocale("en").map((item) => item.path).sort();
+    const expectedChinese = docsPagesForLocale("zh").map((item) => item.path).sort();
+    if (JSON.stringify(expectedEnglish) !== JSON.stringify(englishPages)) {
         failures.push("manifest paths do not exactly match the English page set");
     }
-    if (JSON.stringify(expected) !== JSON.stringify(chinesePages)) {
+    if (JSON.stringify(expectedChinese) !== JSON.stringify(chinesePages)) {
         failures.push("manifest paths do not exactly match the Chinese page set");
     }
 
@@ -116,8 +126,11 @@ function verifyManifestContracts() {
         if (Array.isArray(item.primaryNext)) {
             failures.push("manifest page has more than one primary next task: " + item.id);
         }
-        if (item.primaryNext && !docsPages.some((candidate) => candidate.path === item.primaryNext)) {
-            failures.push("manifest primary next task is missing: " + item.id + " -> " + item.primaryNext);
+        for (const locale of item.locales) {
+            const primaryNext = primaryNextForLocale(item, locale);
+            if (primaryNext && !docsPagesForLocale(locale).some((candidate) => candidate.path === primaryNext)) {
+                failures.push(`manifest primary next task is missing (${locale}): ${item.id} -> ${primaryNext}`);
+            }
         }
     }
 }
@@ -136,7 +149,7 @@ function verifyManifestNegativeFixtures() {
             mutate(pages) {
                 pages.find((item) => item.id === "check-permission").navGroup = "concepts";
             },
-            expected: "Tasks group must contain exactly five pages",
+            expected: "EN tasks group must contain exactly 5 pages",
         },
         {
             name: "missing role slot",
@@ -157,7 +170,21 @@ function verifyManifestNegativeFixtures() {
             mutate(pages) {
                 pages.find((item) => item.id === "quick-start").primaryNext = "guide/missing.md";
             },
-            expected: "invalid primary next task: quick-start",
+            expected: "invalid primary next task (en): quick-start",
+        },
+        {
+            name: "unsupported locale",
+            mutate(pages) {
+                pages.find((item) => item.id === "quick-start").locales = ["fr"];
+            },
+            expected: "invalid locales: quick-start",
+        },
+        {
+            name: "missing supported label",
+            mutate(pages) {
+                delete pages.find((item) => item.id === "quick-start").labels.zh;
+            },
+            expected: "missing localized label (zh): quick-start",
         },
     ];
 
@@ -176,7 +203,7 @@ function verifyDiagramSourceContracts() {
     let diagramCount = 0;
 
     for (const contract of diagramContracts) {
-        for (const locale of docsLocales) {
+        for (const locale of Object.keys(contract.locales)) {
             const source = localizedDocsSource(contract.path, locale);
             expectedSources.add(source);
             const content = read(path.join(docsRoot, source));
@@ -197,9 +224,34 @@ function verifyDiagramSourceContracts() {
         }
     }
 
-    const expectedCount = diagramContracts.length * docsLocales.length;
+    const expectedCount = diagramContracts.reduce(
+        (total, contract) => total + Object.keys(contract.locales).length,
+        0,
+    );
     if (diagramCount !== expectedCount) {
         failures.push(`diagram inventory expected ${expectedCount} Mermaid blocks, received ${diagramCount}`);
+    }
+}
+
+function verifyChineseApiIntentNavigation() {
+    const contracts = {
+        "api/core-and-contexts.md": ["初始化与健康", "创建管理上下文", "执行权限判断", "读取与解释", "安全关闭"],
+        "api/roles.md": ["创建或读取角色", "修改状态或父角色", "增量修改规则", "替换完整规则", "读取最终规则"],
+        "api/menus.md": ["创建或读取节点", "修改结构", "改变状态", "安全删除", "修复失效引用", "投影用户菜单", "导入或导出"],
+        "api/api-bindings.md": ["创建或读取绑定", "修改展示字段", "改变状态", "修改结构", "安全删除", "全量替换"],
+        "api/role-menu-permissions.md": ["预览并提交授权", "读取直接授权", "读取有效授权", "生成授权树", "修复失效来源"],
+    };
+    for (const [page, intents] of Object.entries(contracts)) {
+        const content = read(path.join(docsRoot, "zh", page));
+        if (!content.includes("## 我想做什么")) {
+            failures.push(`ZH ${page} is missing the intent navigation matrix`);
+        }
+        for (const intent of intents) {
+            if (!content.includes(intent)) failures.push(`ZH ${page} is missing API intent: ${intent}`);
+        }
+        if (!/^## 方法详解：/mu.test(content)) {
+            failures.push(`ZH ${page} is missing intent-grouped method sections`);
+        }
     }
 }
 
@@ -554,14 +606,12 @@ function verifyMermaidPipelineConfig() {
 function comparePageSets() {
     const english = new Set(englishPages);
     const chinese = new Set(chinesePages);
-    for (const page of english) {
-        if (!chinese.has(page)) {
-            failures.push(`missing Chinese page for ${page}`);
+    for (const page of docsPages) {
+        if (supportsLocale(page, "en") && supportsLocale(page, "zh") && !chinese.has(page.path)) {
+            failures.push(`missing Chinese page for ${page.path}`);
         }
-    }
-    for (const page of chinese) {
-        if (!english.has(page)) {
-            failures.push(`missing English page for ${page}`);
+        if (supportsLocale(page, "en") && supportsLocale(page, "zh") && !english.has(page.path)) {
+            failures.push(`missing English page for ${page.path}`);
         }
     }
 }
@@ -586,7 +636,7 @@ function verifyPagesAreSubstantial() {
 
 function verifyLanguagePairSizeDrift() {
     if (localeMode !== "all") return;
-    for (const page of englishPages) {
+    for (const page of docsPages.filter((item) => supportsLocale(item, "en") && supportsLocale(item, "zh")).map((item) => item.path)) {
         const english = Buffer.byteLength(read(path.join(docsRoot, page)), "utf8");
         const chinese = Buffer.byteLength(read(path.join(docsRoot, "zh", page)), "utf8");
         const ratio = Math.min(english, chinese) / Math.max(english, chinese);
@@ -602,8 +652,10 @@ function verifyCriticalPages() {
     const contracts = {
         "index.md": ["permission-core", "MonSQLize 3.1", "Vext"],
         "guide/introduction.md": ["MonSQLize 3.1", "PermissionSubject", "scope"],
-        "guide/quick-start.md": ["userRoles.assign", "set(userId", "getPermissions", "menuPermissions.grant", "scopeFields", "pc.close"],
+        "guide/quick-start.md": ["roles.create", "roles.allow", "userRoles.assign", "subject.can", "deleteAllowed", "pc.close"],
+        "guide/core-concepts.md": ["scope", "subject", "direct", "effective", "default deny", "revision", "preview"],
         "guide/troubleshooting.md": ["PermissionCore", "VEXT_AUTH_REQUIRED", "SCOPE_FIELD_MAPPING_REQUIRED"],
+        "guide/manage-roles-and-users.md": ["roles.create", "userRoles.assign", "userRoles.set", "getEffectiveRules", "previewAccessUpdate", "getRemovalImpact"],
         "guide/check-permission.md": ["cannot", "explain", "getEffectiveRules", "userRoles.set", "getResources"],
         "guide/data-permissions.md": ["filter", "where", "AuthorizedCollection", "FIELD_PERMISSION_DENIED"],
         "guide/menu-management.md": ["menus.create", "previewMove", "getRemovalImpact", "manifest.export"],
@@ -640,7 +692,9 @@ function verifyCriticalPages() {
         failures.push(`critical page contract expected ${docsPages.length} entries, received ${Object.keys(contracts).length}`);
     }
     for (const [page, markers] of Object.entries(contracts)) {
-        for (const [locale, , root] of activeLocales()) {
+        const manifestPage = docsPages.find((item) => item.path === page);
+        for (const [locale, localeCode, root] of activeLocales()) {
+            if (!manifestPage || !supportsLocale(manifestPage, localeCode)) continue;
             const content = read(path.join(root, page)).toLowerCase();
             for (const marker of markers) {
                 if (!content.includes(marker.toLowerCase())) {
@@ -653,7 +707,7 @@ function verifyCriticalPages() {
 
 function verifyCriticalPairStructure() {
     if (localeMode !== "all") return;
-    for (const page of docsPages.map((item) => item.path)) {
+    for (const page of docsPages.filter((item) => supportsLocale(item, "en") && supportsLocale(item, "zh")).map((item) => item.path)) {
         const english = read(path.join(docsRoot, page));
         const chinese = read(path.join(docsRoot, "zh", page));
         const headingSignature = (content) => [...content.matchAll(/^(#{1,6}) /gm)]
@@ -943,7 +997,7 @@ function verifyExampleRoleContracts() {
     const examplePages = docsPages.filter((page) => page.section === "examples");
     const expectedHeadings = {
         EN: ["Scenario", "Run", "Source walkthrough", "Expected output", "Production boundary", "Related"],
-        ZH: ["场景", "运行", "源码解读", "预期输出", "生产边界", "相关内容"],
+        ZH: ["场景", "运行", "先看结果", "源码解读", "预期输出", "生产边界", "相关内容"],
     };
     const sourceMarkers = {
         "examples/basic.md": ["examples/basic.mjs", "docs:basic:start", "npm run example:basic"],
@@ -951,6 +1005,13 @@ function verifyExampleRoleContracts() {
         "examples/data-guard.md": ["examples/data-guard.mjs", "docs:data-guard:start", "npm run example:data-guard"],
         "examples/menu-admin.md": ["examples/menu-admin.mjs", "docs:menu-admin:start", "npm run example:menu-admin"],
         "examples/vext.md": ["examples/vext/index.mjs", "docs:vext:start", "npm run example:vext"],
+    };
+    const successMarkers = {
+        "examples/basic.md": ["permissionChecks.allowed", "permissionChecks.cannotDelete", "userRoles.afterSet"],
+        "examples/multi-tenant.md": ["ownResource", "crossTenantResource"],
+        "examples/data-guard.md": ["matchedCount", "deniedFieldCode", "persistedRows"],
+        "examples/menu-admin.md": ["roleGrant.generatedSources", "subjectRuntime.exportButton.enabled", "manifest.apiBindingCount"],
+        "examples/vext.md": ["401", "403", "503", "hostDatabaseStillConnected"],
     };
 
     if (examplePages.length !== 5) {
@@ -973,6 +1034,14 @@ function verifyExampleRoleContracts() {
             for (const sourceMarker of sourceMarkers[page.path] ?? []) {
                 if (!content.includes(sourceMarker)) {
                     failures.push(`${locale} ${page.path} is missing runnable source marker ${sourceMarker}`);
+                }
+            }
+            if (locale === "ZH") {
+                const quickResult = extractMarkdownSection(content, 2, "先看结果");
+                for (const marker of successMarkers[page.path] ?? []) {
+                    if (!quickResult.includes(marker)) {
+                        failures.push(`${locale} ${page.path} quick-result layer is missing ${marker}`);
+                    }
                 }
             }
         }
@@ -1083,7 +1152,7 @@ function verifyContentOwnership() {
         }
     }
 
-    for (const [locale, root] of [["EN", docsRoot], ["ZH", path.join(docsRoot, "zh")]]) {
+    for (const [locale, root] of [["EN", docsRoot]]) {
         const quickStart = read(path.join(root, "guide/quick-start.md"));
         const steps = [...quickStart.matchAll(/^## ([1-7])\. /gm)].map((match) => Number(match[1]));
         if (JSON.stringify(steps) !== JSON.stringify([1, 2, 3, 4, 5, 6, 7])) {
@@ -1092,6 +1161,18 @@ function verifyContentOwnership() {
         for (const marker of ["userRoles.assign", "set(userId", "getOwnRules", "getEffectiveRules", "getPermissions", "scopeFields"]) {
             if (!quickStart.includes(marker)) failures.push(`${locale} Quick Start is missing ${marker}`);
         }
+    }
+
+    const chineseQuickStart = read(path.join(docsRoot, "zh", "guide/quick-start.md"));
+    const chineseSteps = [...chineseQuickStart.matchAll(/^## ([1-5])\. /gm)].map((match) => Number(match[1]));
+    if (JSON.stringify(chineseSteps) !== JSON.stringify([1, 2, 3, 4, 5])) {
+        failures.push("ZH Quick Start must contain exactly the ordered five-step path");
+    }
+    for (const marker of ["docs:first-success:start", "roles.create", "roles.allow", "userRoles.assign", "subject.can", "deleteAllowed", "pc.close", "msq.close"]) {
+        if (!chineseQuickStart.includes(marker)) failures.push(`ZH Quick Start is missing ${marker}`);
+    }
+    for (const forbidden of ["subject.cannot", "userRoles.set", "menuPermissions", "apiBindings", "scopeFields", "previewToken", "stale"]) {
+        if (chineseQuickStart.includes(forbidden)) failures.push(`ZH Quick Start contains advanced-path marker: ${forbidden}`);
     }
 }
 
@@ -1144,8 +1225,8 @@ function verifyMaintainerBoundary() {
     const commandAllowances = new Map([
         ["guide/quick-start.md", new Set(["npm run build"])],
     ]);
-    for (const page of docsPages.map((item) => item.path)) {
-        for (const [locale, root] of [["EN", docsRoot], ["ZH", path.join(docsRoot, "zh")]]) {
+    for (const [locale, , root, localePages] of activeLocales()) {
+        for (const page of localePages.map((item) => item.path)) {
             const content = read(path.join(root, page));
             for (const command of maintainerCommands) {
                 if (commandAllowances.get(page)?.has(command)) continue;
@@ -1268,8 +1349,8 @@ function verifySourceAnchors() {
 function verifyLocaleLinkBoundaries() {
     for (const page of docsPages) {
         for (const [locale, file] of [
-            ["EN", path.join(docsRoot, page.path)],
-            ["ZH", path.join(docsRoot, "zh", page.path)],
+            ...(supportsLocale(page, "en") ? [["EN", path.join(docsRoot, page.path)]] : []),
+            ...(supportsLocale(page, "zh") ? [["ZH", path.join(docsRoot, "zh", page.path)]] : []),
         ]) {
             const content = read(file).replace(/```[\s\S]*?```/g, "");
             for (const match of content.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
@@ -1407,23 +1488,27 @@ function verifyExecutableTutorialContracts() {
 
     for (const [locale, root, exampleHeading, taskRoutingMarkers] of [
         ["EN", docsRoot, "## Example", ["For authorization decisions", "for database access"]],
-        ["ZH", path.join(docsRoot, "zh"), "## 示例", ["若要继续处理授权判定", "若要处理数据库访问"]],
+        ["ZH", path.join(docsRoot, "zh"), "## 示例", ["/zh/guide/manage-roles-and-users", "/zh/guide/check-permission"]],
     ]) {
         const quickStart = read(path.join(root, "guide/quick-start.md"));
-        const secretLiterals = [...quickStart.matchAll(/tokenSecret\s*:\s*(['"])([^'"\r\n]+)\1/gu)];
-        if (secretLiterals.length === 0) {
-            failures.push(`${locale} Quick Start must contain a directly executable tokenSecret value`);
-        }
-        for (const literal of secretLiterals) {
-            const byteLength = Buffer.byteLength(literal[2], "utf8");
-            if (Number.isSafeInteger(minimumSecretBytes) && byteLength < minimumSecretBytes) {
-                failures.push(`${locale} Quick Start tokenSecret is ${byteLength} bytes; runtime requires ${minimumSecretBytes}`);
+        if (locale === "EN") {
+            const secretLiterals = [...quickStart.matchAll(/tokenSecret\s*:\s*(['"])([^'"\r\n]+)\1/gu)];
+            if (secretLiterals.length === 0) {
+                failures.push(`${locale} Quick Start must contain a directly executable tokenSecret value`);
             }
-        }
-        for (const source of ["examples/basic.mjs", "examples/menu-admin.mjs", "examples/data-guard.mjs"]) {
-            if (!quickStart.includes(source)) {
-                failures.push(`${locale} Quick Start does not identify the runnable source for ${source}`);
+            for (const literal of secretLiterals) {
+                const byteLength = Buffer.byteLength(literal[2], "utf8");
+                if (Number.isSafeInteger(minimumSecretBytes) && byteLength < minimumSecretBytes) {
+                    failures.push(`${locale} Quick Start tokenSecret is ${byteLength} bytes; runtime requires ${minimumSecretBytes}`);
+                }
             }
+            for (const source of ["examples/basic.mjs", "examples/menu-admin.mjs", "examples/data-guard.mjs"]) {
+                if (!quickStart.includes(source)) {
+                    failures.push(`${locale} Quick Start does not identify the runnable source for ${source}`);
+                }
+            }
+        } else if (!quickStart.includes("process.env.MONGODB_URI")) {
+            failures.push("ZH Quick Start must accept the host MongoDB URI from MONGODB_URI");
         }
         for (const marker of taskRoutingMarkers) {
             if (!quickStart.includes(marker)) {
@@ -1478,6 +1563,7 @@ function verifyExecutableTutorialContracts() {
             failures.push(`${locale} Check Permissions getResources response is incomplete`);
         }
     }
+
 }
 
 function read(file) {

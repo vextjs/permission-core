@@ -4,6 +4,17 @@
 
 `scoped.apiBindings` 描述后端 API 契约、授权要求及其所属菜单/页面/按钮。绑定参与菜单可用性和角色菜单授权；每个 endpoint 仍必须在后端执行授权。
 
+## 我想做什么
+
+| 目标 | 从这里开始 |
+|---|---|
+| 创建或读取绑定 | [`create()`](#api-bindings-create)、[`get()`](#api-bindings-get)、[`list()`](#api-bindings-list) |
+| 修改展示字段 | [`update()`](#api-bindings-update) |
+| 改变状态 | [`previewSetStatus()`](#api-bindings-preview-set-status) 后 [`setStatus()`](#api-bindings-set-status) |
+| 修改结构 | [`previewUpdate()`](#api-bindings-preview-update) 后 [`executeUpdate()`](#api-bindings-execute-update) |
+| 安全删除 | [`getRemovalImpact()`](#api-bindings-get-removal-impact) 与 [`previewRemove()`](#api-bindings-preview-remove) |
+| 全量替换 | [`previewReplace()`](#api-bindings-preview-replace) 后 [`replace()`](#api-bindings-replace) |
+
 ## 签名
 
 ```ts
@@ -66,7 +77,7 @@ replace(input: ApiBindingReplaceInput, options: RequiredRevisionVectorOptions & 
 
 预览/执行 options 和原始 envelope 见[核心与上下文 API](/zh/api/core-and-contexts#common-response-contracts)。
 
-## 方法详解
+## 方法详解：创建与读取绑定
 
 <span id="api-bindings-create"></span>
 ### `create(input, options?)`
@@ -100,6 +111,8 @@ replace(input: ApiBindingReplaceInput, options: RequiredRevisionVectorOptions & 
 - **原始返回**：`PageResult<ApiBinding>`；下一页使用 `endCursor`。
 
 <span id="api-bindings-update"></span>
+## 方法详解：直接修改展示字段
+
 ### `update(bindingId, patch, options)`
 
 <!-- docs:method name=apiBindings.update locale=zh -->
@@ -110,6 +123,8 @@ replace(input: ApiBindingReplaceInput, options: RequiredRevisionVectorOptions & 
 - **原始返回**：`MutationResult<ApiBinding>`；revision 过期时返回 `REVISION_CONFLICT`。
 
 <span id="api-bindings-preview-set-status"></span>
+## 方法详解：改变状态
+
 ### `previewSetStatus(bindingId, status, options?)`
 
 <!-- docs:method name=apiBindings.previewSetStatus locale=zh -->
@@ -130,6 +145,8 @@ replace(input: ApiBindingReplaceInput, options: RequiredRevisionVectorOptions & 
 - **原始返回**：`MutationResult<ApiBinding>`；预览过期则不写入。
 
 <span id="api-bindings-get-removal-impact"></span>
+## 方法详解：修改结构与安全删除
+
 ### `getRemovalImpact(bindingId)`
 
 <!-- docs:method name=apiBindings.getRemovalImpact locale=zh -->
@@ -180,6 +197,8 @@ replace(input: ApiBindingReplaceInput, options: RequiredRevisionVectorOptions & 
 - **原始返回**：`MutationResult<BatchMutationSummary>`；它返回批量结果，不返回已删除 binding。
 
 <span id="api-bindings-preview-replace"></span>
+## 方法详解：全量替换
+
 ### `previewReplace(input, options?)`
 
 <!-- docs:method name=apiBindings.previewReplace locale=zh -->

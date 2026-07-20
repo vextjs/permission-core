@@ -5,6 +5,23 @@ export const guideGroups = [
     { id: "integration-ops", order: 4, labels: { en: "Integration and Operations", zh: "集成与运维" } },
 ];
 
+export const docsLocales = ["en", "zh"];
+
+export const docsLocaleContracts = {
+    en: {
+        pageCount: 34,
+        guideGroups: { start: 3, tasks: 5, concepts: 4, "integration-ops": 4 },
+        apiCount: 12,
+        exampleCount: 5,
+    },
+    zh: {
+        pageCount: 36,
+        guideGroups: { start: 4, tasks: 6, concepts: 4, "integration-ops": 4 },
+        apiCount: 12,
+        exampleCount: 5,
+    },
+};
+
 const roleSlots = {
     home: ["product-boundary", "primary-task", "release-channel"],
     concept: ["purpose", "model", "boundary", "next-task"],
@@ -37,6 +54,7 @@ function page(id, path, order, section, navGroup, labels, role, sourceOfTruth, o
         section,
         navGroup,
         labels,
+        navLabels: options.navLabels ?? labels,
         role,
         audience: options.audience ?? (role === "reference" ? "api-consumer" : "integrator"),
         sourceOfTruth,
@@ -45,15 +63,19 @@ function page(id, path, order, section, navGroup, labels, role, sourceOfTruth, o
         forbiddenSlots: roleForbiddenSlots[role],
         contentOwner: options.contentOwner ?? null,
         reuseMode: options.reuseMode ?? "owned-prose",
+        locales: options.locales ?? docsLocales,
         primaryNext: options.primaryNext ?? null,
+        primaryNextByLocale: options.primaryNextByLocale ?? {},
     };
 }
 
 export const docsPages = [
     page("home", "index.md", 1, "home", null, { en: "Home", zh: "首页" }, "home", ["package.json", "src/index.ts"], { sourceSymbol: "exports", contentOwner: "public-api", reuseMode: "cross-link", primaryNext: "guide/quick-start.md" }),
     page("introduction", "guide/introduction.md", 2, "guide", "start", { en: "Introduction", zh: "简介" }, "concept", ["src/index.ts", "src/types/foundation.ts"], { sourceSymbol: "PermissionCoreOptions", contentOwner: "product-boundary", primaryNext: "guide/quick-start.md" }),
-    page("quick-start", "guide/quick-start.md", 3, "guide", "start", { en: "Quick Start", zh: "快速开始" }, "tutorial", ["examples/basic.mjs", "examples/_support/host.mjs"], { sourceSymbol: "FIRST_SUCCESS", contentOwner: "first-success", reuseMode: "generated-snippet", primaryNext: "guide/check-permission.md" }),
+    page("quick-start", "guide/quick-start.md", 3, "guide", "start", { en: "Quick Start", zh: "快速开始" }, "tutorial", ["website/docs/zh/guide/quick-start.md", "src/types/rbac.ts"], { sourceSymbol: "docs:first-success:start", contentOwner: "first-success", reuseMode: "generated-snippet", primaryNext: "guide/check-permission.md", primaryNextByLocale: { zh: "guide/manage-roles-and-users.md" } }),
+    page("core-concepts", "guide/core-concepts.md", 3.5, "guide", "start", { zh: "核心术语与心智模型" }, "concept", ["src/types/foundation.ts", "src/types/rbac.ts"], { sourceSymbol: "PermissionSubject", contentOwner: "core-concepts-zh", locales: ["zh"], navLabels: { zh: "核心概念" }, primaryNext: "guide/manage-roles-and-users.md" }),
     page("troubleshooting", "guide/troubleshooting.md", 4, "guide", "start", { en: "Troubleshooting", zh: "故障排查" }, "troubleshooting", ["src/core/errors.ts", "src/types/errors.ts"], { sourceSymbol: "PermissionCoreError", contentOwner: "failure-recovery", primaryNext: "guide/production-operations.md" }),
+    page("manage-roles-and-users", "guide/manage-roles-and-users.md", 4.5, "guide", "tasks", { zh: "管理角色与用户授权" }, "how-to", ["src/types/rbac.ts", "src/rbac/public-context.ts"], { sourceSymbol: "RoleManager", contentOwner: "role-user-workflow-zh", locales: ["zh"], navLabels: { zh: "角色与用户" }, primaryNext: "guide/check-permission.md" }),
     page("check-permission", "guide/check-permission.md", 5, "guide", "tasks", { en: "Check Permissions", zh: "检查权限" }, "how-to", ["src/core/permission-core.ts", "src/types/rbac.ts"], { sourceSymbol: "SubjectPermissionContext", contentOwner: "permission-checks", primaryNext: "guide/data-permissions.md" }),
     page("data-permissions", "guide/data-permissions.md", 6, "guide", "tasks", { en: "Data Permissions", zh: "数据权限" }, "how-to", ["src/data/authorized-collection.ts", "src/types/data.ts"], { sourceSymbol: "AuthorizedCollection", contentOwner: "data-guard", reuseMode: "generated-response", primaryNext: "guide/menu-management.md" }),
     page("menu-management", "guide/menu-management.md", 7, "guide", "tasks", { en: "Manage Menus", zh: "管理菜单" }, "how-to", ["src/menu/menu-mutations.ts", "src/types/menu.ts"], { sourceSymbol: "MenuManager", contentOwner: "menu-workflow", reuseMode: "generated-response", primaryNext: "guide/api-bindings.md" }),
@@ -100,10 +122,25 @@ export function localizeDocsLink(link, locale) {
     return link === "/" ? "/zh/" : "/zh" + link;
 }
 
-export function validateDocsManifest(pages = docsPages, groups = guideGroups) {
+export function supportsLocale(item, locale) {
+    return item.locales.includes(locale);
+}
+
+export function docsPagesForLocale(locale, pages = docsPages) {
+    return pages.filter((item) => supportsLocale(item, locale));
+}
+
+export function primaryNextForLocale(item, locale) {
+    return item.primaryNextByLocale?.[locale] ?? item.primaryNext;
+}
+
+export function validateDocsManifest(
+    pages = docsPages,
+    groups = guideGroups,
+    localeContracts = docsLocaleContracts,
+) {
     const failures = [];
     const duplicateFields = ["id", "path", "order"];
-    if (pages.length !== 34) failures.push("manifest must contain exactly 34 pages");
     if (groups.length !== 4) failures.push("manifest must contain exactly four guide groups");
 
     for (const field of duplicateFields) {
@@ -113,7 +150,21 @@ export function validateDocsManifest(pages = docsPages, groups = guideGroups) {
 
     const groupIds = new Set(groups.map((group) => group.id));
     for (const item of pages) {
-        if (!item.labels?.en || !item.labels?.zh) failures.push("missing localized label: " + item.id);
+        if (!Array.isArray(item.locales) || item.locales.length === 0) {
+            failures.push("missing locales: " + item.id);
+        } else if (
+            new Set(item.locales).size !== item.locales.length
+            || item.locales.some((locale) => !docsLocales.includes(locale))
+        ) {
+            failures.push("invalid locales: " + item.id);
+        }
+        for (const locale of item.locales ?? []) {
+            if (!item.labels?.[locale]) failures.push(`missing localized label (${locale}): ${item.id}`);
+            if (!item.navLabels?.[locale]) failures.push(`missing localized nav label (${locale}): ${item.id}`);
+            if (locale === "zh" && item.section === "guide" && item.navLabels?.[locale]?.length > 8) {
+                failures.push(`localized nav label too long (${locale}): ${item.id}`);
+            }
+        }
         if (!item.role || !item.audience) failures.push("missing role metadata: " + item.id);
         if (!Array.isArray(item.sourceOfTruth) || item.sourceOfTruth.length === 0
             || item.sourceOfTruth.some((source) => typeof source !== "string" || source.length === 0)) {
@@ -129,16 +180,43 @@ export function validateDocsManifest(pages = docsPages, groups = guideGroups) {
         }
     }
 
-    const startPages = pages.filter((item) => item.navGroup === "start");
-    if (startPages.length !== 3) failures.push("Start group must contain exactly three pages");
-    if (pages.filter((item) => item.navGroup === "tasks").length !== 5) failures.push("Tasks group must contain exactly five pages");
-    if (pages.filter((item) => item.navGroup === "concepts").length !== 4) failures.push("Concepts group must contain exactly four pages");
-    if (pages.filter((item) => item.navGroup === "integration-ops").length !== 4) failures.push("Integration and Operations group must contain exactly four pages");
-    if (pages.filter((item) => item.section === "api").length !== 12) failures.push("API section must contain 12 pages");
-    if (pages.filter((item) => item.section === "examples").length !== 5) failures.push("Examples section must contain five pages");
-    if (pages.filter((item) => item.section === "home").length !== 1 || pages.find((item) => item.section === "home")?.navGroup !== null) failures.push("Home must be unique and excluded from the sidebar");
-    for (const item of pages) {
-        if (!item.primaryNext || !pages.some((candidate) => candidate.path === item.primaryNext)) failures.push("invalid primary next task: " + item.id);
+    for (const locale of docsLocales) {
+        const localePages = docsPagesForLocale(locale, pages);
+        const contract = localeContracts[locale];
+        if (!contract) {
+            failures.push(`missing locale contract: ${locale}`);
+            continue;
+        }
+        if (localePages.length !== contract.pageCount) {
+            failures.push(`${locale.toUpperCase()} manifest must contain exactly ${contract.pageCount} pages`);
+        }
+        for (const [groupId, expectedCount] of Object.entries(contract.guideGroups)) {
+            const actualCount = localePages.filter((item) => item.navGroup === groupId).length;
+            if (actualCount !== expectedCount) {
+                failures.push(`${locale.toUpperCase()} ${groupId} group must contain exactly ${expectedCount} pages`);
+            }
+        }
+        if (localePages.filter((item) => item.section === "api").length !== contract.apiCount) {
+            failures.push(`${locale.toUpperCase()} API section must contain ${contract.apiCount} pages`);
+        }
+        if (localePages.filter((item) => item.section === "examples").length !== contract.exampleCount) {
+            failures.push(`${locale.toUpperCase()} Examples section must contain ${contract.exampleCount} pages`);
+        }
+        if (
+            localePages.filter((item) => item.section === "home").length !== 1
+            || localePages.find((item) => item.section === "home")?.navGroup !== null
+        ) {
+            failures.push(`${locale.toUpperCase()} Home must be unique and excluded from the sidebar`);
+        }
+        for (const item of localePages) {
+            const primaryNext = primaryNextForLocale(item, locale);
+            if (
+                !primaryNext
+                || !localePages.some((candidate) => candidate.path === primaryNext)
+            ) {
+                failures.push(`invalid primary next task (${locale}): ${item.id}`);
+            }
+        }
     }
     return failures;
 }

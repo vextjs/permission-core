@@ -12,6 +12,12 @@ npm run example:basic
 
 规范源码是 `examples/basic.mjs` 中 `docs:basic:start` 到 `docs:basic:end` 的内容，并使用 `examples/_support/host.mjs` 中的共享宿主 fixture。
 
+命令会自动启动临时 MongoDB 副本集、连接 MonSQLize，并在 `finally` 中依次关闭 PermissionCore、MonSQLize 和副本集。它不会连接你的业务数据库；生产应用应使用宿主自己创建并管理的 MonSQLize 实例。
+
+## 先看结果
+
+运行成功先确认四项：`ok` 是 `true`；`permissionChecks.allowed` 是 `true`；`permissionChecks.cannotDelete` 是 `true`；`userRoles.afterSet` 最终只有 `order-reader`。这些值分别证明允许规则生效、未授权 DELETE 被默认拒绝，以及 `set()` 确实执行全量替换。
+
 ## 源码解读
 
 ```js

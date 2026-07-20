@@ -1,5 +1,7 @@
 # 数据权限
 
+> **数据权限边界。** 业务 `filter`、完整 scope 条件、行规则和字段权限会在受保护集合内共同生效；不要绕过 `subject.data.collection()` 直接查询后再把权限条件交给调用方自行拼接。
+
 `AuthorizedCollection` 是受支持的数据访问边界。它运行在宿主 MonSQLize 3.1 的事务运行时上，在操作到达 MongoDB 前把应用查询与授权条件组合起来。
 
 <span id="data-filter-vs-where"></span>

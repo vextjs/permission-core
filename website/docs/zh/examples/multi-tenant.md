@@ -12,6 +12,10 @@ npm run example:multi-tenant
 
 规范源码是 `examples/multi-tenant.mjs` 中 `docs:multi-tenant:start` 到 `docs:multi-tenant:end` 的内容。
 
+## 先看结果
+
+运行成功先看 `ok: true`，再确认 `tenantA.ownResource` 与 `tenantB.ownResource` 都是 `true`，两个 `crossTenantResource` 都是 `false`。这四个布尔值证明相同 user/role ID 没有跨 scope 共享权限。
+
 ## 源码解读
 
 ```js

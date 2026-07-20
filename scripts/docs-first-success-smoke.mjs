@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
 
 const packageRootArgument = process.argv.find((argument) => argument.startsWith("--package-root="));
 const outputRootArgument = process.argv.find((argument) => argument.startsWith("--output-root="));
@@ -45,18 +46,20 @@ fs.writeFileSync(path.join(consumerRoot, "package.json"), JSON.stringify({
     private: true,
     type: "module",
 }, null, 2));
-fs.mkdirSync(path.join(consumerRoot, "_support"), { recursive: true });
-fs.copyFileSync(path.join(toolingRoot, "examples", "basic.mjs"), path.join(consumerRoot, "first-success.mjs"));
-fs.copyFileSync(
-    path.join(toolingRoot, "examples", "_support", "host.mjs"),
-    path.join(consumerRoot, "_support", "host.mjs"),
+const quickStart = fs.readFileSync(
+    path.join(toolingRoot, "website", "docs", "zh", "guide", "quick-start.md"),
+    "utf-8",
 );
+const displayedSource = /<!-- docs:first-success:start -->\s*```js\r?\n([\s\S]*?)```\s*<!-- docs:first-success:end -->/u.exec(quickStart)?.[1];
+if (!displayedSource) {
+    throw new Error("Chinese Quick Start is missing the executable First Success block");
+}
+fs.writeFileSync(path.join(consumerRoot, "first-success.mjs"), displayedSource);
 
 run(npmCommand(), [
     "install",
     tarballPath,
     "monsqlize@3.1.0",
-    "mongodb-memory-server@10.4.3",
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
@@ -64,26 +67,44 @@ run(npmCommand(), [
     stage: "consumer install",
     timeoutMs: INSTALL_TIMEOUT_MS,
 });
-const stdout = run(process.execPath, ["first-success.mjs"], consumerRoot, {
-    capture: true,
-    stage: "First Success example",
-    timeoutMs: EXAMPLE_TIMEOUT_MS,
-}).trim();
-const jsonStart = stdout.lastIndexOf('\n{') + 1;
-const result = JSON.parse(stdout.slice(jsonStart));
-if (result.example !== "basic"
-    || result.ok !== true
-    || result.permissionChecks?.allowed !== true
-    || result.permissionChecks?.cannotDelete !== true
-    || JSON.stringify(result.userRoles?.afterSet) !== JSON.stringify(["order-reader"])) {
-    throw new Error(`Unexpected First Success output:\n${stdout}`);
+
+const replSet = await MongoMemoryReplSet.create({
+    binary: {
+        version: MONGODB_VERSION,
+        ...(cachedMongoBinary ? { systemBinary: cachedMongoBinary } : {}),
+    },
+    replSet: { count: 1, storageEngine: "wiredTiger" },
+});
+let stdout;
+try {
+    stdout = (await runAsync(process.execPath, ["first-success.mjs"], consumerRoot, {
+        capture: true,
+        stage: "Chinese Quick Start First Success",
+        timeoutMs: EXAMPLE_TIMEOUT_MS,
+        env: {
+            MONGODB_URI: replSet.getUri(),
+            MONGODB_DATABASE: `permission_core_quick_start_${Date.now()}`,
+        },
+    })).trim();
+} finally {
+    await replSet.stop({ doCleanup: true, force: true });
 }
 
-console.log("Docs First Success smoke passed: basic allowed=true cannotDelete=true afterSet=order-reader");
-console.log(`FIRST_SUCCESS_SMOKE_RETAINED=${outputRoot}`);
+const jsonStart = stdout.lastIndexOf("\n{") + 1;
+const result = JSON.parse(stdout.slice(jsonStart));
+if (result.allowed !== true || result.deleteAllowed !== false) {
+    throw new Error(`Unexpected Chinese Quick Start output:\n${stdout}`);
+}
+
+console.log("Docs First Success smoke passed: displayed Quick Start allowed=true deleteAllowed=false");
+if (outputRootArgument) {
+    console.log(`FIRST_SUCCESS_SMOKE_RETAINED=${outputRoot}`);
+} else {
+    fs.rmSync(outputRoot, { recursive: true, force: true });
+}
 
 /** Execute one bounded child process and surface its captured failure output. */
-function run(command, args, cwd, { capture = false, stage, timeoutMs }) {
+function run(command, args, cwd, { capture = false, stage, timeoutMs, env = {} }) {
     const useShell = process.platform === "win32" && /\.cmd$/i.test(command);
     const result = spawnSync(command, args, {
         cwd,
@@ -97,15 +118,51 @@ function run(command, args, cwd, { capture = false, stage, timeoutMs }) {
             ...(cachedMongoBinary
                 ? { PERMISSION_CORE_MONGOD_BINARY: cachedMongoBinary }
                 : {}),
+            ...env,
         },
     });
     if (result.error?.code === "ETIMEDOUT") {
-        throw new Error(`${stage} timed out after ${String(timeoutMs)} ms`);
+        throw new Error(`${stage} timed out after ${String(timeoutMs)} ms:\n${result.stdout ?? ""}\n${result.stderr ?? ""}`);
     }
     if (result.status !== 0) {
         throw new Error(`${stage} failed (${String(result.status)}):\n${result.error?.message ?? result.stderr ?? ""}`);
     }
     return result.stdout ?? "";
+}
+
+/** Run the displayed example without blocking the Mongo fixture event loop. */
+function runAsync(command, args, cwd, { capture = false, stage, timeoutMs, env = {} }) {
+    return new Promise((resolvePromise, rejectPromise) => {
+        const child = spawn(command, args, {
+            cwd,
+            windowsHide: true,
+            stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
+            env: { ...process.env, ...env },
+        });
+        let stdout = "";
+        let stderr = "";
+        child.stdout?.setEncoding("utf-8");
+        child.stderr?.setEncoding("utf-8");
+        child.stdout?.on("data", (chunk) => { stdout += chunk; });
+        child.stderr?.on("data", (chunk) => { stderr += chunk; });
+
+        const timer = setTimeout(() => {
+            child.kill();
+            rejectPromise(new Error(`${stage} timed out after ${String(timeoutMs)} ms:\n${stdout}\n${stderr}`));
+        }, timeoutMs);
+        child.once("error", (error) => {
+            clearTimeout(timer);
+            rejectPromise(new Error(`${stage} failed to start: ${error.message}`));
+        });
+        child.once("close", (code, signal) => {
+            clearTimeout(timer);
+            if (code !== 0) {
+                rejectPromise(new Error(`${stage} failed (${String(code ?? signal)}):\n${stdout}\n${stderr}`));
+                return;
+            }
+            resolvePromise(stdout);
+        });
+    });
 }
 
 function npmCommand() {

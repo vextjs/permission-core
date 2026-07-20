@@ -12,6 +12,10 @@ npm run example:menu-admin
 
 规范源码是 `examples/menu-admin.mjs` 中 `docs:menu-admin:start` 到 `docs:menu-admin:end` 的内容。
 
+## 先看结果
+
+运行成功先确认 `roleGrant.generatedSources: 4`、`roleGrant.auditRecorded: true`、`subjectRuntime.exportButton.enabled: true` 和 `manifest.apiBindingCount: 1`。这组值证明授权来源已生成并审计、用户按钮可用、接口绑定已进入前端 manifest。
+
 ## 源码解读
 
 ```js

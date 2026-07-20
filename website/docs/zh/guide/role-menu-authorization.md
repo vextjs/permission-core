@@ -2,6 +2,28 @@
 
 角色菜单授权把管理员选择的结构转换为持久化、可追踪来源的权限规则。它不会自动绑定用户；用户仍通过常规角色绑定获得结果。
 
+## 对象怎样连在一起
+
+```mermaid
+flowchart TD
+  accTitle: 角色菜单授权对象关系
+  accDescr: 管理员选择菜单节点，节点关联按钮、接口绑定与数据模板，预览将选择解析为可追踪的角色规则，用户绑定角色后得到可见菜单和后端权限。
+  A["管理员选择菜单节点"] --> B["包含后代与按钮"]
+  A --> C["关联 API binding"]
+  A --> D["关联数据模板"]
+  B --> E["preview 解析影响与选择要求"]
+  C --> E
+  D --> E
+  E --> F["grant / deny / set 生成角色规则来源"]
+  F --> G["角色"]
+  G --> H["用户绑定角色"]
+  H --> I["可见菜单、按钮与后端权限"]
+```
+
+<p className="pc-diagram-text" id="pc-diagram-role-menu-relationship-zh-text" data-diagram-id="role-menu-relationship"><strong>文字等价说明。</strong>管理员不是直接把菜单 ID 当成最终权限，而是先选择菜单节点及是否包含后代、按钮、接口和数据模板。preview 将这些对象解析成带来源的角色规则；执行 grant、deny 或 set 后，规则归属角色，用户再通过常规角色绑定获得可见菜单、按钮状态和后端资源权限。</p>
+
+`nodes` 是菜单节点集合，`apiBindings` 是真实后端接口及其 owner 关系。角色菜单授权读取两者并生成可追踪规则，但不会把接口定义复制进角色，也不会自动给任何用户绑定角色。
+
 ## 构造选择
 
 ```ts
@@ -38,6 +60,8 @@ const selection = {
 完整字段约束及 `availability-any` 与 `authorization-any` 的区别见[角色菜单权限 API](/zh/api/role-menu-permissions#role-menu-selection)。
 
 ## 执行前预览
+
+> **预览与执行一致性。** preview 只计算计划，不写数据库；执行时必须提交同一角色、同一选择、`expected` 和 `previewToken`。状态变化后重新预览。
 
 ```ts
 const preview = await scoped.roles.menuPermissions.preview(
@@ -124,6 +148,8 @@ const tree = await scoped.roles.menuPermissions.getAuthorizationTree('order-oper
 直接读取只显示该角色拥有的 grant；有效读取还包含继承 grant、来源角色 ID、冲突、完整性、可用性和漂移。授权树面向管理员，不等同于用户的可见菜单树。
 
 ## 投影用户界面
+
+> **后端最终鉴权。** 可见树和按钮状态只用于界面体验。真实 API 仍必须在后端使用 `subject.can()`、`assert()` 或框架 guard 检查。
 
 ```ts
 const menus = pc.forSubject({

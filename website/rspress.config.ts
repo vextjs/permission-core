@@ -1,10 +1,12 @@
 import * as fs from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import * as path from "node:path";
 import { defineConfig } from "@rspress/core";
 import { pluginSitemap } from "@rspress/plugin-sitemap";
 import { permissionCoreMermaidPlugin } from "./plugins/permission-core-mermaid";
 import {
     docsPages,
+    docsPagesForLocale,
     guideGroups,
     localizeDocsLink,
     pageLink,
@@ -77,8 +79,16 @@ const docsHead: [string, Record<string, string>][] = [
     ["meta", { name: "permission-core-docs-channel", content: docsChannel }],
     ["meta", { name: "permission-core-docs-version", content: docsVersion }],
 ];
+
 if (docsChannel === "preview") {
     docsHead.push(["meta", { name: "robots", content: "noindex,follow" }]);
+}
+
+const docsHtmlRoutePattern = /^\/(?:zh\/)?(?:guide|api|examples)\/.+\.html(?:[?#].*)?$/;
+
+function acceptsHtml(request: IncomingMessage) {
+    const accept = request.headers.accept;
+    return typeof accept === "string" && accept.includes("text/html");
 }
 
 const navSource: LocalizedNavItem[] = [
@@ -119,41 +129,10 @@ const navSource: LocalizedNavItem[] = [
 ];
 
 const manifestItem = (item: (typeof docsPages)[number]): LocalizedLink => ({
-    en: item.labels.en,
-    zh: item.labels.zh,
+    en: item.navLabels.en,
+    zh: item.navLabels.zh,
     link: pageLink(item),
 });
-
-const sidebarSource: Record<"guide" | "api" | "examples", SidebarGroup[]> = {
-    guide: guideGroups.map((group) => ({
-        en: group.labels.en,
-        zh: group.labels.zh,
-        items: docsPages
-            .filter((item) => item.section === "guide" && item.navGroup === group.id)
-            .sort((left, right) => left.order - right.order)
-            .map(manifestItem),
-    })),
-    api: [
-        {
-            en: "API Reference",
-            zh: "API 参考",
-            items: docsPages
-                .filter((item) => item.section === "api")
-                .sort((left, right) => left.order - right.order)
-                .map(manifestItem),
-        },
-    ],
-    examples: [
-        {
-            en: "Examples",
-            zh: "示例",
-            items: docsPages
-                .filter((item) => item.section === "examples")
-                .sort((left, right) => left.order - right.order)
-                .map(manifestItem),
-        },
-    ],
-};
 
 const isExternalLink = (link: string) => /^https?:\/\//.test(link);
 
@@ -185,7 +164,34 @@ function createNav(locale: Locale) {
     });
 }
 
-function createSidebar(locale: Locale, key: keyof typeof sidebarSource) {
+function createSidebar(locale: Locale, key: "guide" | "api" | "examples") {
+    const localePages = docsPagesForLocale(locale);
+    const sidebarSource: Record<"guide" | "api" | "examples", SidebarGroup[]> = {
+        guide: guideGroups.map((group) => ({
+            en: group.labels.en,
+            zh: group.labels.zh,
+            items: localePages
+                .filter((item) => item.section === "guide" && item.navGroup === group.id)
+                .sort((left, right) => left.order - right.order)
+                .map(manifestItem),
+        })),
+        api: [{
+            en: "API Reference",
+            zh: "API 参考",
+            items: localePages
+                .filter((item) => item.section === "api")
+                .sort((left, right) => left.order - right.order)
+                .map(manifestItem),
+        }],
+        examples: [{
+            en: "Examples",
+            zh: "示例",
+            items: localePages
+                .filter((item) => item.section === "examples")
+                .sort((left, right) => left.order - right.order)
+                .map(manifestItem),
+        }],
+    };
     return sidebarSource[key].map((group) => ({
         text: group[locale],
         items: group.items.map((item) => ({
@@ -219,6 +225,39 @@ export default defineConfig({
     description:
         "Fine-grained authorization for Node.js with MonSQLize-backed RBAC, route, menu, row, and field permissions.",
     builderConfig: {
+        dev: {
+            lazyCompilation: false,
+        },
+        html: {
+            tags: [{
+                tag: "script",
+                attrs: { src: "chunk-load-recovery.js" },
+                append: false,
+            }],
+        },
+        server: {
+            historyApiFallback: {
+                disableDotRule: true,
+            },
+            setup({ action, server }) {
+                if (action !== "dev") {
+                    return;
+                }
+
+                return () => {
+                    server.middlewares.use((
+                        request: IncomingMessage,
+                        _response: ServerResponse,
+                        next: () => void,
+                    ) => {
+                        if (request.url && docsHtmlRoutePattern.test(request.url) && acceptsHtml(request)) {
+                            request.url = "/";
+                        }
+                        next();
+                    });
+                };
+            },
+        },
         source: {
             define: {
                 __PERMISSION_CORE_DOCS_CHANNEL__: JSON.stringify(docsChannel),

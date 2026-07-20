@@ -4,6 +4,19 @@
 
 `scoped.menus` 管理租户 scope 内的菜单树及其前端 manifest。节点描述导航/UI 资产，不替代后端授权。结构或权限承载字段发生变化、且可能影响已有角色生成来源时，应使用影响预览。
 
+## 我想做什么
+
+| 目标 | 从这里开始 |
+|---|---|
+| 创建或读取节点 | [`create()`](#menus-create)、[`get()`](#menus-get)、[`list()`](#menus-list)、[`getTree()`](#menus-get-tree) |
+| 修改展示字段 | [`update()`](#menus-update) |
+| 修改结构 | [`previewUpdate()`](#menus-preview-update)、[`previewMove()`](#menus-preview-move)、[`previewReorder()`](#menus-preview-reorder) |
+| 改变状态 | [`previewSetStatus()`](#menus-preview-set-status) 后 [`setStatus()`](#menus-set-status) |
+| 安全删除 | [`getRemovalImpact()`](#menus-get-removal-impact) 与 [`previewRemove()`](#menus-preview-remove) |
+| 修复失效引用 | [`findStaleReferences()`](#menus-find-stale-references) 后预览并修复 |
+| 投影用户菜单 | [`getVisibleTree()`](#subject-menus-get-visible-tree)、[`getButtonMap()`](#subject-menus-get-button-map)、[`getRouteState()`](#subject-menus-get-route-state) |
+| 导入或导出 | [`manifest.preview/import/export`](#menus-manifest-preview) |
+
 ## 签名
 
 ```ts
@@ -78,7 +91,7 @@ scoped.menus.manifest.exportPage(query?: CursorQuery & { kind?: MenuManifestExpo
 
 所有 `preview*` 返回 preview token 与 revision vector；执行时必须原样传入对应 `expected` 和 `previewToken`。通用 envelope 字段见[核心与上下文 API 的响应契约](/zh/api/core-and-contexts#common-response-contracts)。
 
-## 方法详解
+## 方法详解：创建与读取节点
 
 <span id="menus-create"></span>
 ### `create(input, options?)`
@@ -122,6 +135,8 @@ scoped.menus.manifest.exportPage(query?: CursorQuery & { kind?: MenuManifestExpo
 - **原始返回**：`VersionedResult<MenuTreeNode[]>`，子节点位于各项 `children`；它不是某个用户的可见菜单投影。
 
 <span id="menus-update"></span>
+## 方法详解：修改字段与结构
+
 ### `update(nodeId, patch, options)`
 
 <!-- docs:method name=menus.update locale=zh -->
@@ -192,6 +207,8 @@ scoped.menus.manifest.exportPage(query?: CursorQuery & { kind?: MenuManifestExpo
 - **原始返回**：`MutationResult<BatchMutationSummary>`，查看 changed/unchanged 等批量摘要，而不是期待返回整棵树。
 
 <span id="menus-preview-set-status"></span>
+## 方法详解：改变状态与安全删除
+
 ### `previewSetStatus(nodeId, status, options?)`
 
 <!-- docs:method name=menus.previewSetStatus locale=zh -->
@@ -242,6 +259,8 @@ scoped.menus.manifest.exportPage(query?: CursorQuery & { kind?: MenuManifestExpo
 - **原始返回**：`MutationResult<BatchMutationSummary>`；默认不会静默级联或猜测来源替换。
 
 <span id="menus-find-stale-references"></span>
+## 方法详解：修复失效引用
+
 ### `findStaleReferences(query?)`
 
 <!-- docs:method name=menus.findStaleReferences locale=zh -->
@@ -272,6 +291,8 @@ scoped.menus.manifest.exportPage(query?: CursorQuery & { kind?: MenuManifestExpo
 - **原始返回**：`MutationResult<BatchMutationSummary>`。
 
 <span id="subject-menus-get-visible-tree"></span>
+## 方法详解：投影用户菜单
+
 ### `subject.menus.getVisibleTree(options?)`
 
 <!-- docs:method name=subject.menus.getVisibleTree locale=zh -->
@@ -303,6 +324,8 @@ scoped.menus.manifest.exportPage(query?: CursorQuery & { kind?: MenuManifestExpo
 - **原始返回**：`SubjectRuntimeResult<RoutePermissionState>`；业务守卫看 `data.allowed`，导航提示还要看 `data.navigationReachable/navigationReason`。
 
 <span id="menus-manifest-preview"></span>
+## 方法详解：导入与导出 manifest
+
 ### `manifest.preview(input, options?)`
 
 <!-- docs:method name=menus.manifest.preview locale=zh -->

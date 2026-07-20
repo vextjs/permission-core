@@ -4,6 +4,18 @@
 
 `scoped.roles` 管理租户 scope 内的角色、层级、手工规则、影响预览和有效权限读取。角色最多有一个父角色。全部 ID 与规则只在当前上下文的完整 scope 内有意义。
 
+## 我想做什么
+
+| 目标 | 从这里开始 |
+|---|---|
+| 创建或读取角色 | [`create()`](#roles-create)、[`get()`](#roles-get)、[`list()`](#roles-list) |
+| 修改展示字段 | [`update()`](#roles-update) |
+| 修改状态或父角色 | [`previewAccessUpdate()`](#roles-preview-access-update) 后 [`executeAccessUpdate()`](#roles-execute-access-update) |
+| 安全删除角色 | [`getRemovalImpact()`](#roles-get-removal-impact) 后 [`remove()`](#roles-remove) |
+| 增量修改规则 | [`allow()`](#roles-allow)、[`deny()`](#roles-deny)、[`revoke()`](#roles-revoke) |
+| 替换完整规则 | [`previewReplaceRules()`](#roles-preview-replace-rules) 后 [`replaceRules()`](#roles-replace-rules) |
+| 读取最终规则 | [`getOwnRules()`](#roles-get-own-rules)、[`getEffectiveRules()`](#roles-get-effective-rules)、[`getChain()`](#roles-get-chain) |
+
 ## 签名
 
 ```ts
@@ -72,7 +84,7 @@ getChain(roleId: string): Promise<VersionedResult<RoleChainEntry[]>>
 | `effect` | `allow \| deny` | 全部 | `listOwnRules()` 的规则效果过滤。 |
 | `sourceKind` | `manual \| menu` | 全部 | `listOwnRules()` 的来源过滤。 |
 
-## 方法详解
+## 方法详解：创建与读取
 
 <span id="roles-create"></span>
 ### `create(input, options?)`
@@ -118,6 +130,8 @@ getChain(roleId: string): Promise<VersionedResult<RoleChainEntry[]>>
 - **常见失败**：`ROLE_NOT_FOUND`、`REVISION_CONFLICT`；状态/父角色变更应使用下一组 preview/execute。
 
 <span id="roles-preview-access-update"></span>
+## 方法详解：高影响角色变更
+
 ### `previewAccessUpdate(roleId, patch, options?)`
 
 <!-- docs:method name=roles.previewAccessUpdate locale=zh -->
@@ -162,6 +176,8 @@ getChain(roleId: string): Promise<VersionedResult<RoleChainEntry[]>>
 - **常见失败**：`ROLE_IN_USE`、`REVISION_CONFLICT`、`ROLE_NOT_FOUND`。
 
 <span id="roles-allow"></span>
+## 方法详解：增量修改手工规则
+
 ### `allow(roleId, rule, options?)`
 
 <!-- docs:method name=roles.allow locale=zh -->
@@ -195,6 +211,8 @@ getChain(roleId: string): Promise<VersionedResult<RoleChainEntry[]>>
 - **注意**：`removed=0` 是 no-op 结果，不表示方法失败。
 
 <span id="roles-preview-rule-change"></span>
+## 方法详解：预览并提交规则影响
+
 ### `previewRuleChange(roleId, change, options?)`
 
 <!-- docs:method name=roles.previewRuleChange locale=zh -->
@@ -236,6 +254,8 @@ getChain(roleId: string): Promise<VersionedResult<RoleChainEntry[]>>
 - **原始返回**：`MutationResult<BatchMutationSummary>`，使用 inserted/updated/unchanged/deleted/conflicted。
 
 <span id="roles-get-own-rules"></span>
+## 方法详解：读取直接与有效规则
+
 ### `getOwnRules(roleId)`
 
 <!-- docs:method name=roles.getOwnRules locale=zh -->

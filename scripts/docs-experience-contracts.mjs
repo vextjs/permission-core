@@ -61,6 +61,17 @@ export const diagramContracts = [
             },
         },
     },
+    {
+        id: "role-menu-relationship",
+        path: "guide/role-menu-authorization.md",
+        kind: "flowchart TD",
+        locales: {
+            zh: {
+                title: "角色菜单授权对象关系",
+                description: "管理员选择菜单节点，节点关联按钮、接口绑定与数据模板，预览将选择解析为可追踪的角色规则，用户绑定角色后得到可见菜单和后端权限。",
+            },
+        },
+    },
 ];
 
 export const verifiedOperationGuidePaths = [

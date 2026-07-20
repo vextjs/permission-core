@@ -4,6 +4,17 @@
 
 `PermissionCore` 负责初始化、健康状态、scope 管理上下文、subject 运行时上下文、授权便捷调用和关闭。使用宿主持有的 MonSQLize 3.1 实例构造，只调用一次 `init()`，并在宿主关闭 MonSQLize 前关闭 core。
 
+## 我想做什么
+
+| 目标 | 从这里开始 |
+|---|---|
+| 初始化与健康 | [`new PermissionCore()`](#core-constructor)、[`init()`](#core-init)、[`health()`](#core-health) |
+| 创建管理上下文 | [`scope()`](#core-scope) |
+| 创建用户判断上下文 | [`forSubject()`](#core-for-subject) |
+| 执行权限判断 | [`can()`](#core-can)、[`cannot()`](#core-cannot)、[`assert()`](#core-assert) |
+| 读取与解释 | [`getPermissions()`](#core-get-permissions)、[`getResources()`](#core-get-resources)、[`explain()`](#core-explain) |
+| 安全关闭 | [`close()`](#core-close) |
+
 ## 签名
 
 ```ts
@@ -120,7 +131,7 @@ scope 使用完整对象做身份比较。`{ tenantId: 'acme' }` 与 `{ tenantId
 | `previewToken` / `expected` | execute 所需的一次性依据 | 原样传入对应 execute/grant/remove 操作。 |
 | `conflicts` / `warnings` / `capacity` | 阻断、提醒和容量评估 | 先解决 conflict；warning/capacity 按后台流程确认。 |
 
-## 方法详解
+## 方法详解：初始化与健康
 
 <span id="core-constructor"></span>
 ### `new PermissionCore(options)`
@@ -155,6 +166,8 @@ scope 使用完整对象做身份比较。`{ tenantId: 'acme' }` 与 `{ tenantId
 - **原始返回**：`PermissionCoreHealth`；`status='degraded'` 需要结合 `cache`/`audit` 字段判断，`down` 表示不能继续授权服务。
 
 <span id="core-scope"></span>
+## 方法详解：创建管理与用户上下文
+
 ### `scope(scope)`
 
 <!-- docs:method name=scope locale=zh -->
@@ -176,6 +189,8 @@ scope 使用完整对象做身份比较。`{ tenantId: 'acme' }` 与 `{ tenantId
 - **原始返回**：`SubjectPermissionContext`，提供 `can/cannot/assert/explain/getPermissions/getResources/menus/data`。
 
 <span id="core-can"></span>
+## 方法详解：执行权限判断
+
 ### `can(subject, action, resource, context?)` / `subject.can(action, resource)`
 
 <!-- docs:method name=can locale=zh -->
@@ -209,6 +224,8 @@ scope 使用完整对象做身份比较。`{ tenantId: 'acme' }` 与 `{ tenantId
 - **失败**：拒绝时抛 `PERMISSION_DENIED`；调用方在 HTTP 层把它映射为自己的 403 响应。
 
 <span id="core-get-permissions"></span>
+## 方法详解：读取与解释
+
 ### `getPermissions(subject, context?)` / `subject.getPermissions()`
 
 <!-- docs:method name=getPermissions locale=zh -->
@@ -242,6 +259,8 @@ scope 使用完整对象做身份比较。`{ tenantId: 'acme' }` 与 `{ tenantId
 - **选择建议**：业务热路径只要布尔值时用 `can`；需要说明“为什么”时再调用 `explain`。
 
 <span id="core-close"></span>
+## 方法详解：关闭
+
 ### `close()`
 
 <!-- docs:method name=close locale=zh -->

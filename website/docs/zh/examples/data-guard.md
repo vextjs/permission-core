@@ -12,6 +12,10 @@ npm run example:data-guard
 
 规范源码是 `examples/data-guard.mjs` 中 `docs:data-guard:start` 到 `docs:data-guard:end` 的内容。
 
+## 先看结果
+
+运行成功先确认 `matchedCount: 1`、`deniedFieldCode: 'FIELD_PERMISSION_DENIED'`、`writeGuard.deniedWriteCode: 'PERMISSION_DENIED'` 和 `persistedRows: 5`。它们分别证明行条件、字段拒绝、写入拒绝与“拒绝数据未落库”。
+
 ## 源码解读
 
 先建立角色的行、字段和写入规则：

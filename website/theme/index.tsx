@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Feature, FrontMatterMeta, NavItem } from "@rspress/core";
 import {
     normalizeImagePath,
@@ -13,17 +14,29 @@ import {
     Link,
     HomeLayout as OriginalHomeLayout,
     Layout as OriginalLayout,
-    NavHamburger,
     NavTitle,
     Search,
+    SocialLinks,
     SvgWrapper,
     SwitchAppearance,
+    IconSmallMenu,
     type HomeHeroProps,
     type HomeLayoutProps,
     type LayoutProps,
     type NavProps,
     renderHtmlOrText,
+    useHoverGroup,
 } from "@rspress/core/theme-original";
+import { NavVersions } from "@rspress/core/dist/theme/components/Nav/NavMenu.js";
+import {
+    NavScreen,
+    NavScreenDivider,
+} from "@rspress/core/dist/theme/components/NavScreen/index.js";
+import { NavScreenAppearance } from "@rspress/core/dist/theme/components/NavScreen/NavScreenAppearance.js";
+import { useNavScreen } from "@rspress/core/dist/theme/components/NavHamburger/useNavScreen.js";
+import "@rspress/core/dist/theme/components/NavHamburger/index.css";
+import "@rspress/core/dist/theme/components/NavScreen/NavScreenLangs.css";
+import { docsPages, supportsLocale } from "../docs-manifest.mjs";
 import "@rspress/core/dist/theme/components/HomeHero/index.css";
 import "@rspress/core/dist/theme/components/Nav/index.css";
 
@@ -32,6 +45,16 @@ declare const __PERMISSION_CORE_DOCS_VERSION__: string;
 
 let searchWasOpen = false;
 let searchTrigger: HTMLElement | null = null;
+const zhOnlyRoutePaths = new Set(
+    docsPages
+        .filter((item) => supportsLocale(item, "zh") && !supportsLocale(item, "en"))
+        .map((item) => `/zh/${item.path.replace(/\.md$/, "")}`),
+);
+
+function isZhOnlyRoute(routePath: string) {
+    const normalized = routePath.replace(/\.html$/, "").replace(/\/$/, "");
+    return zhOnlyRoutePaths.has(normalized);
+}
 
 export * from "@rspress/core/theme-original";
 
@@ -469,6 +492,7 @@ function LanguageNav() {
     const englishPath = routePath.replace(/^\/zh(?=\/|$)/, "") || "/";
     const chinesePath = englishPath === "/" ? "/zh/" : `/zh${englishPath}`;
     const isZh = page.lang === "zh";
+    const hasEnglishCounterpart = !isZh || !isZhOnlyRoute(routePath);
 
     return (
         <li
@@ -503,7 +527,7 @@ function LanguageNav() {
                 role="menu"
             >
                 <li className="rp-hover-group__item">
-                    {isZh ? (
+                    {isZh && hasEnglishCounterpart ? (
                         <Link
                             className="rp-hover-group__item__link"
                             href={englishPath}
@@ -515,6 +539,14 @@ function LanguageNav() {
                         >
                             English
                         </Link>
+                    ) : isZh ? (
+                        <span
+                            className="rp-hover-group__item__link"
+                            aria-disabled="true"
+                            role="menuitem"
+                        >
+                            English（此页暂无）
+                        </span>
                     ) : (
                         <span
                             className="rp-hover-group__item__link"
@@ -553,6 +585,132 @@ function LanguageNav() {
     );
 }
 
+function LocaleAwareNavScreenLangs() {
+    const { page } = usePage();
+    const [open, setOpen] = useState(false);
+    const routePath = page.routePath.startsWith("/") ? page.routePath : `/${page.routePath}`;
+    const englishPath = routePath.replace(/^\/zh(?=\/|$)/, "") || "/";
+    const chinesePath = englishPath === "/" ? "/zh/" : `/zh${englishPath}`;
+    const isZh = page.lang === "zh";
+    const hasEnglishCounterpart = !isZh || !isZhOnlyRoute(routePath);
+
+    return (
+        <>
+            <div className="rp-nav-screen-langs" onClick={() => setOpen((value) => !value)}>
+                <div className="rp-nav-screen-langs__left">
+                    {isZh ? "语言" : "Languages"}
+                </div>
+                <div className="rp-nav-screen-langs__right">
+                    {isZh ? "简体中文" : "English"}
+                </div>
+            </div>
+            <div
+                className="rp-nav-screen-langs-group"
+                style={{
+                    display: "grid",
+                    gridTemplateRows: open ? "1fr" : "0fr",
+                    transition: "grid-template-rows 0.2s ease-out",
+                }}
+            >
+                <div className="rp-nav-screen-langs-group__inner">
+                    {isZh && hasEnglishCounterpart ? (
+                        <Link
+                            className="rp-nav-screen-langs-group__item"
+                            href={englishPath}
+                            hrefLang="en"
+                            lang="en"
+                            rel="alternate"
+                        >
+                            English
+                        </Link>
+                    ) : isZh ? (
+                        <span
+                            className="rp-nav-screen-langs-group__item"
+                            aria-disabled="true"
+                        >
+                            English（此页暂无）
+                        </span>
+                    ) : (
+                        <span
+                            className="rp-nav-screen-langs-group__item rp-nav-screen-langs-group__item--active"
+                            aria-current="page"
+                            aria-disabled="true"
+                        >
+                            English
+                        </span>
+                    )}
+                    {isZh ? (
+                        <span
+                            className="rp-nav-screen-langs-group__item rp-nav-screen-langs-group__item--active"
+                            aria-current="page"
+                            aria-disabled="true"
+                        >
+                            简体中文
+                        </span>
+                    ) : (
+                        <Link
+                            className="rp-nav-screen-langs-group__item"
+                            href={chinesePath}
+                            hrefLang="zh"
+                            lang="zh"
+                            rel="alternate"
+                        >
+                            简体中文
+                        </Link>
+                    )}
+                </div>
+            </div>
+        </>
+    );
+}
+
+function LocaleAwareNavHamburger() {
+    const items = (
+        <div className="rp-nav-hamburger__md__hover-group">
+            <NavScreenAppearance />
+            <NavVersions />
+            <LocaleAwareNavScreenLangs />
+            <NavScreenDivider />
+            <SocialLinks />
+        </div>
+    );
+    const { isScreenOpen, toggleScreen } = useNavScreen();
+    const { handleMouseEnter, handleMouseLeave, hoverGroup } = useHoverGroup({
+        position: "right",
+        customChildren: (
+            <div className="rp-nav-menu__others-mobile__container">{items}</div>
+        ),
+    });
+
+    return (
+        <>
+            {isScreenOpen && createPortal(
+                <NavScreen isScreenOpen={isScreenOpen} toggleScreen={toggleScreen} />,
+                document.getElementById("__rspress_modal_container")!,
+            )}
+            <button
+                type="button"
+                onClick={toggleScreen}
+                aria-label="mobile hamburger"
+                className={`rp-nav-hamburger rp-nav-hamburger__sm${isScreenOpen ? " rp-nav-hamburger--active" : ""}`}
+            >
+                <SvgWrapper icon={IconSmallMenu} />
+            </button>
+            <button
+                type="button"
+                aria-label="mobile hamburger"
+                className={`rp-nav-hamburger rp-nav-hamburger__md${isScreenOpen ? " rp-nav-hamburger--active" : ""}`}
+                onClick={handleMouseEnter}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
+            >
+                <SvgWrapper icon={IconSmallMenu} />
+                {hoverGroup}
+            </button>
+        </>
+    );
+}
+
 export function Nav(props: NavProps) {
     const navList = useNav();
     const { site } = useSite();
@@ -575,7 +733,7 @@ export function Nav(props: NavProps) {
                     <LanguageNav />
                     {hasAppearanceSwitch ? <SwitchAppearance /> : null}
                 </div>
-                <NavHamburger />
+                <LocaleAwareNavHamburger />
                 {props.afterNavMenu}
             </div>
         </header>

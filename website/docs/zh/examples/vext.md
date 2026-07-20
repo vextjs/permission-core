@@ -12,6 +12,10 @@ npm run example:vext
 
 规范源码是 `examples/vext/index.mjs` 中 `docs:vext:start` 到 `docs:vext:end` 的内容，以及 `examples/vext/app/src/routes/index.mjs`。
 
+## 先看结果
+
+运行成功先看五个状态码：公开路由 `200`、未认证 `401`、无权限 `403`、有权限 `200`、路由变更后 `503`。再确认 `permissionCoreClosedByPlugin` 和 `hostDatabaseStillConnected` 都为 `true`，证明插件关闭边界正确。
+
 ## 源码解读
 
 ```js

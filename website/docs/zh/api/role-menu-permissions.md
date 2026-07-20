@@ -4,6 +4,16 @@
 
 `scoped.roles.menuPermissions` 将管理员的菜单选择转换为持久化、可追踪来源的角色规则。角色、所选节点、API binding 和数据模板必须位于同一 scope。grant、deny、revoke、set 或 repair 执行前都要先 preview。
 
+## 我想做什么
+
+| 目标 | 从这里开始 |
+|---|---|
+| 预览并提交授权 | [`preview()`](#role-menu-preview) 后调用对应 `grant/deny/revoke/set` |
+| 读取直接授权 | [`getDirect()`](#role-menu-get-direct)、[`listDirect()`](#role-menu-list-direct) |
+| 读取有效授权 | [`getEffective()`](#role-menu-get-effective) |
+| 生成授权树 | [`getAuthorizationTree()`](#role-menu-get-authorization-tree) |
+| 修复失效来源 | [`listStale()`](#role-menu-list-stale) 后预览并修复 |
+
 ## 签名
 
 ```ts
@@ -66,7 +76,7 @@ Preview 使用 `MenuPermissionChange`，其 `operation` 为 `'grant' | 'deny' | 
 
 `set` 只替换菜单来源，不替换手工 `roles.allow/deny` 规则，也不修改用户角色绑定。通用 preview/execution 与响应 envelope 见[核心与上下文 API](/zh/api/core-and-contexts#common-response-contracts)。
 
-## 方法详解
+## 方法详解：预览并提交授权
 
 <span id="role-menu-preview"></span>
 ### `preview(roleId, change, options?)`
@@ -120,6 +130,8 @@ Preview 使用 `MenuPermissionChange`，其 `operation` 为 `'grant' | 'deny' | 
 - **原始返回**：`MutationResult<BatchMutationSummary>`；空数组表示清空该角色的直接菜单授权，但不清手工规则。
 
 <span id="role-menu-get-direct"></span>
+## 方法详解：读取直接与有效授权
+
 ### `getDirect(roleId)`
 
 <!-- docs:method name=roles.menuPermissions.getDirect locale=zh -->
@@ -162,6 +174,8 @@ Preview 使用 `MenuPermissionChange`，其 `operation` 为 `'grant' | 'deny' | 
 - **边界**：这是角色管理树，不是某个用户的可见菜单；用户运行时请用 subject menus facade。
 
 <span id="role-menu-list-stale"></span>
+## 方法详解：修复失效来源
+
 ### `listStale(query?)`
 
 <!-- docs:method name=roles.menuPermissions.listStale locale=zh -->

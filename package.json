@@ -67,6 +67,7 @@
         "test:docs": "node ./scripts/check-docs.mjs",
         "test:docs:zh": "node ./scripts/check-docs.mjs --locale=zh",
         "test:docs:rendered": "node ./scripts/check-docs-rendered.mjs",
+        "test:docs:dev-links": "node ./scripts/check-docs-dev-deep-links.mjs",
         "docs:first-success": "npm run build && node ./scripts/docs-first-success-smoke.mjs",
         "docs:assemble": "node ./scripts/assemble-docs-site.mjs",
         "test:watch": "vitest",

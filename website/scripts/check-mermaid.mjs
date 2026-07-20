@@ -3,7 +3,6 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
     diagramContracts,
-    docsLocales,
     localizedDocsSource,
 } from "../../scripts/docs-experience-contracts.mjs";
 
@@ -30,7 +29,7 @@ mermaid.initialize({
 });
 
 for (const contract of diagramContracts) {
-    for (const locale of docsLocales) {
+    for (const locale of Object.keys(contract.locales)) {
         const source = localizedDocsSource(contract.path, locale);
         const file = path.join(docsRoot, source);
         const content = fs.readFileSync(file, "utf8");
@@ -54,5 +53,9 @@ if (failures.length > 0) {
     }
     process.exitCode = 1;
 } else {
-    console.log(`Mermaid checks passed: ${diagramContracts.length * docsLocales.length} localized diagrams parsed`);
+    const diagramCount = diagramContracts.reduce(
+        (total, contract) => total + Object.keys(contract.locales).length,
+        0,
+    );
+    console.log(`Mermaid checks passed: ${diagramCount} localized diagrams parsed`);
 }
