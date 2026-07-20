@@ -1,5 +1,5 @@
 # Core Terms and Mental Model
-<!-- docs:inline-parity `userId` `tenantId` `pc.scope({ tenantId: 'acme' })` `scope` `pc.forSubject({ userId: 'u-1', scope })` `scoped.roles.create(...)` `{ action: 'invoke', resource: 'GET:/api/orders' }` `userRoles.getDirect()` `userRoles.getEffective()` `roles.getEffectiveRules()` `can()` `false` `expectedRevision` `previewAccessUpdate()` `order-reader` `scope()` `forSubject()` `roles.*` `userRoles.*` `subject.can()` `roles.getOwnRules()` -->
+<!-- docs:inline-parity `userId` `tenantId` `pc.scope({ tenantId: 'acme' })` `scope` `pc.forSubject({ userId: 'u-1', scope })` `scoped.roles.create(...)` `{ action: 'invoke', resource: 'api:GET:/api/orders' }` `userRoles.getDirect()` `userRoles.getEffective()` `roles.getEffectiveRules()` `can()` `false` `expectedRevision` `previewAccessUpdate()` `order-reader` `scope()` `forSubject()` `roles.*` `userRoles.*` `subject.can()` `roles.getOwnRules()` -->
 
 This page explains the words used by the rest of the guide. Read it when `scope`, `subject`, `direct`, `effective`, `default deny`, `revision`, or `preview` still feels blurry.
 

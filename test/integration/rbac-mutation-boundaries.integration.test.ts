@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ResourceSchemeRegistry } from "../../src/check/resource-schemes";
 import { CANONICAL_CONTRACT_VERSION, digestCanonical } from "../../src/internal/canonical";
 import { PermissionRepository } from "../../src/persistence/repository";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
 import { normalizeMutationOptions, RoleMutationService, RuleMutationService } from "../../src/rbac";
 import { normalizeScope } from "../../src/scope/scope";
 import { startRealMongo, type RealMongoContext } from "./helpers/real-mongo";
@@ -19,7 +20,7 @@ function repositoryFixture(context: RealMongoContext, label: string) {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         },

@@ -67,12 +67,27 @@ export const diagramContracts = [
         kind: "flowchart TD",
         locales: {
             en: {
-                title: "Role-menu authorization object relationship",
-                description: "An administrator selects menu nodes, related buttons, API bindings, and data templates; preview resolves the selection into traceable role rules, and users receive visible menus and backend permissions through role bindings.",
+                title: "Role-menu authorization relationship",
+                description: "A saved menu config supplies grantable menus, views, APIs, actions, and response fields; role-menu grants and user-role bindings determine the subject runtime projection.",
             },
             zh: {
-                title: "角色菜单授权对象关系",
-                description: "管理员选择菜单节点，节点关联按钮、接口绑定与数据模板，预览将选择解析为可追踪的角色规则，用户绑定角色后得到可见菜单和后端权限。",
+                title: "角色菜单授权关系",
+                description: "已保存的菜单配置提供可授权的菜单、页面、接口、操作和响应字段，角色菜单授权与用户角色绑定共同决定用户运行时投影。",
+            },
+        },
+    },
+    {
+        id: "menu-config-lifecycle",
+        path: "guide/menu-management.md",
+        kind: "flowchart TD",
+        locales: {
+            en: {
+                title: "Menu config lifecycle",
+                description: "A MenuConfigInput is previewed and saved, role-menu grants assign its capabilities, user-role bindings activate them for a user, and subject runtime projects UI state and response fields.",
+            },
+            zh: {
+                title: "菜单配置生命周期",
+                description: "MenuConfigInput 经过预览和保存后，角色菜单授权分配其中能力，用户绑定角色后，subject runtime 投影前端状态和响应字段。",
             },
         },
     },
@@ -226,15 +241,15 @@ export const operationPageContracts = [
         operations: [
             {
                 id: "menu-model",
-                headings: { en: "1. Create the menu and API ownership model", zh: "1. 创建菜单与 API ownership 模型" },
-                calls: ["menus.create", "apiBindings.create"],
-                outputs: ["created"],
-                apiPaths: ["/api/menus", "/api/api-bindings"],
+                headings: { en: "1. Preview and save the menu config", zh: "1. 预览并保存菜单配置" },
+                calls: ["menus.config.preview", "menus.config.save"],
+                outputs: ["config"],
+                apiPaths: ["/api/menus"],
             },
             {
                 id: "menu-role",
                 headings: { en: "2. Create the role identity used by the workflow", zh: "2. 创建工作流使用的角色身份" },
-                calls: ["roles.create", "userRoles.assign"],
+                calls: ["roles.create"],
                 outputs: ["subjectRuntime"],
                 apiPaths: ["/api/roles", "/api/user-roles"],
             },
@@ -246,33 +261,17 @@ export const operationPageContracts = [
                 apiPaths: ["/api/role-menu-permissions"],
             },
             {
-                id: "menu-update",
-                headings: { en: "4. Update presentation state with a revision", zh: "4. 使用 revision 更新展示状态" },
-                calls: ["menus.update"],
-                outputs: ["update"],
-                apiPaths: ["/api/menus"],
-            },
-            {
                 id: "menu-subject",
-                headings: { en: "5. Project the user's visible runtime state", zh: "5. 投影用户可见的 runtime 状态" },
-                calls: ["forSubject", "getVisibleTree", "getButtonMap", "getRouteState"],
+                headings: { en: "4. Project the user's menu runtime and response", zh: "4. 投影用户菜单运行时与响应" },
+                calls: ["forSubject", "getViewTree", "getViewState", "getActionMap", "filterResponse"],
                 outputs: ["subjectRuntime"],
                 apiPaths: ["/api/core-and-contexts", "/api/menus", "/api/role-menu-permissions"],
             },
-            {
-                id: "menu-manifest",
-                headings: { en: "6. Export the frontend manifest", zh: "6. 导出前端 manifest" },
-                calls: ["menus.manifest.export"],
-                outputs: ["manifest"],
-                apiPaths: ["/api/menus", "/api/api-bindings"],
-            },
         ],
         outputGroups: [
-            { group: "created", producer: "menu-model", producerToken: "menus.create" },
-            { group: "update", producer: "menu-update", producerToken: "menus.update" },
+            { group: "config", producer: "menu-model", producerToken: "menus.config.save" },
             { group: "roleGrant", producer: "menu-grant", producerToken: "menuPermissions.grant" },
-            { group: "subjectRuntime", producer: "menu-subject", producerToken: "getVisibleTree" },
-            { group: "manifest", producer: "menu-manifest", producerToken: "menus.manifest.export" },
+            { group: "subjectRuntime", producer: "menu-subject", producerToken: "filterResponse" },
         ],
     },
     {
@@ -351,22 +350,17 @@ export const apiMethodContracts = [
     {
         path: "api/menus.md",
         methods: [
-            "menus.create", "menus.get", "menus.list", "menus.getTree", "menus.update",
-            "menus.previewUpdate", "menus.executeUpdate", "menus.previewMove", "menus.move",
-            "menus.previewReorder", "menus.reorder", "menus.previewSetStatus", "menus.setStatus",
-            "menus.getRemovalImpact", "menus.previewRemove", "menus.remove", "menus.findStaleReferences",
-            "menus.previewRepairStaleReferences", "menus.repairStaleReferences",
-            "subject.menus.getVisibleTree", "subject.menus.getButtonMap", "subject.menus.getRouteState",
-            "menus.manifest.preview", "menus.manifest.import", "menus.manifest.export", "menus.manifest.exportPage",
+            "menus.config.preview", "menus.config.save", "menus.config.get", "menus.config.list",
+            "menus.config.previewRemove", "menus.config.remove",
+            "menus.config.previewChanges", "menus.config.applyChanges",
+            "subject.menus.getViewTree", "subject.menus.getActionMap",
+            "subject.menus.getViewState", "subject.menus.filterResponse",
         ],
     },
     {
         path: "api/api-bindings.md",
         methods: [
-            "apiBindings.create", "apiBindings.get", "apiBindings.list", "apiBindings.update",
-            "apiBindings.previewSetStatus", "apiBindings.setStatus", "apiBindings.getRemovalImpact",
-            "apiBindings.previewUpdate", "apiBindings.executeUpdate", "apiBindings.previewRemove",
-            "apiBindings.remove", "apiBindings.previewReplace", "apiBindings.replace",
+            "MenuConfigInput.load", "MenuConfigInput.actions", "MenuConfigInput.response",
         ],
     },
     {
@@ -375,8 +369,7 @@ export const apiMethodContracts = [
             "roles.menuPermissions.preview", "roles.menuPermissions.grant", "roles.menuPermissions.deny",
             "roles.menuPermissions.revoke", "roles.menuPermissions.set", "roles.menuPermissions.getDirect",
             "roles.menuPermissions.listDirect", "roles.menuPermissions.getEffective",
-            "roles.menuPermissions.getAuthorizationTree", "roles.menuPermissions.listStale",
-            "roles.menuPermissions.previewRepairStale", "roles.menuPermissions.repairStale",
+            "roles.menuPermissions.getAuthorizationTree",
         ],
     },
     {
@@ -408,7 +401,7 @@ export const apiMethodContracts = [
         path: "api/vext-plugin.md",
         methods: [
             "permissionPlugin", "hasPermissionContext", "requirePermissionContext",
-            "toApiBindingInputs", "appExtensions.permission",
+            "req.auth.permission.filterResponse", "appExtensions.permission",
         ],
     },
 ];

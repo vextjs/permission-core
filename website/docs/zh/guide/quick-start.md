@@ -48,13 +48,13 @@ try {
   });
   await scoped.roles.allow('order-reader', {
     action: 'invoke',
-    resource: 'GET:/api/orders',
+    resource: 'api:GET:/api/orders',
   });
   await scoped.userRoles.assign('u-1', 'order-reader');
 
   const subject = pc.forSubject({ userId: 'u-1', scope });
-  const allowed = await subject.can('invoke', 'GET:/api/orders');
-  const deleteAllowed = await subject.can('invoke', 'DELETE:/api/orders');
+  const allowed = await subject.can('invoke', 'api:GET:/api/orders');
+  const deleteAllowed = await subject.can('invoke', 'api:DELETE:/api/orders');
 
   console.log(JSON.stringify({ allowed, deleteAllowed }, null, 2));
 } finally {
@@ -93,8 +93,8 @@ try {
 
 这是程序直接打印的**原始示例输出**：
 
-- `allowed: true`：角色拥有 `invoke + GET:/api/orders` 的 allow 规则。
-- `deleteAllowed: false`：没有任何规则允许 `DELETE:/api/orders`，所以系统默认拒绝。
+- `allowed: true`：角色拥有 `invoke + api:GET:/api/orders` 的 allow 规则。
+- `deleteAllowed: false`：没有任何规则允许 `api:DELETE:/api/orders`，所以系统默认拒绝。
 
 这里没有给用户“分配 DELETE 权限”，也没有额外创建一条阻止权限。`false` 只是 `can()` 对未授权操作的正常结果。
 
@@ -109,5 +109,6 @@ try {
 现在你已经完成核心 RBAC 第一次成功：
 
 - 要做角色管理后台：进入[管理角色与用户授权](/zh/guide/manage-roles-and-users)。
+- 要做菜单、按钮、接口和响应字段授权：进入[管理菜单](/zh/guide/menu-management)。
 - 要在业务代码中处理中断、诊断和权限快照：进入[检查权限](/zh/guide/check-permission)。
 - 对 `scope`、`subject`、直接和有效仍不熟悉：阅读[核心术语与心智模型](/zh/guide/core-concepts)。

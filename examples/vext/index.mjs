@@ -44,7 +44,7 @@ try {
 
     const scoped = testApp.app.permission.scope(scope);
     await scoped.roles.create({ id: "route-reader", label: "Route reader" });
-    await scoped.roles.allow("route-reader", { action: "invoke", resource: "GET:/orders/:id" });
+    await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders/:id" });
     await scoped.userRoles.assign("u-vext", "route-reader");
 
     const publicResponse = await testApp.request.get("/public");

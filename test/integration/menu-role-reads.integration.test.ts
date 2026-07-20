@@ -7,6 +7,7 @@ import type {
     MenuPermissionSelection,
     PermissionScope,
 } from "../../src/types";
+import type { LegacyRoleMenuPermissionManager } from "../../src/types/menu";
 import { ResourceSchemeRegistry } from "../../src/check/resource-schemes";
 import { CANONICAL_CONTRACT_VERSION, digestCanonical } from "../../src/internal/canonical";
 import { deepFreeze } from "../../src/internal/plain-data";
@@ -14,6 +15,10 @@ import { SignedTokenCodec } from "../../src/internal/signed-token";
 import {
     MenuManifestService,
     MenuNodeImpactMutationService,
+    RoleMenuAuthorizationResolver,
+    RoleMenuPermissionMutationService,
+    RoleMenuPermissionQueryService,
+    RoleMenuPermissionRepairService,
 } from "../../src/menu";
 import {
     createRoleMenuAggregateFields,
@@ -21,9 +26,11 @@ import {
 } from "../../src/menu/source-rewrite";
 import { MenuScopeReader } from "../../src/menu/store";
 import { PermissionRepository } from "../../src/persistence/repository";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
 import { createMenuSourceId } from "../../src/rbac/materialize";
 import { RbacScopeReader } from "../../src/rbac/store";
 import { normalizeScope } from "../../src/scope/scope";
+import { legacyMenuScope } from "../helpers/legacy-menu-api";
 import { startRealMongo, type RealMongoContext } from "./helpers/real-mongo";
 
 const TEST_TIMEOUT = 120_000;
@@ -38,7 +45,7 @@ function createRepository(context: RealMongoContext, schemes: ResourceSchemeRegi
         schemeContractDigest: schemes.schemeContractDigest,
         schemaContractKey: digestCanonical({
             canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest: schemes.schemeContractDigest,
         }),
     });
@@ -62,7 +69,7 @@ async function importManifest(
 }
 
 async function executeMenuChange(
-    manager: ReturnType<PermissionCore["scope"]>["roles"]["menuPermissions"],
+    manager: LegacyRoleMenuPermissionManager,
     roleId: string,
     change: MenuPermissionChange,
 ) {
@@ -90,6 +97,26 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
     let schemes: ResourceSchemeRegistry;
     let manifests: MenuManifestService;
     let menuImpacts: MenuNodeImpactMutationService;
+    let legacyMenuMutations: RoleMenuPermissionMutationService;
+    let legacyMenuQueries: RoleMenuPermissionQueryService;
+    let legacyMenuRepairs: RoleMenuPermissionRepairService;
+
+    function legacyMenuManager(targetScope: PermissionScope): LegacyRoleMenuPermissionManager {
+        return {
+            preview: (roleId, change, options) => legacyMenuMutations.preview(targetScope, roleId, change, options),
+            grant: (roleId, selection, options) => legacyMenuMutations.grant(targetScope, roleId, selection, options),
+            deny: (roleId, selection, options) => legacyMenuMutations.deny(targetScope, roleId, selection, options),
+            revoke: (roleId, input, options) => legacyMenuMutations.revoke(targetScope, roleId, input, options),
+            set: (roleId, assignments, options) => legacyMenuMutations.set(targetScope, roleId, assignments, options),
+            getDirect: (roleId) => legacyMenuQueries.getDirect(targetScope, roleId),
+            listDirect: (roleId, query) => legacyMenuQueries.listDirect(targetScope, roleId, query),
+            getEffective: (roleId) => legacyMenuQueries.getEffective(targetScope, roleId),
+            getAuthorizationTree: (roleId) => legacyMenuQueries.getAuthorizationTree(targetScope, roleId),
+            listStale: (query) => legacyMenuQueries.listStale(targetScope, query),
+            previewRepairStale: (input, options) => legacyMenuRepairs.preview(targetScope, input, options),
+            repairStale: (input, options) => legacyMenuRepairs.repair(targetScope, input, options),
+        };
+    }
 
     beforeAll(async () => {
         context = await startRealMongo({ findMaxLimit: 97 });
@@ -104,6 +131,14 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
         const tokens = new SignedTokenCodec(Buffer.alloc(32, 91), "role-menu-read-tests");
         manifests = new MenuManifestService(repository, schemes, tokens);
         menuImpacts = new MenuNodeImpactMutationService(repository, schemes, tokens);
+        legacyMenuMutations = new RoleMenuPermissionMutationService(repository, schemes, tokens);
+        legacyMenuQueries = new RoleMenuPermissionQueryService(
+            repository,
+            schemes,
+            tokens,
+            new RoleMenuAuthorizationResolver(repository, schemes),
+        );
+        legacyMenuRepairs = new RoleMenuPermissionRepairService(repository, schemes, tokens);
     }, TEST_TIMEOUT);
 
     afterAll(async () => {
@@ -113,7 +148,8 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
 
     it("projects direct and inherited grants with deny conflicts and no role-level allowed boolean", async () => {
         const targetScope = scope("inheritance");
-        const scoped = core.scope(targetScope);
+        const scoped = legacyMenuScope(core.scope(targetScope));
+        const roleMenus = legacyMenuManager(targetScope);
         await scoped.roles.create({ id: "base", label: "Base" });
         await scoped.roles.create({ id: "child", label: "Child", parentId: "base" });
         await scoped.userRoles.assign("u-inheritance", "child");
@@ -152,7 +188,7 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
             include: { descendants: false, buttons: false, apis: "required", dataPermissions: false },
             apiChoices: { bindingIds: [], permissionsByBinding: {} },
         };
-        await executeMenuChange(scoped.roles.menuPermissions, "base", { operation: "grant", selection });
+        await executeMenuChange(roleMenus, "base", { operation: "grant", selection });
         const manualGrant = await scoped.roles.allow("base", { action: "read", resource: "ui:page:orders" });
         expect(manualGrant).toMatchObject({ changed: true });
         expect(manualGrant.data.sources.items).toEqual(expect.arrayContaining([
@@ -168,11 +204,11 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
             expect.objectContaining({ kind: "menu" }),
             expect.objectContaining({ kind: "manual", state: "active" }),
         ]));
-        await executeMenuChange(scoped.roles.menuPermissions, "child", { operation: "deny", selection });
+        await executeMenuChange(roleMenus, "child", { operation: "deny", selection });
 
-        const direct = await scoped.roles.menuPermissions.getDirect("base");
-        const effective = await scoped.roles.menuPermissions.getEffective("child");
-        const tree = await scoped.roles.menuPermissions.getAuthorizationTree("child");
+        const direct = await roleMenus.getDirect("base");
+        const effective = await roleMenus.getEffective("child");
+        const tree = await roleMenus.getAuthorizationTree("child");
         const ownRules = await scoped.roles.getOwnRules("base");
         const orders = tree.data[0]!.children[0]!;
 
@@ -214,7 +250,8 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
 
     it("keeps future assets unauthorized and treats inactive menu and manual sources independently", async () => {
         const targetScope = scope("drift");
-        const scoped = core.scope(targetScope);
+        const scoped = legacyMenuScope(core.scope(targetScope));
+        const roleMenus = legacyMenuManager(targetScope);
         await scoped.roles.create({ id: "operator", label: "Operator" });
         await scoped.roles.allow("operator", { action: "read", resource: "ui:page:orders" });
         await scoped.userRoles.assign("u-drift", "operator");
@@ -248,7 +285,7 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
             include: { descendants: false, buttons: true, apis: "required", dataPermissions: false },
             apiChoices: { bindingIds: [], permissionsByBinding: {} },
         };
-        await executeMenuChange(scoped.roles.menuPermissions, "operator", { operation: "grant", selection });
+        await executeMenuChange(roleMenus, "operator", { operation: "grant", selection });
         await importManifest(manifests, targetScope, {
             schemaVersion: 2,
             mode: "merge",
@@ -276,7 +313,7 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
             apiBindings: [],
         });
 
-        const drifted = await scoped.roles.menuPermissions.getDirect("operator");
+        const drifted = await roleMenus.getDirect("operator");
         expect(drifted.data.grants[0]!.sourceStatus).toMatchObject({
             integrity: "valid",
             availability: "active",
@@ -295,7 +332,7 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
             idempotencyKey: `status-${randomUUID()}`,
         });
 
-        const inactive = await scoped.roles.menuPermissions.getDirect("operator");
+        const inactive = await roleMenus.getDirect("operator");
         const rules = await scoped.roles.getOwnRules("operator");
         const uiRule = rules.data.find((rule) => rule.resource === "ui:page:orders")!;
         expect(inactive.data.grants[0]!.sourceStatus).toMatchObject({
@@ -320,7 +357,8 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
     it("fails subject snapshots closed and repairs a selected invalid reference by explicit revoke", async () => {
         const targetScope = scope("repair");
         const normalizedScope = normalizeScope(targetScope);
-        const scoped = core.scope(targetScope);
+        const scoped = legacyMenuScope(core.scope(targetScope));
+        const roleMenus = legacyMenuManager(targetScope);
         await scoped.roles.create({ id: "repair-role", label: "Repair role" });
         await scoped.userRoles.assign("u-repair", "repair-role");
         await importManifest(manifests, targetScope, {
@@ -343,7 +381,7 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
             include: { descendants: false, buttons: false, apis: "none", dataPermissions: false },
             apiChoices: { bindingIds: [], permissionsByBinding: {} },
         };
-        await executeMenuChange(scoped.roles.menuPermissions, "repair-role", { operation: "grant", selection });
+        await executeMenuChange(roleMenus, "repair-role", { operation: "grant", selection });
 
         const state = await repository.scopeStates.read(normalizedScope);
         const rbacReader = new RbacScopeReader(repository, schemes, state);
@@ -411,11 +449,11 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
 
         await expect(core.can({ userId: "u-repair", scope: targetScope }, "read", "ui:page:reports"))
             .rejects.toMatchObject({ code: "PERSISTED_STATE_INVALID" });
-        const direct = await scoped.roles.menuPermissions.getDirect("repair-role");
+        const direct = await roleMenus.getDirect("repair-role");
         expect(direct.data.grants[0]!.sourceStatus.integrity).toBe("invalid");
-        const effective = await scoped.roles.menuPermissions.getEffective("repair-role");
+        const effective = await roleMenus.getEffective("repair-role");
         expect(effective.data.grants.items[0]!.sourceStatus.integrity).toBe("invalid");
-        const tree = await scoped.roles.menuPermissions.getAuthorizationTree("repair-role");
+        const tree = await roleMenus.getAuthorizationTree("repair-role");
         expect(tree.data[0]!.sourceStatus).toMatchObject({ integrity: "invalid" });
         const effectiveRules = await scoped.roles.getEffectiveRules("repair-role");
         const reportsRule = effectiveRules.data.rules.items
@@ -435,14 +473,14 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
                 effective: { items: [expect.objectContaining({ role: expect.objectContaining({ id: "repair-role" }) })] },
             },
         });
-        const stale = await scoped.roles.menuPermissions.listStale();
+        const stale = await roleMenus.listStale();
         expect(stale.items).toEqual([expect.objectContaining({
             roleId: "repair-role",
             grantId: grant.grantId,
             reason: "asset-missing",
         })]);
         const sourceId = stale.items[0]!.sourceId;
-        const rejected = await scoped.roles.menuPermissions.previewRepairStale(
+        const rejected = await roleMenus.previewRepairStale(
             { sourceIds: [sourceId] },
             { actorId: "admin" },
         );
@@ -454,10 +492,10 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
             sourceIds: [sourceId],
             sourceRewrite: { mode: "apply" as const, resolutions: { [sourceId]: { action: "revoke" as const } } },
         };
-        const repairPreview = await scoped.roles.menuPermissions.previewRepairStale(repairInput, { actorId: "admin" });
+        const repairPreview = await roleMenus.previewRepairStale(repairInput, { actorId: "admin" });
         expect(repairPreview.executable).toBe(true);
         if (!repairPreview.executable) throw new Error("repair preview unexpectedly blocked");
-        const repaired = await scoped.roles.menuPermissions.repairStale(repairInput, {
+        const repaired = await roleMenus.repairStale(repairInput, {
             ...repairPreview.expected,
             previewToken: repairPreview.previewToken,
             actorId: "admin",
@@ -466,13 +504,14 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
         expect(repaired).toMatchObject({ changed: true, data: { deleted: 1 } });
         await expect(core.can({ userId: "u-repair", scope: targetScope }, "read", "ui:page:reports"))
             .resolves.toBe(false);
-        expect((await scoped.roles.menuPermissions.listStale()).items).toEqual([]);
-        expect((await scoped.roles.menuPermissions.getDirect("repair-role")).data.grants).toEqual([]);
+        expect((await roleMenus.listStale()).items).toEqual([]);
+        expect((await roleMenus.getDirect("repair-role")).data.grants).toEqual([]);
     }, TEST_TIMEOUT);
 
     it("invalidates authorization cursors and ETags when only the menu revision changes", async () => {
         const targetScope = scope("menu-revision");
-        const scoped = core.scope(targetScope);
+        const scoped = legacyMenuScope(core.scope(targetScope));
+        const roleMenus = legacyMenuManager(targetScope);
         await scoped.roles.create({ id: "cursor-role", label: "Cursor role" });
         await importManifest(manifests, targetScope, {
             schemaVersion: 2,
@@ -506,23 +545,23 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
             include: { descendants: false, buttons: false, apis: "none", dataPermissions: false },
             apiChoices: { bindingIds: [], permissionsByBinding: {} },
         });
-        await executeMenuChange(scoped.roles.menuPermissions, "cursor-role", {
+        await executeMenuChange(roleMenus, "cursor-role", {
             operation: "grant",
             selection: selection("alpha"),
         });
-        await executeMenuChange(scoped.roles.menuPermissions, "cursor-role", {
+        await executeMenuChange(roleMenus, "cursor-role", {
             operation: "grant",
             selection: selection("beta"),
         });
 
-        const directPage = await scoped.roles.menuPermissions.listDirect("cursor-role", { first: 1 });
+        const directPage = await roleMenus.listDirect("cursor-role", { first: 1 });
         const ownRulesPage = await scoped.roles.listOwnRules("cursor-role", { first: 1 });
         expect(directPage.pageInfo).toMatchObject({ hasNext: true, endCursor: expect.any(String) });
         expect(ownRulesPage.pageInfo).toMatchObject({ hasNext: true, endCursor: expect.any(String) });
         const before = {
-            direct: (await scoped.roles.menuPermissions.getDirect("cursor-role")).etag,
-            effective: (await scoped.roles.menuPermissions.getEffective("cursor-role")).etag,
-            tree: (await scoped.roles.menuPermissions.getAuthorizationTree("cursor-role")).etag,
+            direct: (await roleMenus.getDirect("cursor-role")).etag,
+            effective: (await roleMenus.getEffective("cursor-role")).etag,
+            tree: (await roleMenus.getAuthorizationTree("cursor-role")).etag,
             ownRules: (await scoped.roles.getOwnRules("cursor-role")).etag,
             effectiveRules: (await scoped.roles.getEffectiveRules("cursor-role")).etag,
         };
@@ -537,7 +576,7 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
             idempotencyKey: `status-${randomUUID()}`,
         });
 
-        await expect(scoped.roles.menuPermissions.listDirect("cursor-role", {
+        await expect(roleMenus.listDirect("cursor-role", {
             first: 1,
             after: directPage.pageInfo.endCursor!,
         })).rejects.toMatchObject({
@@ -552,9 +591,9 @@ describe("role menu reads, drift, integrity, and repair on MonSQLize 3.1", () =>
             details: expect.objectContaining({ owner: "scope.menu" }),
         });
         const after = {
-            direct: (await scoped.roles.menuPermissions.getDirect("cursor-role")).etag,
-            effective: (await scoped.roles.menuPermissions.getEffective("cursor-role")).etag,
-            tree: (await scoped.roles.menuPermissions.getAuthorizationTree("cursor-role")).etag,
+            direct: (await roleMenus.getDirect("cursor-role")).etag,
+            effective: (await roleMenus.getEffective("cursor-role")).etag,
+            tree: (await roleMenus.getAuthorizationTree("cursor-role")).etag,
             ownRules: (await scoped.roles.getOwnRules("cursor-role")).etag,
             effectiveRules: (await scoped.roles.getEffectiveRules("cursor-role")).etag,
         };

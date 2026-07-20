@@ -1,31 +1,23 @@
 # Vext Plugin API
-<!-- docs:inline-parity `permission-core/plugins/vext` `>=20.19.0` `match` `>=18.0.0` `monsqlize` `resolveMonSQLize` `app.monsqlize` `authPlugin` `authentication` `RouteOptions.permission` `false` `true` `any` `all` `PermissionVextPluginOptions` `resolveMonSQLize(app)` `databasePlugin` `req.auth` `core` `PermissionCoreOptions` `resolveSubject(auth, req)` `PermissionSubject` `validateRouteManifest(event)` `invoke` `GET:/orders/:id` `{ action, resource? }` `{ mode:'all', requirements }` `1..32` `{ mode:'any', requirements }` `req.auth.permission` `can/assert` `permissionPlugin(options?)` `app.permission` `VextPlugin` `PermissionCore` `hasPermissionContext(req)` `req` `boolean` `PermissionVextRequest` `requirePermissionContext(req)` `Promise<VextRequestPermissionApi>` `subject/can/assert` `toApiBindingInputs(manifest)` `ApiBindingCreateInput[]` `VextRoutePermissionManifest` `apiBindings.create/replace` `vext:<routeKey>` `entry` `appExtensions.permission` `app.permission: PermissionCore` `requirePermissionContext()` `subject` `can` `assert` `toApiBindingInputs()` `purpose: 'entry'` `VEXT_MONSQLIZE_REQUIRED` `VEXT_MONSQLIZE_INCOMPATIBLE` `VEXT_AUTH_REQUIRED` `VEXT_APP_EXTENSION_CONFLICT` `VEXT_AUTH_EXTENSION_CONFLICT` `VEXT_ROUTE_PERMISSION_INVALID` `VEXT_ROUTE_RESTART_REQUIRED` `20000` `8 MiB` `32` `validateRouteManifest` -->
-
-The Vext plugin exports the runtime integration, request context helpers, route manifest conversion, and `app.permission` extension surface.
 
 ## Purpose and preconditions
 
-This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+`permission-core/plugins/vext` is the optional integration entry for Vext 0.3.26. It initializes PermissionCore in the Vext lifecycle, installs route guards, maps domain errors to HTTP responses, and exposes request-scoped permission APIs plus response-field projection for protected routes.
 
-## What Do You Want To Do
+Before using it:
 
-| Goal | Entry point |
-|---|---|
-| Register the Vext permission plugin | [`permissionPlugin(options?)`](#vext-permission-plugin) |
-| Get request permission context inside a handler | [`requirePermissionContext(req)`](#vext-require-permission-context) |
-| Perform a side-effect-free type check | [`hasPermissionContext(req)`](#vext-has-permission-context) |
-| Convert a route manifest into API binding input | [`toApiBindingInputs(manifest)`](#vext-to-api-binding-inputs) |
-| Understand route `permission` syntax | [`RouteOptions.permission`](#route-options-permission) |
+- Node.js is `>=20.19.0`.
+- The host provides a connected MonSQLize 3.1 instance.
+- The authentication plugin runs first and writes trusted identity to `req.auth`.
+- Response-field projection requires the matching `api:` resource and fields to be saved through `menus.config.save()`.
 
 ## Signatures
-
-The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.
 
 ```ts
 permissionPlugin(options?: PermissionVextPluginOptions): VextPlugin
 hasPermissionContext(req: VextRequest): req is PermissionVextRequest
 requirePermissionContext(req: VextRequest): Promise<VextRequestPermissionApi>
-toApiBindingInputs(manifest: VextRoutePermissionManifest): readonly ApiBindingCreateInput[]
+req.auth.permission.filterResponse(apiResource: ApiResource, payload: unknown, context?: PolicyContext): Promise<SubjectRuntimeResult<unknown>>
 appExtensions.permission: PermissionCore
 
 interface PermissionVextPluginOptions {
@@ -35,103 +27,129 @@ interface PermissionVextPluginOptions {
   authPlugin?: string;
   core?: Omit<PermissionCoreOptions, 'monsqlize'>;
   resolveSubject?: (auth, req) => PermissionSubject | Promise<PermissionSubject>;
-  validateRouteManifest?: (event) => void | Promise<void>;
 }
 ```
-## Parameter Objects
 
-The table explains object fields that are easy to confuse at call sites. Required fields are validated before the method mutates persistent authorization state.
+`permission: true` checks `invoke + api:METHOD:/path`, for example `api:GET:/orders/:id`. Protected routes with caching enabled fail closed unless route caching is explicitly disabled, preventing user-specific projections from becoming shared cached responses.
+
+## Parameters
 
 <!-- docs:params owner=PermissionVextPluginOptions locale=en -->
+
 ### `PermissionVextPluginOptions`
-<!-- docs:params owner=VextRoutePermission locale=en -->
-<span id="route-options-permission"></span>
+
+| Field | Required/default | Meaning |
+|---|---|---|
+| `monsqlize` | One of three sources | Direct host-owned MonSQLize 3.1 instance. The plugin borrows it and does not close the database. |
+| `resolveMonSQLize(app)` | One of three sources | Resolve the instance from the Vext app during setup; mutually exclusive with `monsqlize`. |
+| auto-discovered `app.monsqlize` | When both previous sources are absent | Reads an own app extension property and verifies MonSQLize 3.1 compatibility. |
+| `databasePlugin` | Optional | Name of the Vext plugin that provides the database instance, used for plugin ordering. |
+| `authPlugin` | Default `authentication` | Authentication plugin name; it must write trusted `req.auth` first. |
+| `core` | Optional | `PermissionCoreOptions` except `monsqlize`, such as `collectionPrefix/cache/tokenSecret`. |
+| `resolveSubject(auth, req)` | Strict default resolver | Converts auth state to `PermissionSubject`; must not trust client-reported identity. |
 
 ### `RouteOptions.permission`
-## Export Details
 
-These exports are the Vext integration surface. Use them from Vext plugins, route metadata conversion, and request handlers that need authorization context.
+| Value | Route meaning |
+|---|---|
+| omitted or `false` | Public route, no permission guard. |
+| `true` | Requires `invoke + api:METHOD:/path`. |
+| `{ action, resource? }` | One requirement; omitted `resource` uses the current route `api:` resource. |
+| `{ mode: 'all', requirements }` | All `1..32` requirements must pass. |
+| `{ mode: 'any', requirements }` | At least one of `1..32` requirements must pass. |
+
+## Method details
 
 <span id="vext-permission-plugin"></span>
 ### `permissionPlugin(options?)`
+
 <!-- docs:method name=permissionPlugin locale=en -->
 
-- **Purpose**: Use `permissionPlugin` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Create the permission plugin descriptor registered with Vext.
+- **Parameters**: `options` are listed above; at most one database source may be provided, and authentication must run first.
+- **State impact**: During Vext setup it creates and initializes core, installs request middleware, route hooks, error mapping, and exposes `app.permission`; during Vext close it closes PermissionCore.
+- **Raw return**: Synchronously returns `VextPlugin`, not a setup result and not a `PermissionCore` instance.
 
 <span id="vext-has-permission-context"></span>
 ### `hasPermissionContext(req)`
+
 <!-- docs:method name=hasPermissionContext locale=en -->
 
-- **Purpose**: Use `hasPermissionContext` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Check whether the current request already has a permission context and narrow the TypeScript type.
+- **Parameters**: Current Vext `req`.
+- **State impact**: Checks the internal owner marker only; it does not lazily resolve the subject.
+- **Raw return**: `boolean`; `true` narrows req to `PermissionVextRequest`.
 
 <span id="vext-require-permission-context"></span>
 ### `requirePermissionContext(req)`
+
 <!-- docs:method name=requirePermissionContext locale=en -->
 
-- **Purpose**: Use `requirePermissionContext` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Get the permission API for the current request.
+- **Parameters**: Current Vext request that passed through the permission plugin middleware.
+- **State impact**: Lazily resolves and freezes the subject for this request only; it does not write authorization data.
+- **Raw return**: `Promise<VextRequestPermissionApi>` with `subject`, `can`, `assert`, and `filterResponse`.
 
-<span id="vext-to-api-binding-inputs"></span>
-### `toApiBindingInputs(manifest)`
-<!-- docs:method name=toApiBindingInputs locale=en -->
+<span id="vext-filter-response"></span>
+### `req.auth.permission.filterResponse(apiResource, payload, context?)`
 
-- **Purpose**: Use `toApiBindingInputs` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+<!-- docs:method name=req.auth.permission.filterResponse locale=en -->
+
+- **Purpose**: Project a response payload inside a Vext handler according to the current user's response-field grants.
+- **Parameters**: `apiResource` is `api:METHOD:/path`; `payload` is the data about to be returned; `context` is optional.
+- **State impact**: Read-only; it first checks whether the current subject can `invoke` the API.
+- **Raw return**: `SubjectRuntimeResult<unknown>` with projected data in `data`.
 
 <span id="vext-app-extensions"></span>
 ### `appExtensions.permission`
+
 <!-- docs:method name=appExtensions.permission locale=en -->
 
-- **Purpose**: Use `appExtensions.permission` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Declare `app.permission: PermissionCore` for Vext's type system.
+- **Parameters**: No runtime parameters.
+- **State impact**: The actual app extension value is installed by plugin setup.
+- **Raw return**: This is a type extension definition; application code reads core through `app.permission`.
 
 ## Responses and side effects
 
-Side effects are scoped and revisioned. Writes record audit evidence and invalidate affected semantic cache keys; reads preserve bounded detail metadata so callers can tell whether diagnostics were complete.
+Plugin setup initializes PermissionCore, installs route guards, binds `req.auth.permission`, exposes `app.permission`, and registers close hooks. Routes protected by `permission: true` check `invoke + api:METHOD:/path` before the handler. If the handler uses `res.json()`, the plugin projects the response according to response-field config and sets `Cache-Control: private, no-store`.
 
 ```json
 {
-  "manifest": { "schemaVersion": 1, "digest": "...", "routes": 12 },
-  "apiBindingCandidates": 9,
-  "appExtension": "permission"
+  "route": "GET /orders/:id",
+  "resource": "api:GET:/orders/:id",
+  "guard": "invoke",
+  "responseProjection": true
 }
 ```
+
 ## Failures and limits
 
-Failures close authorization instead of widening it. Important limits are enforced before state is committed, and stale previews or revisions must be refreshed rather than guessed.
+Common errors include `VEXT_MONSQLIZE_REQUIRED`, `VEXT_MONSQLIZE_INCOMPATIBLE`, `VEXT_AUTH_REQUIRED`, `VEXT_APP_EXTENSION_CONFLICT`, `VEXT_AUTH_EXTENSION_CONFLICT`, `VEXT_ROUTE_PERMISSION_INVALID`, and `VEXT_ROUTE_RESTART_REQUIRED`. Route permission requirements are limited to `32`. Route changes after startup require a cold restart. Protected routes with caching enabled refuse startup unless route cache is explicitly disabled.
 
 ## Example
 
-The example keeps one narrow path per page. It shows the raw method family and a compact response shape, while the full runnable scenarios live in the examples section.
-
 ```ts
-import { permissionPlugin } from 'permission-core/plugins/vext';
+import { permissionPlugin, requirePermissionContext } from 'permission-core/plugins/vext';
 
-const plugin = permissionPlugin({
+export default permissionPlugin({
   monsqlize: msq,
   authPlugin: 'authentication',
-  validateRouteManifest: ({ manifest, apiBindings }) => {
-    routeContracts.store({ digest: manifest.digest, apiBindings });
-  },
+  core: { collectionPrefix: 'permission_core' },
+});
+
+app.get('/orders/:id', { permission: true }, async (req, res) => {
+  const permission = await requirePermissionContext(req);
+  const payload = await loadOrder(req.params.id);
+  const projected = await permission.filterResponse('api:GET:/orders/:id', payload);
+  return res.json(projected.data);
 });
 ```
+
 ```json
-{ "pluginName": "permission-core", "dependencies": ["authentication"] }
+{ "pluginName": "permission-core", "resource": "api:GET:/orders/:id" }
 ```
+
 ## Related
 
-Continue with the linked guide or neighboring API page when you need workflow context rather than only signatures.
-
-Continue with [Basic RBAC](/examples/basic).
+See [Vext Plugin](/guide/vext-plugin), [Authentication Boundary](/guide/authentication-boundary), [Configure APIs and Response Fields API](/api/api-bindings), and the runnable [Vext example](/examples/vext).

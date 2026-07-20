@@ -22,8 +22,7 @@ import type {
 } from "./management";
 import type { PolicyConditionOutcome, RowCondition } from "./policy";
 import type {
-    ApiBindingManager,
-    MenuManager,
+    MenuConfigRootManager,
     RoleMenuPermissionManager,
     SubjectMenuRuntime,
 } from "./menu";
@@ -342,8 +341,7 @@ export interface UserRoleManager {
 export interface ScopedPermissionContext {
     readonly roles: RoleManager;
     readonly userRoles: UserRoleManager;
-    readonly menus: MenuManager;
-    readonly apiBindings: ApiBindingManager;
+    readonly menus: MenuConfigRootManager;
 }
 
 export interface SubjectPermissionContext {

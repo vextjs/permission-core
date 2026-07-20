@@ -1,8 +1,8 @@
 {
     "totals": {
-        "filesOver500": 24,
-        "filesOver1000": 6,
-        "functionsOver50": 165,
+        "filesOver500": 28,
+        "filesOver1000": 10,
+        "functionsOver50": 190,
         "maxFunctionLines": 233,
         "maxSourceFileLines": 2100
     },

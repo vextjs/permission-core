@@ -6,8 +6,8 @@ import type {
     VextRequest,
 } from "vextjs";
 import { describe, expect, it } from "vitest";
-import type { VextRouteManifestValidationEvent } from "../../src/plugins/vext";
 import { permissionPlugin } from "../../src/plugins/vext";
+import type { MenuBusinessPermissionSelection, MenuConfigInput } from "../../src/types";
 import { startRealMongo } from "./helpers/real-mongo";
 
 const TEST_TIMEOUT = 120_000;
@@ -38,6 +38,36 @@ function metrics() {
     return (globalThis as Record<symbol, unknown>)[METRICS] as FixtureMetrics;
 }
 
+function vextOrdersConfig(): MenuConfigInput {
+    return {
+        configId: "vext-admin",
+        title: "Vext Admin",
+        menus: [{
+            id: "orders",
+            title: "Orders",
+            views: [{
+                id: "orders-with-fields",
+                type: "page",
+                title: "Orders",
+                path: "/vext/orders",
+                component: "OrdersPage",
+                load: [{
+                    resource: "api:GET:/orders-with-fields",
+                    response: {
+                        target: "items",
+                        preserve: ["total"],
+                        fields: [
+                            { field: "orderNo", title: "Order number" },
+                            { field: "status", title: "Status" },
+                            { field: "amount", title: "Amount" },
+                        ],
+                    },
+                }],
+            }],
+        }],
+    };
+}
+
 function installTestAuth(req: VextRequest) {
     const mode = req.headers["x-test-auth"];
     if (mode === undefined) return;
@@ -59,7 +89,6 @@ describe("permissionPlugin with a real Vext host", () => {
         const mongo = await startRealMongo();
         let testApp: TestApp | undefined;
         let appClosed = false;
-        let validationEvent: VextRouteManifestValidationEvent | undefined;
 
         try {
             testApp = await createTestApp({
@@ -77,9 +106,6 @@ describe("permissionPlugin with a real Vext host", () => {
                     await permissionPlugin({
                         monsqlize: mongo.monsqlize,
                         core: { collectionPrefix: "pc_vext_host" },
-                        validateRouteManifest(event) {
-                            validationEvent = event;
-                        },
                     }).setup(app);
                 },
             });
@@ -90,19 +116,38 @@ describe("permissionPlugin with a real Vext host", () => {
                 adapter: testApp.app.adapter,
             });
 
-            expect(validationEvent?.manifest.routes).toHaveLength(8);
-            expect(validationEvent?.apiBindings).toHaveLength(4);
-            expect(validationEvent?.manifest.routes.find((route) => route.path === "/orders/:id"))
-                .toMatchObject({ authorization: { mode: "all", permissions: [{ action: "invoke", resource: "GET:/orders/:id" }] } });
-            expect(Object.isFrozen(validationEvent)).toBe(true);
-            expect(validationEvent).not.toHaveProperty("app");
-            expect(validationEvent).not.toHaveProperty("core");
-            expect(validationEvent).not.toHaveProperty("monsqlize");
-
             const scoped = testApp.app.permission.scope(SCOPE);
             await scoped.roles.create({ id: "route-reader", label: "Route reader" });
-            await scoped.roles.allow("route-reader", { action: "invoke", resource: "GET:/orders/:id" });
-            await scoped.roles.allow("route-reader", { action: "invoke", resource: "GET:/capabilities/one" });
+            await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders/:id" });
+            await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/capabilities/one" });
+            const responseConfigPreview = await scoped.menus.config.preview(vextOrdersConfig(), { actorId: "admin" });
+            if (!responseConfigPreview.executable) throw new Error("expected Vext response config preview to be executable");
+            await scoped.menus.config.save(vextOrdersConfig(), {
+                ...responseConfigPreview.expected,
+                previewToken: responseConfigPreview.previewToken,
+                actorId: "admin",
+                idempotencyKey: "save-vext-response-config",
+            });
+            const responseGrantSelection: MenuBusinessPermissionSelection = {
+                configId: "vext-admin",
+                views: ["orders-with-fields"],
+                responseFields: [{
+                    apiResource: "api:GET:/orders-with-fields",
+                    fields: ["orderNo", "status"],
+                }],
+                include: { loads: true, actions: false, responseFields: "none" as const },
+            };
+            const responseGrantPreview = await scoped.roles.menuPermissions.preview("route-reader", {
+                operation: "grant",
+                selection: responseGrantSelection,
+            }, { actorId: "admin" });
+            if (!responseGrantPreview.executable) throw new Error("expected Vext response grant preview to be executable");
+            await scoped.roles.menuPermissions.grant("route-reader", responseGrantSelection, {
+                ...responseGrantPreview.expected,
+                previewToken: responseGrantPreview.previewToken,
+                actorId: "admin",
+                idempotencyKey: "grant-vext-response-fields",
+            });
             await scoped.userRoles.assign("u-vext", "route-reader");
             await scoped.roles.create({ id: "duplicate-role", label: "Duplicate role" });
 
@@ -133,12 +178,24 @@ describe("permissionPlugin with a real Vext host", () => {
                     subject: { userId: "u-vext", scope: SCOPE },
                 },
             });
+            const projected = await testApp.request.get("/orders-with-fields").set("x-test-auth", "valid");
+            expect(projected.status).toBe(200);
+            expect(projected.headers["cache-control"]).toBe("private, no-store");
+            expect(projected.body).toMatchObject({
+                data: {
+                    items: [{ orderNo: "O-1", status: "paid" }],
+                    total: 1,
+                },
+            });
+            expect(projected.body.data.items[0]).not.toHaveProperty("amount");
+            expect(projected.body.data.items[0]).not.toHaveProperty("internalCost");
+            expect(projected.body.data).not.toHaveProperty("debug");
 
             const anyAllowed = await testApp.request.get("/permissions/any").set("x-test-auth", "valid");
             expect(anyAllowed.status).toBe(200);
             const allDenied = await testApp.request.get("/permissions/all").set("x-test-auth", "valid");
             expect(allDenied.status).toBe(403);
-            await scoped.roles.allow("route-reader", { action: "invoke", resource: "GET:/capabilities/two" });
+            await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/capabilities/two" });
             const allAllowed = await testApp.request.get("/permissions/all").set("x-test-auth", "valid");
             expect(allAllowed.status).toBe(200);
 

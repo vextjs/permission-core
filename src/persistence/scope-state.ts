@@ -24,8 +24,12 @@ export const EMPTY_REPLACE_MANIFEST_BYTES = canonicalByteLength({
     nodes: [],
     apiBindings: [],
 });
+export const MAX_MENU_CONFIG_COUNT = 1_000;
+export const MAX_MENU_CONFIG_TOTAL_BYTES = 12 * 1024 * 1024;
 export const MAX_MENU_NODE_COUNT = 10_000;
 export const MAX_API_BINDING_COUNT = 20_000;
+export const MAX_RESPONSE_FIELD_COUNT = 50_000;
+export const MAX_RESPONSE_FIELD_OWNER_COUNT = 100_000;
 export const MAX_REPLACE_MANIFEST_BYTES = 12 * 1024 * 1024;
 
 export interface ScopeStateContract {
@@ -45,14 +49,22 @@ export interface ScopeRevisionAdvance {
 }
 
 export interface ScopeAggregateUpdate {
+    readonly menuConfigCount?: number;
+    readonly menuConfigBytes?: number;
     readonly menuNodeCount?: number;
     readonly apiBindingCount?: number;
+    readonly responseFieldCount?: number;
+    readonly responseFieldOwnerCount?: number;
     readonly replaceManifestBytes?: number;
 }
 
 export interface ScopeAggregateSnapshot {
+    readonly menuConfigCount: number;
+    readonly menuConfigBytes: number;
     readonly menuNodeCount: number;
     readonly apiBindingCount: number;
+    readonly responseFieldCount: number;
+    readonly responseFieldOwnerCount: number;
     readonly replaceManifestBytes: number;
 }
 
@@ -61,8 +73,12 @@ const NON_NEGATIVE_INTEGER_FIELDS = [
     "rbacRevision",
     "menuRevision",
     "auditRevision",
+    "menuConfigCount",
+    "menuConfigBytes",
     "menuNodeCount",
     "apiBindingCount",
+    "responseFieldCount",
+    "responseFieldOwnerCount",
     "replaceManifestBytes",
     "createdAt",
     "updatedAt",
@@ -155,8 +171,12 @@ function createVirtualState(
         rbacRevision: 0,
         menuRevision: 0,
         auditRevision: 0,
+        menuConfigCount: 0,
+        menuConfigBytes: 0,
         menuNodeCount: 0,
         apiBindingCount: 0,
+        responseFieldCount: 0,
+        responseFieldOwnerCount: 0,
         replaceManifestBytes: EMPTY_REPLACE_MANIFEST_BYTES,
         createdAt: 0,
         updatedAt: 0,
@@ -236,9 +256,27 @@ function validateState(
     }
     const menuNodeCount = raw.menuNodeCount as number;
     const apiBindingCount = raw.apiBindingCount as number;
+    const menuConfigCount = raw.menuConfigCount as number;
+    const menuConfigBytes = raw.menuConfigBytes as number;
+    const responseFieldCount = raw.responseFieldCount as number;
+    const responseFieldOwnerCount = raw.responseFieldOwnerCount as number;
     const replaceManifestBytes = raw.replaceManifestBytes as number;
+    if (menuConfigCount > MAX_MENU_CONFIG_COUNT || menuConfigBytes > MAX_MENU_CONFIG_TOTAL_BYTES) {
+        persistedStateInvalid("menu config aggregate exceeds the schema 3 limit");
+    }
     if (menuNodeCount > MAX_MENU_NODE_COUNT || apiBindingCount > MAX_API_BINDING_COUNT) {
-        persistedStateInvalid("menu aggregate count exceeds the v2 limit");
+        persistedStateInvalid("menu aggregate count exceeds the schema 3 limit");
+    }
+    if (responseFieldCount > MAX_RESPONSE_FIELD_COUNT || responseFieldOwnerCount > MAX_RESPONSE_FIELD_OWNER_COUNT) {
+        persistedStateInvalid("response field aggregate exceeds the schema 3 limit");
+    }
+    if (
+        (menuConfigCount === 0 && menuConfigBytes !== 0)
+        || (menuConfigCount > 0 && menuConfigBytes === 0)
+        || (responseFieldCount === 0 && responseFieldOwnerCount !== 0)
+        || responseFieldOwnerCount < responseFieldCount
+    ) {
+        persistedStateInvalid("menu config aggregate is inconsistent");
     }
     if (
         replaceManifestBytes < EMPTY_REPLACE_MANIFEST_BYTES
@@ -271,8 +309,12 @@ function validateState(
         rbacRevision: raw.rbacRevision as number,
         menuRevision: raw.menuRevision as number,
         auditRevision: raw.auditRevision as number,
+        menuConfigCount,
+        menuConfigBytes,
         menuNodeCount: raw.menuNodeCount as number,
         apiBindingCount: raw.apiBindingCount as number,
+        responseFieldCount,
+        responseFieldOwnerCount,
         replaceManifestBytes: raw.replaceManifestBytes as number,
         createdAt: raw.createdAt as number,
         updatedAt: raw.updatedAt as number,
@@ -345,8 +387,12 @@ export class ScopeStateStore {
             rbacRevision: 0,
             menuRevision: 0,
             auditRevision: 0,
+            menuConfigCount: 0,
+            menuConfigBytes: 0,
             menuNodeCount: 0,
             apiBindingCount: 0,
+            responseFieldCount: 0,
+            responseFieldOwnerCount: 0,
             replaceManifestBytes: EMPTY_REPLACE_MANIFEST_BYTES,
             createdAt: now,
             updatedAt: now,
@@ -372,7 +418,7 @@ export class ScopeStateStore {
             || (increments.global === 1 && increments.rbac === 0 && increments.menu === 0)
             || (Object.keys(aggregate).length > 0 && (increments.global !== 1 || increments.menu !== 1))
         ) {
-            throw new PermissionCoreError("INVALID_ARGUMENT", "The scope revision advance violates the v2 revision contract.", {
+            throw new PermissionCoreError("INVALID_ARGUMENT", "The scope revision advance violates the persisted revision contract.", {
                 details: {
                     kind: "validation",
                     field: "increments",
@@ -391,23 +437,37 @@ export class ScopeStateStore {
                 });
             }
             if (
-                (field === "menuNodeCount" && (value as number) > MAX_MENU_NODE_COUNT)
+                (field === "menuConfigCount" && (value as number) > MAX_MENU_CONFIG_COUNT)
+                || (field === "menuConfigBytes" && (value as number) > MAX_MENU_CONFIG_TOTAL_BYTES)
+                || (field === "menuNodeCount" && (value as number) > MAX_MENU_NODE_COUNT)
                 || (field === "apiBindingCount" && (value as number) > MAX_API_BINDING_COUNT)
+                || (field === "responseFieldCount" && (value as number) > MAX_RESPONSE_FIELD_COUNT)
+                || (field === "responseFieldOwnerCount" && (value as number) > MAX_RESPONSE_FIELD_OWNER_COUNT)
                 || (
                     field === "replaceManifestBytes"
                     && ((value as number) < EMPTY_REPLACE_MANIFEST_BYTES || (value as number) > MAX_REPLACE_MANIFEST_BYTES)
                 )
             ) {
-                throw new PermissionCoreError("LIMIT_EXCEEDED", "The scope aggregate update exceeds the v2 limit.", {
+                throw new PermissionCoreError("LIMIT_EXCEEDED", "The scope aggregate update exceeds the schema 3 limit.", {
                     details: {
                         kind: "limit-exceeded",
                         origin: "persisted-authorization-state",
                         limitName: field,
                         current: value as number,
-                        max: field === "menuNodeCount"
-                            ? MAX_MENU_NODE_COUNT
-                            : field === "apiBindingCount" ? MAX_API_BINDING_COUNT : MAX_REPLACE_MANIFEST_BYTES,
-                        unit: field === "replaceManifestBytes" ? "bytes" : "items",
+                        max: field === "menuConfigCount"
+                            ? MAX_MENU_CONFIG_COUNT
+                            : field === "menuConfigBytes"
+                                ? MAX_MENU_CONFIG_TOTAL_BYTES
+                                : field === "menuNodeCount"
+                                    ? MAX_MENU_NODE_COUNT
+                                    : field === "apiBindingCount"
+                                        ? MAX_API_BINDING_COUNT
+                                        : field === "responseFieldCount"
+                                            ? MAX_RESPONSE_FIELD_COUNT
+                                            : field === "responseFieldOwnerCount"
+                                                ? MAX_RESPONSE_FIELD_OWNER_COUNT
+                                                : MAX_REPLACE_MANIFEST_BYTES,
+                        unit: field === "replaceManifestBytes" || field === "menuConfigBytes" ? "bytes" : "items",
                     },
                 });
             }
@@ -455,7 +515,15 @@ export class ScopeStateStore {
                 revisionConflict(expected, currentVector);
             }
             if (expectedAggregate !== undefined) {
-                const aggregateField = (["menuNodeCount", "apiBindingCount", "replaceManifestBytes"] as const)
+                const aggregateField = ([
+                    "menuConfigCount",
+                    "menuConfigBytes",
+                    "menuNodeCount",
+                    "apiBindingCount",
+                    "responseFieldCount",
+                    "responseFieldOwnerCount",
+                    "replaceManifestBytes",
+                ] as const)
                     .find((field) => expectedAggregate[field] !== current[field]);
                 if (aggregateField !== undefined) {
                     persistedStateInvalid(`${aggregateField} changed without a matching scope revision`);

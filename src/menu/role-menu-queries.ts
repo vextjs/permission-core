@@ -5,6 +5,13 @@ import type {
     DirectMenuGrantSnapshot,
     DirectMenuPermissionSnapshot,
     EffectiveMenuPermissionSnapshot,
+    MenuBusinessAuthorizationTree,
+    MenuBusinessAuthorizationTreeNode,
+    MenuBusinessDirectPermissionSnapshot,
+    MenuBusinessEffectivePermissionSnapshot,
+    MenuBusinessGrantSnapshot,
+    MenuBusinessResponseFieldRef,
+    MenuConfigMenuSnapshot,
     PageResult,
     PermissionRuleAction,
     PermissionScope,
@@ -57,6 +64,8 @@ import {
     type RoleMenuInventoryView,
     type RoleMenuRoleResolution,
 } from "./role-menu-resolution";
+import { compileMenuConfigSnapshot } from "./config-compiler";
+import { readScopedMenuConfigDocument } from "./config-service";
 import { validateMenuGraph } from "./queries";
 import {
     MAX_EFFECTIVE_ROLE_MENU_GRANTS,
@@ -315,6 +324,80 @@ function combineSourceStatus(values: readonly ResolvedRoleMenuGrant[]) {
     });
 }
 
+function businessGrantSnapshot(
+    value: ResolvedRoleMenuGrant,
+    budget: DetailBudgetAllocator,
+): MenuBusinessGrantSnapshot | null {
+    const business = value.document.snapshot.business;
+    if (business === undefined) return null;
+    return deepFreeze({
+        grantId: value.document.grantId,
+        revision: value.document.grantRevision,
+        effect: value.document.effect,
+        configId: business.configId,
+        selection: business.selection,
+        responseFields: budget.bounded(business.responseFields),
+        sourceStatus: value.sourceStatus,
+    });
+}
+
+function normalizeBusinessDirectQuery(value?: CursorQuery & { effect?: "allow" | "deny"; configId?: string }) {
+    const record = exactQuery(value, ["first", "after", "effect", "configId"]);
+    const page = normalizePage(record);
+    if (record.effect !== undefined && record.effect !== "allow" && record.effect !== "deny") {
+        throw validationError("INVALID_ARGUMENT", "query.effect", "must be allow or deny");
+    }
+    return deepFreeze({
+        ...page,
+        ...(record.effect === undefined ? {} : { effect: record.effect as "allow" | "deny" }),
+        ...(record.configId === undefined ? {} : { configId: normalizeRbacId(record.configId, "query.configId") }),
+    });
+}
+
+function stateFromGrants(
+    grants: readonly EffectiveGrantState[],
+    matches: (entry: EffectiveGrantState) => boolean,
+): MenuBusinessAuthorizationTreeNode["state"] {
+    const relevant = grants.filter(matches);
+    if (relevant.length === 0) return "none";
+    const directAllow = relevant.some((entry) => !entry.inherited && entry.grant.document.effect === "allow");
+    const directDeny = relevant.some((entry) => !entry.inherited && entry.grant.document.effect === "deny");
+    const inheritedAllow = relevant.some((entry) => entry.inherited && entry.grant.document.effect === "allow");
+    const inheritedDeny = relevant.some((entry) => entry.inherited && entry.grant.document.effect === "deny");
+    if ((directAllow || inheritedAllow) && (directDeny || inheritedDeny)) return "conflict";
+    if (directDeny) return "direct-deny";
+    if (directAllow) return "direct-allow";
+    if (inheritedDeny) return "inherited-deny";
+    return "inherited-allow";
+}
+
+function selectionFromState(
+    state: MenuBusinessAuthorizationTreeNode["state"],
+    children: readonly MenuBusinessAuthorizationTreeNode[],
+): MenuBusinessAuthorizationTreeNode["selection"] {
+    if (children.length === 0) return state === "none" ? "none" : "all";
+    const selectedChildren = children.filter((child) => child.selection !== "none");
+    if (state !== "none" && selectedChildren.length === children.length) return "all";
+    if (state !== "none" || selectedChildren.length > 0) return "partial";
+    return "none";
+}
+
+function grantHasNode(entry: EffectiveGrantState, nodeId: string) {
+    return entry.grant.contributions.some((contribution) => contribution.contribution === "node" && contribution.assetId === nodeId);
+}
+
+function grantHasApi(entry: EffectiveGrantState, apiResource: string) {
+    return entry.grant.contributions.some((contribution) =>
+        contribution.contribution === "api" && contribution.resource === apiResource);
+}
+
+function grantHasResponseField(entry: EffectiveGrantState, apiResource: string, field: MenuBusinessResponseFieldRef) {
+    return entry.grant.document.snapshot.business?.responseFields.some((candidate) =>
+        candidate.apiResource === apiResource
+        && candidate.targetDigest === field.targetDigest
+        && candidate.field === field.field) === true;
+}
+
 export class RoleMenuPermissionQueryService {
     private readonly rbacStore: RbacReadStore;
 
@@ -467,6 +550,36 @@ export class RoleMenuPermissionQueryService {
         return result;
     }
 
+    async getBusinessDirect(scope: PermissionScope, roleIdInput: string): Promise<VersionedResult<MenuBusinessDirectPermissionSnapshot>> {
+        const roleId = normalizeRbacId(roleIdInput, "roleId");
+        const reader = await this.open(scope);
+        const role = await reader.requireRole(roleId);
+        const loaded = await this.loadManagement(reader, [roleId]);
+        const resolution = loaded.resolutions.get(roleId)!;
+        const budget = new DetailBudgetAllocator();
+        const grants = resolution.grants.flatMap((grant) => {
+            const item = businessGrantSnapshot(grant, budget);
+            return item === null ? [] : [item];
+        });
+        const data = deepFreeze({ roleId, grants });
+        await reader.verifyAuthorizationUnchanged();
+        const detailBudget = budget.finish({ grants });
+        const result = deepFreeze({
+            data,
+            revision: role.revision,
+            revisions: revisionVector(reader.state, [{ kind: "role", id: roleId, revision: role.revision }]),
+            etag: rbacEtag(role.revision, digestCanonical({
+                method: "roles.menuPermissions.getBusinessDirect",
+                roleId,
+                rbacRevision: reader.state.rbacRevision,
+                menuRevision: reader.state.menuRevision,
+            })),
+            detailBudget,
+        });
+        assertAuthorizationResponseBudget(result);
+        return result;
+    }
+
     async listDirect(
         scope: PermissionScope,
         roleIdInput: string,
@@ -518,6 +631,66 @@ export class RoleMenuPermissionQueryService {
                 queryHash,
                 budget,
                 completeGrantDetails,
+            );
+        });
+    }
+
+    async listBusinessDirect(
+        scope: PermissionScope,
+        roleIdInput: string,
+        queryInput?: CursorQuery & { effect?: "allow" | "deny"; configId?: string },
+    ): Promise<PageResult<MenuBusinessGrantSnapshot>> {
+        const roleId = normalizeRbacId(roleIdInput, "roleId");
+        const query = normalizeBusinessDirectQuery(queryInput);
+        const reader = await this.open(scope);
+        await reader.requireRole(roleId);
+        const queryHash = digestCanonical({
+            method: "roles.menuPermissions.listBusinessDirect",
+            roleId,
+            effect: query.effect ?? null,
+            configId: query.configId ?? null,
+            sortVersion: 1,
+        });
+        const cursor = this.readCursor(query.after, "roles.menuPermissions.listBusinessDirect", reader, queryHash) as DirectCursorAnchor | undefined;
+        const loaded = await this.loadManagement(reader, [roleId]);
+        const complete = loaded.resolutions.get(roleId)!.grants
+            .filter((grant) => grant.document.snapshot.business !== undefined)
+            .filter((grant) => query.effect === undefined || grant.document.effect === query.effect)
+            .filter((grant) => query.configId === undefined || grant.document.snapshot.business?.configId === query.configId)
+            .sort((left, right) => compareDirect(
+                { effect: left.document.effect, grantId: left.document.grantId },
+                { effect: right.document.effect, grantId: right.document.grantId },
+            ));
+        const filtered = cursor === undefined
+            ? complete
+            : complete.filter((grant) => compareDirect(
+                { effect: grant.document.effect, grantId: grant.document.grantId },
+                cursor,
+            ) > 0);
+        await reader.verifyAuthorizationUnchanged();
+        return fitAuthorizationPage(Math.min(query.first, filtered.length), (itemCount) => {
+            const selected = filtered.slice(0, itemCount);
+            const budget = new DetailBudgetAllocator();
+            const items = selected.flatMap((grant) => {
+                const item = businessGrantSnapshot(grant, budget);
+                return item === null ? [] : [item];
+            });
+            const hasNext = filtered.length > itemCount;
+            const last = selected[selected.length - 1];
+            const endCursor = hasNext && last !== undefined
+                ? this.writeCursor("roles.menuPermissions.listBusinessDirect", reader, queryHash, {
+                    effect: last.document.effect,
+                    grantId: last.document.grantId,
+                })
+                : null;
+            return this.pageResult(
+                reader,
+                items,
+                hasNext,
+                endCursor,
+                queryHash,
+                budget,
+                selected.map((grant) => grant.document.snapshot.business),
             );
         });
     }
@@ -612,6 +785,71 @@ export class RoleMenuPermissionQueryService {
         return result;
     }
 
+    async getBusinessEffective(scope: PermissionScope, roleIdInput: string): Promise<VersionedResult<MenuBusinessEffectivePermissionSnapshot>> {
+        const roleId = normalizeRbacId(roleIdInput, "roleId");
+        const reader = await this.open(scope);
+        const authorization = await loadRoleHierarchy(reader, roleId);
+        const includedRoleIds = authorization.roles.filter((role) => role.included).map((role) => role.document.roleId);
+        const loaded = await this.loadManagement(reader, includedRoleIds);
+        const effectiveRules = collectEffectiveRuleStates(loaded.rules, authorization.roles);
+        const grants = this.effectiveGrantStates(loaded.resolutions, authorization.roles)
+            .filter((entry) => entry.grant.document.snapshot.business !== undefined);
+        const budget = new DetailBudgetAllocator();
+        const selected = budget.sample(grants, grants.length);
+        const conflictEntries = conflictGroups(effectiveRules);
+        const data: MenuBusinessEffectivePermissionSnapshot = deepFreeze({
+            roleId,
+            grants: deepFreeze({
+                total: grants.length,
+                items: selected.map((entry) => {
+                    const grant = businessGrantSnapshot(entry.grant, budget)!;
+                    return deepFreeze({
+                        ...grant,
+                        sourceRoleId: entry.sourceRoleId,
+                        inherited: entry.inherited,
+                        depth: entry.depth,
+                    });
+                }),
+                truncated: selected.length < grants.length,
+                digest: digestCanonical(grants.map((entry) => ({
+                    sourceRoleId: entry.sourceRoleId,
+                    depth: entry.depth,
+                    grantId: entry.grant.document.grantId,
+                    revision: entry.grant.document.grantRevision,
+                }))),
+            }),
+            conflicts: publicConflicts(conflictEntries, budget),
+        });
+        await reader.verifyAuthorizationUnchanged();
+        const detailBudget = budget.finish({
+            grants: grants.map((entry) => ({
+                sourceRoleId: entry.sourceRoleId,
+                inherited: entry.inherited,
+                depth: entry.depth,
+                grantId: entry.grant.document.grantId,
+            })),
+            conflicts: completePublicConflicts(conflictEntries),
+        });
+        const result = deepFreeze({
+            data,
+            revision: authorization.requested.revision,
+            revisions: revisionVector(reader.state, authorization.roles.map((role) => ({
+                kind: "role" as const,
+                id: role.document.roleId,
+                revision: role.document.revision,
+            }))),
+            etag: rbacEtag(authorization.requested.revision, digestCanonical({
+                method: "roles.menuPermissions.getBusinessEffective",
+                roleId,
+                rbacRevision: reader.state.rbacRevision,
+                menuRevision: reader.state.menuRevision,
+            })),
+            detailBudget,
+        });
+        assertAuthorizationResponseBudget(result);
+        return result;
+    }
+
     private bindingState(
         node: Readonly<InternalMenuNodeDocument>,
         binding: Readonly<InternalApiBindingDocument>,
@@ -644,6 +882,143 @@ export class RoleMenuPermissionQueryService {
         else if (relevant.some((entry) => entry.inherited) && relevant.some((entry) => !entry.inherited)) reason = "direct-and-inherited";
         else reason = relevant.some((entry) => !entry.inherited) ? "direct-rule" : "inherited-rule";
         return deepFreeze({ bindingId: binding.bindingId, coverage, reason });
+    }
+
+    async getBusinessAuthorizationTree(
+        scope: PermissionScope,
+        roleIdInput: string,
+        options: { configId: string },
+    ): Promise<VersionedResult<MenuBusinessAuthorizationTree>> {
+        const roleId = normalizeRbacId(roleIdInput, "roleId");
+        const configId = normalizeRbacId(options.configId, "options.configId");
+        const reader = await this.open(scope);
+        const authorization = await loadRoleHierarchy(reader, roleId);
+        const includedRoleIds = authorization.roles.filter((role) => role.included).map((role) => role.document.roleId);
+        const loaded = await this.loadManagement(reader, includedRoleIds);
+        const menuReader = new MenuScopeReader(
+            this.repository,
+            this.schemes,
+            reader.state,
+            reader.databaseSession(),
+        );
+        const config = await readScopedMenuConfigDocument(this.repository, this.schemes, menuReader, configId, reader.databaseSession());
+        const compiled = compileMenuConfigSnapshot(config.config, this.schemes);
+        const grants = this.effectiveGrantStates(loaded.resolutions, authorization.roles)
+            .filter((entry) => entry.grant.document.snapshot.business?.configId === configId);
+        const responseByApi = new Map(compiled.responseDefinitions.map((response) => [response.apiResource, response] as const));
+
+        const responseFieldNodes = (apiResource: `api:${string}`): readonly MenuBusinessAuthorizationTreeNode[] => {
+        const response = responseByApi.get(apiResource);
+            if (response === undefined) return Object.freeze([]);
+            return Object.freeze(response.fields.map((field) => {
+                const ref = deepFreeze({
+                    apiResource: response.apiResource,
+                    targetDigest: response.targetDigest,
+                    field: field.field,
+                    fieldId: field.fieldId,
+                    title: field.title,
+                    ownerViewIds: Object.freeze([...new Set(field.owners.map((owner) => owner.viewId))].sort(compareUtf8)),
+                }) satisfies MenuBusinessResponseFieldRef;
+                const state = stateFromGrants(grants, (entry) => grantHasResponseField(entry, response.apiResource, ref));
+                return deepFreeze({
+                    id: `${response.apiResource}:field:${field.field}`,
+                    title: field.title,
+                    kind: "response-field" as const,
+                    state,
+                    selection: selectionFromState(state, []),
+                    children: Object.freeze([]),
+                });
+            }));
+        };
+
+        const viewNode = (view: MenuConfigMenuSnapshot["views"][number]): MenuBusinessAuthorizationTreeNode => {
+            const viewRef = compiled.viewIndex.get(view.id);
+            const loadNodes = view.load.map((load) => {
+                const children = responseFieldNodes(load.resource);
+                const state = stateFromGrants(grants, (entry) => grantHasApi(entry, load.resource));
+                return deepFreeze({
+                    id: load.resource,
+                    title: load.resource,
+                    kind: "load" as const,
+                    state,
+                    selection: selectionFromState(state, children),
+                    children,
+                });
+            });
+            const actionNodes = view.actions.map((action) => {
+                const actionRef = compiled.actionIndex.get(canonicalString([view.id, action.resource]));
+            const apiChildren = action.resource.startsWith("api:") ? responseFieldNodes(action.resource as `api:${string}`) : [];
+                const state = actionRef === undefined
+                    ? "none" as const
+                    : stateFromGrants(grants, (entry) =>
+                        grantHasNode(entry, actionRef.nodeId)
+                        || (action.resource.startsWith("api:") && grantHasApi(entry, action.resource)));
+                return deepFreeze({
+                    id: action.actionId,
+                    title: action.title,
+                    kind: "action" as const,
+                    state,
+                    selection: selectionFromState(state, apiChildren),
+                    children: apiChildren,
+                });
+            });
+            const children = Object.freeze([...loadNodes, ...actionNodes]);
+            const state = viewRef === undefined
+                ? "none" as const
+                : stateFromGrants(grants, (entry) => grantHasNode(entry, viewRef.nodeId));
+            return deepFreeze({
+                id: view.id,
+                title: view.title,
+                kind: "view" as const,
+                state,
+                selection: selectionFromState(state, children),
+                children,
+            });
+        };
+
+        const menuNode = (menu: MenuConfigMenuSnapshot): MenuBusinessAuthorizationTreeNode => {
+            const menuRef = compiled.menuIndex.get(menu.id);
+            const children = Object.freeze([
+                ...menu.children.map(menuNode),
+                ...menu.views.map((view) => viewNode(view)),
+            ]);
+            const state = menuRef === undefined
+                ? "none" as const
+                : stateFromGrants(grants, (entry) => grantHasNode(entry, menuRef.nodeId));
+            return deepFreeze({
+                id: menu.id,
+                title: menu.title,
+                kind: "menu" as const,
+                state,
+                selection: selectionFromState(state, children),
+                children,
+            });
+        };
+
+        const completeTree = deepFreeze({
+            configId,
+            nodes: Object.freeze(config.config.menus.map(menuNode)),
+        });
+        await reader.verifyAuthorizationUnchanged();
+        const result = deepFreeze({
+            data: completeTree,
+            revision: authorization.requested.revision,
+            revisions: revisionVector(reader.state, authorization.roles.map((role) => ({
+                kind: "role" as const,
+                id: role.document.roleId,
+                revision: role.document.revision,
+            }))),
+            etag: rbacEtag(authorization.requested.revision, digestCanonical({
+                method: "roles.menuPermissions.getBusinessAuthorizationTree",
+                roleId,
+                configId,
+                rbacRevision: reader.state.rbacRevision,
+                menuRevision: reader.state.menuRevision,
+            })),
+            detailBudget: new DetailBudgetAllocator().finish(completeTree),
+        });
+        assertAuthorizationResponseBudget(result);
+        return result;
     }
 
     async getAuthorizationTree(scope: PermissionScope, roleIdInput: string): Promise<VersionedResult<AuthorizationTreeNode[]>> {

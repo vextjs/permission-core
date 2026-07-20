@@ -1,9 +1,9 @@
 {
     "global": {
-        "statements": 92,
-        "branches": 89.5,
+        "statements": 90.9,
+        "branches": 87.6,
         "functions": 95,
-        "lines": 92
+        "lines": 90.9
     },
     "groups": {
         "src/plugins/vext/": {

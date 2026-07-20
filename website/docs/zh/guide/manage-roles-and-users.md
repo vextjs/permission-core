@@ -35,11 +35,11 @@ const created = await scoped.roles.create({
 ```ts
 const granted = await scoped.roles.allow('order-reader', {
   action: 'invoke',
-  resource: 'GET:/api/orders',
+  resource: 'api:GET:/api/orders',
 });
 ```
 
-`roles.allow(roleId, rule)` 表示“这个角色允许做某个动作”。本例允许 `order-reader` 调用 `GET:/api/orders`。没有匹配 allow 的操作默认拒绝，所以通常不需要给每个不能访问的接口写 deny。
+`roles.allow(roleId, rule)` 表示“这个角色允许做某个动作”。本例允许 `order-reader` 调用 `api:GET:/api/orders`。没有匹配 allow 的操作默认拒绝，所以通常不需要给每个不能访问的接口写 deny。
 
 ## 3. 给用户绑定角色
 

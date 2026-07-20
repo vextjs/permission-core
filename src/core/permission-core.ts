@@ -27,6 +27,8 @@ import { createSubjectDataRuntime } from "../data";
 import {
     ApiBindingImpactMutationService,
     ApiBindingMutationService,
+    BusinessRoleMenuPermissionMutationService,
+    MenuConfigService,
     MenuManifestService,
     MenuNodeImpactMutationService,
     MenuNodeMutationService,
@@ -38,6 +40,7 @@ import {
     StructuralStaleReferenceService,
 } from "../menu";
 import { PermissionRepository } from "../persistence/repository";
+import { PERSISTED_SCHEMA_VERSION } from "../persistence/documents";
 import { RbacQueryService } from "../rbac/queries";
 import { RbacPreviewService } from "../rbac/preview";
 import { createScopedPermissionContext, createSubjectPermissionContext, type ScopedRbacServices } from "../rbac/public-context";
@@ -219,7 +222,7 @@ export class PermissionCore {
         this.schemes = new ResourceSchemeRegistry(this.options.resourceSchemes);
         this.schemaContractKey = digestCanonical({
             canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest: this.schemes.schemeContractDigest,
         });
     }
@@ -323,6 +326,7 @@ export class PermissionCore {
             const menuNodeImpacts = new MenuNodeImpactMutationService(repository, this.schemes, tokens, invalidateCache);
             const apiBindings = new ApiBindingMutationService(repository, this.schemes, invalidateCache);
             const apiBindingImpacts = new ApiBindingImpactMutationService(repository, this.schemes, tokens, invalidateCache);
+            const menuConfigs = new MenuConfigService(repository, this.schemes, tokens, invalidateCache);
             const menuManifest = new MenuManifestService(repository, this.schemes, tokens, invalidateCache);
             const staleReferences = new StructuralStaleReferenceService(repository, this.schemes, tokens, invalidateCache);
             this.rbacServices = Object.freeze({
@@ -331,6 +335,7 @@ export class PermissionCore {
                 previews: new RbacPreviewService(repository, this.schemes, tokens, roleMutations, ruleMutations),
                 userRoles: new UserRoleMutationService(repository, this.schemes, invalidateCache),
                 roleMenu: Object.freeze({
+                    businessMutations: new BusinessRoleMenuPermissionMutationService(repository, this.schemes, tokens, invalidateCache),
                     mutations: new RoleMenuPermissionMutationService(repository, this.schemes, tokens, invalidateCache),
                     queries: new RoleMenuPermissionQueryService(
                         repository,
@@ -346,6 +351,7 @@ export class PermissionCore {
                     nodeImpacts: menuNodeImpacts,
                     bindings: apiBindings,
                     bindingImpacts: apiBindingImpacts,
+                    config: menuConfigs,
                     manifest: menuManifest,
                     stale: staleReferences,
                 }),
@@ -660,7 +666,7 @@ export class PermissionCore {
             } : {}),
             database,
             schema: {
-                expectedVersion: 2,
+                expectedVersion: PERSISTED_SCHEMA_VERSION,
                 expectedSchemeContractDigest: this.schemes.schemeContractDigest,
                 expectedSchemaContractKey: this.schemaContractKey,
                 indexedContractMismatchScopes: { ...this.indexedContractMismatchScopes },

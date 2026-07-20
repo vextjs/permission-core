@@ -5,7 +5,7 @@ Each role has at most one direct parent. Child roles inherit the active parent c
 
 ## Create Parent and Child Roles
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 await scoped.roles.create({
@@ -29,7 +29,7 @@ await scoped.roles.allow('order-operator', {
 ```
 ## Read Own and Effective State
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 const own = await scoped.roles.getOwnRules('order-operator');
@@ -53,7 +53,7 @@ const chain = await scoped.roles.getChain('order-operator');
 ```
 ## Conflict Handling
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 await scoped.roles.deny('order-operator', {
@@ -63,7 +63,7 @@ await scoped.roles.deny('order-operator', {
 ```
 ## Safely Change Parent or Status
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 const preview = await scoped.roles.previewAccessUpdate(
@@ -79,10 +79,10 @@ await scoped.roles.executeAccessUpdate(
 ```
 ## Parent Changes, Removal, and Cache
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ## Admin UI Model
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 Continue with [Multi-Tenant Model](/guide/multi-tenant).

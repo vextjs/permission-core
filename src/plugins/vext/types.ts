@@ -1,13 +1,14 @@
 import type { MonSQLizeInstance } from "monsqlize";
 import type {
     ApiAuthorization,
-    ApiBindingCreateInput,
+    ApiResource,
     PermissionAction,
     PermissionCoreOptions,
     PermissionScope,
     PermissionSubject,
     PolicyContext,
     PolicyValue,
+    SubjectRuntimeResult,
 } from "../../types";
 import type { PermissionCore } from "../../core";
 import type {
@@ -27,9 +28,6 @@ export interface PermissionVextPluginOptions {
         auth: Readonly<Record<string, unknown>>,
         req: VextRequest,
     ) => PermissionSubject | Promise<PermissionSubject>;
-    validateRouteManifest?: (
-        event: VextRouteManifestValidationEvent,
-    ) => void | Promise<void>;
 }
 
 export type VextPermissionAuthInput =
@@ -60,6 +58,11 @@ export interface VextRequestPermissionApi {
         resource: string,
         context?: PolicyContext,
     ): Promise<void>;
+    filterResponse(
+        apiResource: ApiResource,
+        payload: unknown,
+        context?: PolicyContext,
+    ): Promise<SubjectRuntimeResult<unknown>>;
 }
 
 export type PermissionVextRequest<
@@ -94,11 +97,6 @@ export interface VextRoutePermissionManifest {
     schemaVersion: 1;
     digest: string;
     routes: readonly VextRouteManifestEntry[];
-}
-
-export interface VextRouteManifestValidationEvent {
-    manifest: VextRoutePermissionManifest;
-    apiBindings: readonly ApiBindingCreateInput[];
 }
 
 declare module "vextjs" {

@@ -172,10 +172,10 @@ scope 使用完整对象做身份比较。`{ tenantId: 'acme' }` 与 `{ tenantId
 
 <!-- docs:method name=scope locale=zh -->
 
-- **用途**：进入一个确定权限域，随后管理该域的角色、用户角色、菜单和 API binding。
+- **用途**：进入一个确定权限域，随后管理该域的角色、用户角色和菜单配置。
 - **参数**：`scope: PermissionScope` 必填，字段见本页输入表。
 - **状态影响**：同步创建轻量上下文，不读取数据库。
-- **原始返回**：`ScopedPermissionContext`，包含 `roles`、`userRoles`、`menus`、`apiBindings`。
+- **原始返回**：`ScopedPermissionContext`，包含 `roles`、`userRoles`、`menus`；接口契约通过 `menus.config` 中的 `load/actions/response` 配置。
 - **失败**：core 未 ready 或 scope 非法时抛错。
 
 <span id="core-for-subject"></span>
@@ -271,7 +271,7 @@ scope 使用完整对象做身份比较。`{ tenantId: 'acme' }` 与 `{ tenantId
 - **原始返回**：`Promise<void>`。
 - **失败**：超过 `closeDrainTimeoutMs` 抛 `CORE_CLOSE_TIMEOUT`；宿主仍需根据自己的生命周期决定何时关闭数据库。
 
-`scope()` 暴露 `roles`、`userRoles`、`menus`、`apiBindings`。`forSubject()` 暴露授权读取、`menus` 和 `data`。两者都要求 core ready，并立即规范化输入。
+`scope()` 暴露 `roles`、`userRoles` 和 `menus`。`forSubject()` 暴露授权读取、`menus` 和 `data`。两者都要求 core ready，并立即规范化输入。
 
 ## 响应与副作用
 

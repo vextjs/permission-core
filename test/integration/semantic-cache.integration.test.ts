@@ -2,7 +2,20 @@ import { randomUUID } from "node:crypto";
 import type { CacheLike } from "monsqlize";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PermissionCore } from "../../src";
-import type { MenuManifestInput, PermissionScope, ScopedPermissionContext } from "../../src/types";
+import type { MenuManifestInput, PermissionScope } from "../../src/types";
+import { ResourceSchemeRegistry } from "../../src/check/resource-schemes";
+import { CANONICAL_CONTRACT_VERSION, digestCanonical } from "../../src/internal/canonical";
+import { SignedTokenCodec } from "../../src/internal/signed-token";
+import {
+    ApiBindingImpactMutationService,
+    MenuManifestService,
+    MenuNodeMutationService,
+    MenuQueryService,
+} from "../../src/menu";
+import type { PermissionSemanticCache } from "../../src/cache";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
+import { PermissionRepository } from "../../src/persistence/repository";
+import { legacySubject } from "../helpers/legacy-menu-api";
 import { startRealMongo, type RealMongoContext } from "./helpers/real-mongo";
 
 const TEST_TIMEOUT = 120_000;
@@ -27,12 +40,13 @@ function createCore(context: RealMongoContext, collectionPrefix = PREFIX) {
 }
 
 async function importManifest(
-    scoped: ScopedPermissionContext,
+    service: MenuManifestService,
+    scope: PermissionScope,
     input: MenuManifestInput,
 ) {
-    const preview = await scoped.menus.manifest.preview(input, { actorId: "admin" });
+    const preview = await service.preview(scope, input, { actorId: "admin" });
     if (!preview.executable) throw new Error("Expected an executable menu manifest preview.");
-    return scoped.menus.manifest.import(input, {
+    return service.import(scope, input, {
         ...preview.expected,
         previewToken: preview.previewToken,
         actorId: "admin",
@@ -45,6 +59,10 @@ describe("semantic permission cache on real MonSQLize 3.1", () => {
     let cache: CacheLike;
     let coreA: PermissionCore;
     let coreB: PermissionCore;
+    let manifests: MenuManifestService;
+    let menuNodes: MenuNodeMutationService;
+    let menuQueries: MenuQueryService;
+    let apiBindingImpacts: ApiBindingImpactMutationService;
     let scopeStateReads = 0;
     let restoreCollectionProbe: (() => void) | undefined;
 
@@ -85,6 +103,23 @@ describe("semantic permission cache on real MonSQLize 3.1", () => {
         coreB = createCore(context);
         await coreA.init();
         await coreB.init();
+        const schemes = new ResourceSchemeRegistry();
+        const repository = new PermissionRepository(context.monsqlize, PREFIX, {
+            schemeContractDigest: schemes.schemeContractDigest,
+            schemaContractKey: digestCanonical({
+                canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
+                schemeContractDigest: schemes.schemeContractDigest,
+            }),
+        });
+        const tokens = new SignedTokenCodec(Buffer.alloc(32, 29), "semantic-cache-menu");
+        const semanticCache = (coreA as unknown as { semanticCache?: PermissionSemanticCache }).semanticCache;
+        if (semanticCache === undefined) throw new Error("Expected semantic cache to be initialized.");
+        const invalidateCache = (targets: readonly string[]) => semanticCache.invalidate(targets);
+        manifests = new MenuManifestService(repository, schemes, tokens, invalidateCache);
+        menuNodes = new MenuNodeMutationService(repository, schemes, invalidateCache);
+        menuQueries = new MenuQueryService(repository, schemes, tokens);
+        apiBindingImpacts = new ApiBindingImpactMutationService(repository, schemes, tokens, invalidateCache);
     }, TEST_TIMEOUT);
 
     afterAll(async () => {
@@ -162,7 +197,7 @@ describe("semantic permission cache on real MonSQLize 3.1", () => {
         const targetScope = nextScope("menu-fill-after-update");
         const subject = { userId: `user-${randomUUID()}`, scope: targetScope };
         const scoped = coreA.scope(targetScope);
-        await importManifest(scoped, {
+        await importManifest(manifests, targetScope, {
             schemaVersion: 2,
             mode: "replace",
             nodes: [
@@ -184,7 +219,7 @@ describe("semantic permission cache on real MonSQLize 3.1", () => {
         await scoped.roles.create({ id: "reader", label: "Reader" });
         await scoped.roles.allow("reader", { action: "read", resource: "ui:page:orders" });
         await scoped.userRoles.assign(subject.userId, "reader");
-        const currentMenu = await scoped.menus.get("orders");
+        const currentMenu = await menuQueries.getMenu(targetScope, "orders");
 
         const originalSet = cache.set.bind(cache);
         let raced = false;
@@ -192,7 +227,7 @@ describe("semantic permission cache on real MonSQLize 3.1", () => {
         const set = vi.spyOn(cache, "set").mockImplementation(async (key, value, ttlMs) => {
             if (!raced && String(key).includes(":menu-tree:")) {
                 raced = true;
-                const updated = await scoped.menus.update("orders", { title: "Orders v2" }, {
+                const updated = await menuNodes.update(targetScope, "orders", { title: "Orders v2" }, {
                     expectedRevision: currentMenu.data.revision,
                 });
                 updateStatus = updated.cache.status;
@@ -200,7 +235,7 @@ describe("semantic permission cache on real MonSQLize 3.1", () => {
             return originalSet(key, value, ttlMs);
         });
         try {
-            await expect(coreB.forSubject(subject).menus.getVisibleTree()).resolves.toMatchObject({
+            await expect(legacySubject(coreB.forSubject(subject)).menus.getVisibleTree()).resolves.toMatchObject({
                 data: [expect.objectContaining({ children: [expect.objectContaining({ title: "Orders" })] })],
             });
         } finally {
@@ -208,7 +243,7 @@ describe("semantic permission cache on real MonSQLize 3.1", () => {
         }
         expect(raced).toBe(true);
         expect(updateStatus).toBe("completed");
-        await expect(coreB.forSubject(subject).menus.getVisibleTree()).resolves.toMatchObject({
+        await expect(legacySubject(coreB.forSubject(subject)).menus.getVisibleTree()).resolves.toMatchObject({
             data: [expect.objectContaining({ children: [expect.objectContaining({ title: "Orders v2" })] })],
         });
     }, TEST_TIMEOUT);
@@ -239,7 +274,7 @@ describe("semantic permission cache on real MonSQLize 3.1", () => {
         const targetScope = nextScope("menu-api");
         const subject = { userId: `user-${randomUUID()}`, scope: targetScope };
         const scoped = coreA.scope(targetScope);
-        await importManifest(scoped, {
+        await importManifest(manifests, targetScope, {
             schemaVersion: 2,
             mode: "replace",
             nodes: [
@@ -288,7 +323,7 @@ describe("semantic permission cache on real MonSQLize 3.1", () => {
         }
         await scoped.userRoles.assign(subject.userId, "operator");
 
-        const before = coreB.forSubject(subject);
+        const before = legacySubject(coreB.forSubject(subject));
         await expect(before.menus.getVisibleTree()).resolves.toMatchObject({
             data: [expect.objectContaining({ children: [expect.objectContaining({ id: "orders", title: "Orders" })] })],
         });
@@ -301,7 +336,7 @@ describe("semantic permission cache on real MonSQLize 3.1", () => {
 
         const revoked = await scoped.userRoles.revoke(subject.userId, "operator");
         expect(revoked.cache.status).toBe("completed");
-        const withoutRole = coreB.forSubject(subject);
+        const withoutRole = legacySubject(coreB.forSubject(subject));
         await expect(withoutRole.menus.getButtonMap("orders")).resolves.toMatchObject({
             data: { "orders.export": { enabled: false, reason: "permission-denied" } },
         });
@@ -310,27 +345,27 @@ describe("semantic permission cache on real MonSQLize 3.1", () => {
         });
 
         await scoped.userRoles.assign(subject.userId, "operator");
-        const currentMenu = await scoped.menus.get("orders");
-        const renamed = await scoped.menus.update("orders", { title: "Orders v2" }, {
+        const currentMenu = await menuQueries.getMenu(targetScope, "orders");
+        const renamed = await menuNodes.update(targetScope, "orders", { title: "Orders v2" }, {
             expectedRevision: currentMenu.data.revision,
         });
         expect(renamed.cache.status).toBe("completed");
-        await expect(coreB.forSubject(subject).menus.getVisibleTree()).resolves.toMatchObject({
+        await expect(legacySubject(coreB.forSubject(subject)).menus.getVisibleTree()).resolves.toMatchObject({
             data: [expect.objectContaining({ children: [expect.objectContaining({ id: "orders", title: "Orders v2" })] })],
         });
 
-        await expect(coreB.forSubject(subject).menus.getRouteState("/orders")).resolves.toMatchObject({
+        await expect(legacySubject(coreB.forSubject(subject)).menus.getRouteState("/orders")).resolves.toMatchObject({
             data: { allowed: true, reason: "allowed" },
         });
-        const preview = await scoped.apiBindings.previewSetStatus("orders-entry", "disabled", { actorId: "admin" });
+        const preview = await apiBindingImpacts.previewSetStatus(targetScope, "orders-entry", "disabled", { actorId: "admin" });
         if (!preview.executable) throw new Error("Expected an executable API status preview.");
-        const disabled = await scoped.apiBindings.setStatus("orders-entry", "disabled", {
+        const disabled = await apiBindingImpacts.setStatus(targetScope, "orders-entry", "disabled", {
             ...preview.expected,
             previewToken: preview.previewToken,
             actorId: "admin",
         });
         expect(disabled.cache.status).toBe("completed");
-        await expect(coreB.forSubject(subject).menus.getRouteState("/orders")).resolves.toMatchObject({
+        await expect(legacySubject(coreB.forSubject(subject)).menus.getRouteState("/orders")).resolves.toMatchObject({
             data: { allowed: false, reason: "api-unavailable" },
         });
     }, TEST_TIMEOUT);

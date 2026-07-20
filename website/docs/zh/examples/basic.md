@@ -24,14 +24,14 @@ npm run example:basic
 await scoped.roles.create({ id: 'order-reader', label: 'Order reader' });
 await scoped.roles.allow('order-reader', {
   action: 'invoke',
-  resource: 'GET:/api/orders',
+  resource: 'api:GET:/api/orders',
 });
 await scoped.roles.create({ id: 'operator', label: 'Operator' });
 
 const assigned = await scoped.userRoles.assign('u-1', 'order-reader');
 const subject = core.forSubject({ userId: 'u-1', scope });
-const allowed = await subject.can('invoke', 'GET:/api/orders');
-const cannotDelete = await subject.cannot('invoke', 'DELETE:/api/orders');
+const allowed = await subject.can('invoke', 'api:GET:/api/orders');
+const cannotDelete = await subject.cannot('invoke', 'api:DELETE:/api/orders');
 
 await scoped.userRoles.assign('u-1', 'operator');
 const beforeSet = await scoped.userRoles.getDirect('u-1');
@@ -49,7 +49,7 @@ const permissions = await subject.getPermissions();
 const resources = await subject.getResources('invoke');
 const deleteExplanation = await subject.explain(
   'invoke',
-  'DELETE:/api/orders',
+  'api:DELETE:/api/orders',
 );
 ```
 
@@ -61,7 +61,7 @@ const deleteExplanation = await subject.explain(
 
 <!-- docs:operation id=basic-role-state calls=roles.create,roles.allow outputs=role,reads.ownRules -->
 
-**目的与目标。** `roles.create` 在当前 `acme` scope 中创建 `order-reader`，`roles.allow` 为该角色附加唯一规则：允许调用 `GET:/api/orders`。
+**目的与目标。** `roles.create` 在当前 `acme` scope 中创建 `order-reader`，`roles.allow` 为该角色附加唯一规则：允许调用 `api:GET:/api/orders`。
 
 **状态、参数与结果。** 角色输入提供持久化 ID 和 label；规则输入提供 `action` 与类型化 `resource`。这是两次独立提交的 mutation。示例随后读取已保存的角色及其自身规则，写入 `role` 和 `reads.ownRules`，因此输出描述的是数据库状态，不是内存参数的原样回显。
 
@@ -163,11 +163,11 @@ const deleteExplanation = await subject.explain(
     "deleteReason": "no-allow"
   },
   "reads": {
-    "ownRules": ["allow:invoke:GET:/api/orders"],
-    "effectiveRules": ["allow:invoke:GET:/api/orders"],
+    "ownRules": ["allow:invoke:api:GET:/api/orders"],
+    "effectiveRules": ["allow:invoke:api:GET:/api/orders"],
     "roleChain": ["order-reader"],
     "permissionRuleCount": 1,
-    "resources": ["GET:/api/orders"]
+    "resources": ["api:GET:/api/orders"]
   }
 }
 ```

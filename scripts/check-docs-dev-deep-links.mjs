@@ -826,6 +826,8 @@ async function stopProcessTree(processHandle) {
                 stdio: "ignore",
             });
         } catch (error) {
+            processHandle.kill("SIGTERM");
+            await waitForProcessExit(processHandle, 1_000);
             if (processHandle.exitCode === null && isWinProcessAlive(processHandle.pid)) {
                 throw error;
             }
@@ -834,9 +836,13 @@ async function stopProcessTree(processHandle) {
         processHandle.kill("SIGTERM");
     }
 
+    await waitForProcessExit(processHandle, 5_000);
+}
+
+async function waitForProcessExit(processHandle, timeoutMs) {
     await Promise.race([
         once(processHandle, "exit"),
-        new Promise((resolve) => setTimeout(resolve, 5_000)),
+        new Promise((resolve) => setTimeout(resolve, timeoutMs)),
     ]);
 }
 

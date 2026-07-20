@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ApiAuthorization, ApiOwnerRelation } from "../../src";
+import type { ApiAuthorization, ApiOwnerRelation } from "../../src/types/menu";
 import {
     evaluateApiAuthorization,
     evaluateApiBindingAvailability,

@@ -3,7 +3,7 @@ import type { Transaction } from "monsqlize";
 import { PermissionCoreError } from "../../src";
 import { ResourceSchemeRegistry } from "../../src/check/resource-schemes";
 import { digestCanonical } from "../../src/internal/canonical";
-import type { InternalAuditEntryDocument } from "../../src/persistence/documents";
+import { PERSISTED_SCHEMA_VERSION, type InternalAuditEntryDocument } from "../../src/persistence/documents";
 import type { PermissionRepository } from "../../src/persistence/repository";
 import type { ScopeStateView } from "../../src/persistence/scope-state";
 import {
@@ -20,15 +20,19 @@ function repositoryHarness() {
     let state: ScopeStateView = Object.freeze({
         scopeKey,
         scope,
-        schemaVersion: 2,
+        schemaVersion: PERSISTED_SCHEMA_VERSION,
         schemeContractDigest: digestCanonical([]),
         schemaContractKey: digestCanonical({ schema: 2 }),
         revision: 0,
         rbacRevision: 0,
         menuRevision: 0,
         auditRevision: 0,
+        menuConfigCount: 0,
+        menuConfigBytes: 0,
         menuNodeCount: 0,
         apiBindingCount: 0,
+        responseFieldCount: 0,
+        responseFieldOwnerCount: 0,
         replaceManifestBytes: 49,
         createdAt: 1,
         updatedAt: 1,

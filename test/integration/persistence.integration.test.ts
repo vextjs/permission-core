@@ -8,6 +8,7 @@ import {
 } from "../../src/internal/canonical";
 import {
     INTERNAL_COLLECTION_SUFFIXES,
+    PERSISTED_SCHEMA_VERSION,
     type InternalRevisionVector,
     type InternalScopeRevisionVector,
 } from "../../src/persistence/documents";
@@ -36,7 +37,7 @@ function createContract() {
         schemeContractDigest,
         schemaContractKey: digestCanonical({
             canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest,
         }),
     };
@@ -186,14 +187,14 @@ describe("MonSQLize 3.1 persistence integration", () => {
         const foreignSchemeContractDigest = digestCanonical("foreign-scheme-contract");
         const foreignSchemaContractKey = digestCanonical({
             canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest: foreignSchemeContractDigest,
         });
 
         const cases = [
             {
-                scope: { tenantId: "wrong-version" },
-                patch: { schemaVersion: 1 },
+                scope: { tenantId: "legacy-schema-2" },
+                patch: { schemaVersion: 2 },
                 code: "SCHEMA_VERSION_MISMATCH",
             },
             {
@@ -230,15 +231,19 @@ describe("MonSQLize 3.1 persistence integration", () => {
             await repository.collections.scopeState.insertOne({
                 scopeKey: virtual.scopeKey,
                 scope: virtual.scope,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest: contract.schemeContractDigest,
                 schemaContractKey: contract.schemaContractKey,
                 revision: 0,
                 rbacRevision: 0,
                 menuRevision: 0,
                 auditRevision: 0,
+                menuConfigCount: 0,
+                menuConfigBytes: 0,
                 menuNodeCount: 0,
                 apiBindingCount: 0,
+                responseFieldCount: 0,
+                responseFieldOwnerCount: 0,
                 replaceManifestBytes: virtual.replaceManifestBytes,
                 createdAt: 1,
                 updatedAt: 1,

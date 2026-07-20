@@ -120,10 +120,14 @@ function fakeHost(options: FakeHostOptions = {}) {
 }
 
 function route(method: string, path: string, permission?: unknown): VextRouteHookInfo {
+    return routeWithOptions(method, path, permission === undefined ? {} : { permission: permission as never });
+}
+
+function routeWithOptions(method: string, path: string, options: Record<string, unknown>): VextRouteHookInfo {
     return {
         method,
         path,
-        options: permission === undefined ? {} : { permission: permission as never },
+        options: options as never,
         sourceFile: "src/routes/test.ts",
     };
 }
@@ -429,14 +433,12 @@ describe("permissionPlugin contract", () => {
         }
     });
 
-    it("initializes one core, commits a validated route snapshot, and never closes host MonSQLize", async () => {
+    it("initializes one core, commits the route snapshot, and never closes host MonSQLize", async () => {
         const stub = createMonSQLizeStub();
-        const validateRouteManifest = vi.fn();
         const host = fakeHost();
         await permissionPlugin({
             monsqlize: stub.instance,
             authPlugin: "authentication",
-            validateRouteManifest,
         }).setup(host.app);
 
         expect(host.middlewares).toHaveLength(1);
@@ -454,13 +456,6 @@ describe("permissionPlugin contract", () => {
         const routes = [route("GET", "/public"), route("GET", "/orders/:id", true)];
         await host.emit("routes:ready", { count: routes.length, routes });
         await host.emit("server:beforeListen", { host: "127.0.0.1", port: 0, adapter: {} });
-        expect(validateRouteManifest).toHaveBeenCalledTimes(1);
-        const event = validateRouteManifest.mock.calls[0]![0];
-        expect(Object.keys(event).sort()).toEqual(["apiBindings", "manifest"]);
-        expect(event).not.toHaveProperty("app");
-        expect(event).not.toHaveProperty("core");
-        expect(event).not.toHaveProperty("monsqlize");
-        expect(Object.isFrozen(event)).toBe(true);
 
         const publicRequest = req(host.app, "GET", "/public");
         await host.run(publicRequest, () => host.emit("route:matched", {
@@ -563,6 +558,19 @@ describe("permissionPlugin contract", () => {
         }
     });
 
+    it("fails closed when permission-protected Vext routes enable route cache", async () => {
+        const host = fakeHost();
+        await permissionPlugin({ monsqlize: createMonSQLizeStub().instance }).setup(host.app);
+        const routes = [routeWithOptions("GET", "/cached-orders", { permission: true, cache: 1_000 })];
+        await host.emit("routes:ready", { count: routes.length, routes });
+        await expect(host.emit("server:beforeListen", { host: "127.0.0.1", port: 0, adapter: {} }))
+            .rejects.toMatchObject({
+                code: "VEXT_ROUTE_PERMISSION_INVALID",
+            });
+        expect((await (host.app.permission as PermissionCore).health()).lifecycle).toBe("closed");
+        await host.close();
+    });
+
     it("fails closed on matched-route drift and after runtime disposal", async () => {
         const host = fakeHost();
         await permissionPlugin({ monsqlize: createMonSQLizeStub().instance }).setup(host.app);
@@ -657,67 +665,29 @@ describe("permissionPlugin contract", () => {
         expect(stub.spies.close).not.toHaveBeenCalled();
     });
 
-    it("blocks missing candidates and validator failures before listen", async () => {
+    it("blocks missing route candidates before listen", async () => {
         const missingHost = fakeHost();
         await permissionPlugin({ monsqlize: createMonSQLizeStub().instance }).setup(missingHost.app);
         await expect(missingHost.emit("server:beforeListen", { host: "127.0.0.1", port: 0, adapter: {} }))
             .rejects.toMatchObject({ code: "VEXT_ROUTE_PERMISSION_INVALID" });
         expect((await (missingHost.app.permission as PermissionCore).health()).lifecycle).toBe("closed");
-
-        const validatorHost = fakeHost();
-        await permissionPlugin({
-            monsqlize: createMonSQLizeStub().instance,
-            validateRouteManifest: () => {
-                throw new Error("deployment-policy-rejected");
-            },
-        }).setup(validatorHost.app);
-        await validatorHost.emit("routes:ready", { count: 1, routes: [route("GET", "/public")] });
-        await expect(validatorHost.emit("server:beforeListen", { host: "127.0.0.1", port: 0, adapter: {} }))
-            .rejects.toThrow("deployment-policy-rejected");
-        expect((await (validatorHost.app.permission as PermissionCore).health()).lifecycle).toBe("closed");
     });
 
-    it("deduplicates concurrent startup commits and rejects route changes during validation", async () => {
-        let releaseFirst!: () => void;
-        const firstBarrier = new Promise<void>((resolve) => {
-            releaseFirst = resolve;
-        });
-        const firstValidator = vi.fn(async () => firstBarrier);
+    it("deduplicates concurrent startup commits and rejects route changes after commit", async () => {
         const concurrentHost = fakeHost();
         await permissionPlugin({
             monsqlize: createMonSQLizeStub().instance,
-            validateRouteManifest: firstValidator,
         }).setup(concurrentHost.app);
         const initial = route("GET", "/public");
         await concurrentHost.emit("routes:ready", { count: 1, routes: [initial] });
         const firstCommit = concurrentHost.emit("server:beforeListen", { host: "127.0.0.1", port: 0, adapter: {} });
         const secondCommit = concurrentHost.emit("server:beforeListen", { host: "127.0.0.1", port: 0, adapter: {} });
-        expect(firstValidator).toHaveBeenCalledTimes(1);
-        releaseFirst();
         await expect(Promise.all([firstCommit, secondCommit])).resolves.toHaveLength(2);
-        expect(firstValidator).toHaveBeenCalledTimes(1);
         await concurrentHost.emit("server:beforeListen", { host: "127.0.0.1", port: 0, adapter: {} });
-        expect(firstValidator).toHaveBeenCalledTimes(1);
+        await concurrentHost.emit("routes:ready", { count: 1, routes: [route("GET", "/changed")] });
+        await expect(concurrentHost.emit("server:beforeListen", { host: "127.0.0.1", port: 0, adapter: {} }))
+            .rejects.toMatchObject({ code: "VEXT_ROUTE_RESTART_REQUIRED" });
         await concurrentHost.close();
-
-        let releaseChanged!: () => void;
-        const changedBarrier = new Promise<void>((resolve) => {
-            releaseChanged = resolve;
-        });
-        const changedValidator = vi.fn(async () => changedBarrier);
-        const changedHost = fakeHost();
-        await permissionPlugin({
-            monsqlize: createMonSQLizeStub().instance,
-            validateRouteManifest: changedValidator,
-        }).setup(changedHost.app);
-        await changedHost.emit("routes:ready", { count: 1, routes: [initial] });
-        const changedCommit = changedHost.emit("server:beforeListen", { host: "127.0.0.1", port: 0, adapter: {} });
-        expect(changedValidator).toHaveBeenCalledTimes(1);
-        await changedHost.emit("routes:ready", { count: 1, routes: [route("GET", "/changed")] });
-        releaseChanged();
-        await expect(changedCommit).rejects.toMatchObject({ code: "VEXT_ROUTE_RESTART_REQUIRED" });
-        expect((await (changedHost.app.permission as PermissionCore).health()).lifecycle).toBe("closed");
-        expect(changedValidator).toHaveBeenCalledTimes(1);
     });
 
     it("turns every route into 503 after any post-commit routes:ready event", async () => {

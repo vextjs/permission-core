@@ -305,7 +305,7 @@ import { PermissionCoreError } from "permission-core";
 import * as pluginEntry from "permission-core/plugins/vext";
 import { createHost, createMonSQLizeStub } from "./runtime-support.mjs";
 
-const expected = ["appExtensions", "hasPermissionContext", "permissionPlugin", "requirePermissionContext", "toApiBindingInputs"];
+const expected = ["appExtensions", "hasPermissionContext", "permissionPlugin", "requirePermissionContext"];
 if (JSON.stringify(Object.keys(pluginEntry).sort()) !== JSON.stringify(expected)) process.exit(2);
 const stub = createMonSQLizeStub();
 const host = createHost();
@@ -326,7 +326,7 @@ const pluginEntry = require("permission-core/plugins/vext");
 const { createHost, createMonSQLizeStub } = require("./runtime-support.cjs");
 
 (async () => {
-    const expected = ["appExtensions", "hasPermissionContext", "permissionPlugin", "requirePermissionContext", "toApiBindingInputs"];
+    const expected = ["appExtensions", "hasPermissionContext", "permissionPlugin", "requirePermissionContext"];
     if (JSON.stringify(Object.keys(pluginEntry).sort()) !== JSON.stringify(expected)) process.exit(2);
     const stub = createMonSQLizeStub();
     const host = createHost();
@@ -359,7 +359,7 @@ declare const monsqlize: MonSQLizeInstance;
 declare const req: VextRequest;
 const permission: VextRoutePermission = {
     mode: "any",
-    requirements: [{ action: "invoke", resource: "GET:/orders" }],
+    requirements: [{ action: "invoke", resource: "api:GET:/orders" }],
 };
 const route: RouteOptions = { permission };
 const options: PermissionVextPluginOptions = { monsqlize };
@@ -372,6 +372,8 @@ void context;
 fs.writeFileSync(path.join(vextConsumerRoot, "negative-types.ts"), `
 // @ts-expect-error the removed adapter path must remain unavailable.
 import "permission-core/adapters/vext";
+// @ts-expect-error Vext binding helpers are internal implementation details.
+import { toApiBindingInputs } from "permission-core/plugins/vext";
 `);
 fs.writeFileSync(path.join(vextConsumerRoot, "tsconfig.json"), JSON.stringify({
     compilerOptions: {

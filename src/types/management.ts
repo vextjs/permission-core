@@ -1,7 +1,7 @@
 import type { PolicyValue } from "./foundation";
 
 export interface EntityRevisionRef {
-    kind: "role" | "user-role-set" | "role-menu-grant" | "menu-node" | "api-binding" | "scope";
+    kind: "role" | "user-role-set" | "role-menu-grant" | "menu-config" | "menu-node" | "api-binding" | "scope";
     id: string;
     revision: number;
 }

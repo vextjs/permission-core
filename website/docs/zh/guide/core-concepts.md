@@ -17,7 +17,7 @@
 | scope | 一块互相隔离的权限空间，至少有 `tenantId` | `pc.scope({ tenantId: 'acme' })` |
 | subject | 当前要判断权限的用户，包含 `userId` 和 `scope` | `pc.forSubject({ userId: 'u-1', scope })` |
 | role | 一组权限的名字，例如“订单只读” | `scoped.roles.create(...)` |
-| rule | 角色允许或拒绝的一个动作与资源组合 | `{ action: 'invoke', resource: 'GET:/api/orders' }` |
+| rule | 角色允许或拒绝的一个动作与资源组合 | `{ action: 'invoke', resource: 'api:GET:/api/orders' }` |
 | direct | 直接保存到当前对象上的内容，例如用户直接绑定的角色 | `userRoles.getDirect()` |
 | effective | 加上继承、状态和冲突规则后真正生效的结果 | `userRoles.getEffective()`、`roles.getEffectiveRules()` |
 | default deny | 没有命中 allow 时默认拒绝 | `can()` 返回 `false` |

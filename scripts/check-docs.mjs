@@ -237,9 +237,9 @@ function verifyChineseApiIntentNavigation() {
     const contracts = {
         "api/core-and-contexts.md": ["初始化与健康", "创建管理上下文", "执行权限判断", "读取与解释", "安全关闭"],
         "api/roles.md": ["创建或读取角色", "修改状态或父角色", "增量修改规则", "替换完整规则", "读取最终规则"],
-        "api/menus.md": ["创建或读取节点", "修改结构", "改变状态", "安全删除", "修复失效引用", "投影用户菜单", "导入或导出"],
-        "api/api-bindings.md": ["创建或读取绑定", "修改展示字段", "改变状态", "修改结构", "安全删除", "全量替换"],
-        "api/role-menu-permissions.md": ["预览并提交授权", "读取直接授权", "读取有效授权", "生成授权树", "修复失效来源"],
+        "api/menus.md": ["预览菜单配置", "保存菜单配置", "读取配置", "删除配置", "批量变更", "投影用户菜单"],
+        "api/api-bindings.md": ["声明加载接口", "声明操作接口", "声明响应字段", "运行时校验", "常见错误"],
+        "api/role-menu-permissions.md": ["预览并提交授权", "读取直接授权", "分页读取授权", "读取有效授权", "生成授权树"],
     };
     for (const [page, intents] of Object.entries(contracts)) {
         const content = read(path.join(docsRoot, "zh", page));
@@ -513,7 +513,7 @@ function verifyOperationNegativeFixtures() {
         },
         {
             name: "method hidden in marker only",
-            content: valid.replace("`roles.create`, `roles.allow`", "`role write`, `roles.allow`"),
+            content: valid.replace("`roles.create` creates", "`role write` creates"),
             expected: "method is not visible: roles.create",
         },
         {
@@ -658,9 +658,9 @@ function verifyCriticalPages() {
         "guide/manage-roles-and-users.md": ["roles.create", "userRoles.assign", "userRoles.set", "getEffectiveRules", "previewAccessUpdate", "getRemovalImpact"],
         "guide/check-permission.md": ["cannot", "explain", "getEffectiveRules", "userRoles.set", "getResources"],
         "guide/data-permissions.md": ["filter", "where", "AuthorizedCollection", "FIELD_PERMISSION_DENIED"],
-        "guide/menu-management.md": ["menus.create", "previewMove", "getRemovalImpact", "manifest.export"],
-        "guide/api-bindings.md": ["apiBindings.create", "availabilityGroup", "authorization", "subject.assert"],
-        "guide/role-menu-authorization.md": ["menuPermissions.preview", "apiChoices", "getAuthorizationTree", "refresh-available"],
+        "guide/menu-management.md": ["menus.config.preview", "menus.config.save", "filterResponse", "getViewTree"],
+        "guide/api-bindings.md": ["load.resource", "actions[].resource", "response", "subject.assert"],
+        "guide/role-menu-authorization.md": ["menuPermissions.preview", "responseFields", "getAuthorizationTree", "filterResponse"],
         "guide/permission-lifecycle.md": ["flowchart", "revision", "auditId", "PermissionCore.close"],
         "guide/resources-and-rules.md": ["no-allow", "db:orders:field", "ResourceSchemeDefinition", "valueFrom"],
         "guide/role-inheritance.md": ["getOwnRules", "getEffectiveRules", "CIRCULAR_INHERITANCE", "getRemovalImpact"],
@@ -672,15 +672,15 @@ function verifyCriticalPages() {
         "api/core-and-contexts.md": ["PermissionCoreOptions", "ScopedPermissionContext", "SubjectPermissionContext", "close(): Promise<void>"],
         "api/roles.md": ["previewAccessUpdate", "executeRuleChange", "replaceRules", "getEffectiveRules"],
         "api/user-roles.md": ["assign(userId", "set(userId", "getDirect", "getEffective"],
-        "api/menus.md": ["previewMove", "previewRemove", "findStaleReferences", "menus.manifest.export"],
-        "api/api-bindings.md": ["previewSetStatus", "executeUpdate", "previewReplace", "ApiBinding"],
-        "api/role-menu-permissions.md": ["choiceRequirements", "getAuthorizationTree", "previewRepairStale", "generatedSources"],
+        "api/menus.md": ["menus.config.preview", "menus.config.save", "menus.config.previewChanges", "subject.menus.filterResponse"],
+        "api/api-bindings.md": ["MenuConfigInput.load", "MenuConfigInput.actions", "MenuConfigInput.response", "ApiResource"],
+        "api/role-menu-permissions.md": ["selectedResponseFields", "getAuthorizationTree", "responseFields", "generatedSources"],
         "api/authorized-collection.md": ["findPage", "updateMany", "deleteMany", "scopeFields"],
         "api/audit-and-health.md": ["PermissionCoreHealth", "operationId", "auditId", "pendingCacheOutcomes"],
         "api/errors.md": ["PermissionCoreErrorCode", "PERMISSION_DENIED", "VEXT_ROUTE_RESTART_REQUIRED", "reconcile-superseded"],
         "api/resource-schemes.md": ["ResourceSchemeDefinition", "probes", "expectedSchemeContractDigest", "INVALID_CONFIGURATION"],
         "api/match-resource.md": ["permission-core/match", "matchResource", "tooShort", "PermissionCore"],
-        "api/vext-plugin.md": ["permissionPlugin", "requirePermissionContext", "toApiBindingInputs", "validateRouteManifest"],
+        "api/vext-plugin.md": ["permissionPlugin", "requirePermissionContext", "filterResponse", "api:GET:/orders/:id"],
         "examples/basic.md": ["examples/basic.mjs", "docs:basic:start", "cannotDelete", "deleteReason"],
         "examples/multi-tenant.md": ["examples/multi-tenant.mjs", "docs:multi-tenant:start", "crossTenantResource"],
         "examples/data-guard.md": ["examples/data-guard.mjs", "docs:data-guard:start", "FIELD_PERMISSION_DENIED", "persistedRows"],
@@ -782,9 +782,9 @@ function verifyApiReferenceContracts() {
         "api/core-and-contexts.md": ["subject: PermissionSubject", "action: PermissionAction", "context?: PolicyContext"],
         "api/roles.md": ["input: RoleCreateInput", "options: RequiredRevisionVectorOptions & PreviewExecutionOptions", "rules: readonly ManualRuleInput[]"],
         "api/user-roles.md": ["roleIds: readonly string[]", "options: RequiredRevisionOptions", "query?: CursorQuery"],
-        "api/menus.md": ["input: MenuNodeCreateInput", "request: MenuNodeImpactUpdateRequest", "input: MenuManifestInput"],
-        "api/api-bindings.md": ["input: ApiBindingCreateInput", "request: ApiBindingImpactUpdateRequest", "input: ApiBindingReplaceInput"],
-        "api/role-menu-permissions.md": ["change: MenuPermissionChange", "selection: MenuPermissionSelection", "assignments: readonly MenuPermissionAssignment[]"],
+        "api/menus.md": ["config: MenuConfigInput", "options: MenuConfigSaveOptions", "changes: NonEmptyMenuConfigChangeArray"],
+        "api/api-bindings.md": ["load.resource: ApiResource", "actions[].resource: ApiResource | UiResource", "response?: ResponseProjectionConfigInput"],
+        "api/role-menu-permissions.md": ["change: MenuBusinessPermissionChange", "selection: MenuBusinessPermissionSelection", "assignments: readonly MenuBusinessPermissionAssignment[]"],
         "api/authorized-collection.md": ["options: AuthorizedCollectionOptions", "filter?: SafeMongoFilter", "options: AuthorizedBulkWriteOptions"],
     };
     const expectedHeadings = {
@@ -1008,7 +1008,7 @@ function verifyExampleRoleContracts() {
         "examples/basic.md": ["permissionChecks.allowed", "permissionChecks.cannotDelete", "userRoles.afterSet"],
         "examples/multi-tenant.md": ["ownResource", "crossTenantResource"],
         "examples/data-guard.md": ["matchedCount", "deniedFieldCode", "persistedRows"],
-        "examples/menu-admin.md": ["roleGrant.generatedSources", "subjectRuntime.exportButton.enabled", "manifest.apiBindingCount"],
+        "examples/menu-admin.md": ["roleGrant.generatedSources", "subjectRuntime.exportEnabled", "subjectRuntime.projectedResponse"],
         "examples/vext.md": ["401", "403", "503", "hostDatabaseStillConnected"],
     };
 
@@ -1416,7 +1416,7 @@ function verifyStaleClaims() {
 
 function verifySourceBackedClaims() {
     const packageJson = JSON.parse(read(path.join(projectRoot, "package.json")));
-    if (packageJson.version !== "2.0.0") failures.push("package version must be 2.0.0");
+    if (packageJson.version !== "3.0.0") failures.push("package version must be 3.0.0");
     if (packageJson.peerDependencies?.monsqlize !== "3.1.0") failures.push("MonSQLize peer must be exactly 3.1.0");
     if (packageJson.peerDependencies?.vextjs !== "0.3.26" || packageJson.peerDependenciesMeta?.vextjs?.optional !== true) {
         failures.push("Vext peer must be optional and exactly 0.3.26");
@@ -1451,7 +1451,7 @@ function verifySourceBackedClaims() {
         read(path.join(projectRoot, "src/types/menu.ts")),
         read(path.join(projectRoot, "src/types/data.ts")),
     ].join("\n");
-    for (const marker of ["PermissionCoreOptions", "RoleManager", "UserRoleManager", "MenuManager", "ApiBindingManager", "RoleMenuPermissionManager", "AuthorizedCollection"]) {
+    for (const marker of ["PermissionCoreOptions", "RoleManager", "UserRoleManager", "MenuConfigManager", "RoleMenuPermissionManager", "SubjectMenuRuntime", "AuthorizedCollection"]) {
         if (!publicTypes.includes(`interface ${marker}`)) failures.push(`public type source is missing ${marker}`);
     }
 }
@@ -1464,13 +1464,18 @@ function verifyExecutableTutorialContracts() {
         failures.push("could not resolve the tokenSecret byte minimum from src/core/config.ts");
     }
 
-    const menuValidation = read(path.join(projectRoot, "src/menu/validation.ts"));
-    const pageRequirementsMatch = /if \(type === "page"\) \{\s*requireKeys\(\[([^\]]+)\]/u.exec(menuValidation);
-    const pageRequiredFields = [...(pageRequirementsMatch?.[1] ?? "").matchAll(/"([^"]+)"/g)]
-        .map((match) => match[1]);
-    if (pageRequiredFields.length === 0) {
-        failures.push("could not resolve page-node required fields from src/menu/validation.ts");
-    }
+    const menuConfigExampleMarkers = [
+        "menus.config.save",
+        "configId",
+        "menus",
+        "views",
+        "type: 'page'",
+        "path",
+        "component",
+        "load",
+        "resource: 'api:GET:/api/orders'",
+        "response",
+    ];
 
     let vextEngine;
     try {
@@ -1519,12 +1524,9 @@ function verifyExecutableTutorialContracts() {
         const exampleBlock = exampleStart < 0
             ? ""
             : /```ts\r?\n([\s\S]*?)```/u.exec(menusApi.slice(exampleStart))?.[1] ?? "";
-        if (!/type\s*:\s*['"]page['"]/u.test(exampleBlock)) {
-            failures.push(`${locale} Menus API example must create a page node`);
-        }
-        for (const field of pageRequiredFields) {
-            if (!new RegExp(`\\b${field}\\s*:`, "u").test(exampleBlock)) {
-                failures.push(`${locale} Menus API page example is missing runtime-required field ${field}`);
+        for (const marker of menuConfigExampleMarkers) {
+            if (!exampleBlock.includes(marker)) {
+                failures.push(`${locale} Menus API example is missing MenuConfigInput marker ${marker}`);
             }
         }
 
@@ -1549,7 +1551,7 @@ function verifyExecutableTutorialContracts() {
                     return [];
                 }
             });
-        const explanation = parsedResponses.find((value) => value?.data?.resource === "DELETE:/api/orders");
+        const explanation = parsedResponses.find((value) => value?.data?.resource === "api:DELETE:/api/orders");
         if (!explanation?.detailBudget) {
             failures.push(`${locale} Check Permissions explanation response is missing detailBudget`);
         }

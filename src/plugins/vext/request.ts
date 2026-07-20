@@ -1,10 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { types as utilTypes } from "node:util";
 import type {
+    ApiResource,
     PermissionAction,
     PermissionSubject,
     PolicyContext,
     SubjectPermissionContext,
+    SubjectRuntimeResult,
 } from "../../types";
 import { PermissionCore } from "../../core/permission-core";
 import {
@@ -16,8 +18,12 @@ import { normalizePolicyContext, normalizeSubject } from "../../scope/scope";
 import type {
     VextMiddleware,
     VextRequest,
+    VextResponse,
 } from "vextjs";
-import { throwVextPermissionError } from "./errors";
+import {
+    throwVextPermissionError,
+    vextPermissionHttpStatus,
+} from "./errors";
 import type {
     PermissionVextRequest,
     VextRequestPermissionApi,
@@ -26,6 +32,7 @@ import type {
 const REQUEST_PERMISSION_STATE = Symbol("permission-core.vext.request-state");
 const permissionStates = new WeakSet<object>();
 const permissionApiOwners = new WeakMap<object, VextRequest>();
+const responseProjectionOwners = new WeakMap<object, VextRequest>();
 const activeRequests = new WeakSet<object>();
 const requestContext = new AsyncLocalStorage<VextRequest>();
 const MAX_CONTEXTS_PER_REQUEST = 32;
@@ -40,6 +47,15 @@ const AUTH_CONTRACT_KEYS = new Set([
 
 interface RequestPermissionState {
     resolve(): Promise<VextRequestPermissionApi>;
+    bindRoute(route: ResponseProjectionRoute): void;
+    getRoute(): ResponseProjectionRoute | undefined;
+    filterResponse(apiResource: ApiResource, payload: unknown): Promise<SubjectRuntimeResult<unknown>>;
+}
+
+interface ResponseProjectionRoute {
+    readonly routeKey: string;
+    readonly contractDigest: string;
+    readonly apiResource: ApiResource;
 }
 
 type SubjectResolver = (
@@ -71,6 +87,44 @@ function extensionConflict(reason: string, cause?: unknown) {
         details: { kind: "validation", field: "req.auth.permission", reason },
         ...(cause === undefined ? {} : { cause }),
     });
+}
+
+function requestIdOf(req: VextRequest) {
+    const value = (req as { requestId?: unknown }).requestId;
+    return typeof value === "string" ? value : "";
+}
+
+function projectionFailureBody(error: unknown, requestId: string) {
+    if (isPermissionCoreError(error)) {
+        const status = vextPermissionHttpStatus(error);
+        return {
+            status,
+            body: {
+                code: error.code,
+                message: status === 500 ? "Internal Server Error" : error.message,
+                retryable: error.retryable,
+                ...(error.details === undefined ? {} : { details: error.details }),
+                ...(error.committed === undefined ? {} : { committed: error.committed }),
+                ...(error.operationId === undefined ? {} : { operationId: error.operationId }),
+                requestId,
+            },
+        };
+    }
+    return {
+        status: 500,
+        body: {
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Internal Server Error",
+            retryable: false,
+            requestId,
+        },
+    };
+}
+
+function setNoStore(res: VextResponse) {
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
 }
 
 function requestDataProperty(req: VextRequest, key: PropertyKey) {
@@ -262,6 +316,11 @@ function createPermissionApi(
                 assertOwner();
                 return contextFor(context).assert(action, resource);
             }),
+        filterResponse: (apiResource: ApiResource, payload: unknown, context?: PolicyContext) =>
+            execute(() => {
+                assertOwner();
+                return contextFor(context).menus.filterResponse(apiResource, payload);
+            }),
     });
 }
 
@@ -269,6 +328,7 @@ async function installPermissionApi(
     core: PermissionCore,
     req: VextRequest,
     resolver?: SubjectResolver,
+    onSubject?: (subject: Readonly<PermissionSubject>) => void,
 ) {
     const authValue = requestDataProperty(req, "auth");
     if (authValue === undefined) {
@@ -295,15 +355,61 @@ async function installPermissionApi(
     } catch (cause) {
         throw extensionConflict("cannot be defined on req.auth", cause);
     }
+    onSubject?.(subject);
     permissionApiOwners.set(api, req);
     return api;
+}
+
+function installResponseProjection(
+    req: VextRequest,
+    res: VextResponse,
+    state: RequestPermissionState,
+) {
+    const existingOwner = responseProjectionOwners.get(res);
+    if (existingOwner === req) return;
+    if (existingOwner !== undefined) {
+        throw extensionConflict("response projection is already occupied by another request");
+    }
+    if (typeof res.json !== "function" || typeof res.rawJson !== "function") {
+        return;
+    }
+    const originalJson = res.json.bind(res);
+    const originalRawJson = res.rawJson.bind(res);
+    const projectedJson: VextResponse["json"] = (payload, status) => {
+        const route = state.getRoute();
+        if (route === undefined) {
+            originalJson(payload, status);
+            return;
+        }
+        setNoStore(res);
+        void state.filterResponse(route.apiResource, payload)
+            .then((result) => {
+                originalJson(result.data, status);
+            })
+            .catch((error: unknown) => {
+                const failure = projectionFailureBody(error, requestIdOf(req));
+                setNoStore(res);
+                originalRawJson(failure.body, failure.status);
+            });
+    };
+    try {
+        Object.defineProperty(res, "json", {
+            value: projectedJson,
+            enumerable: false,
+            writable: false,
+            configurable: false,
+        });
+    } catch (cause) {
+        throw extensionConflict("cannot install response projection", cause);
+    }
+    responseProjectionOwners.set(res, req);
 }
 
 export function createPermissionRequestMiddleware(
     core: PermissionCore,
     resolver?: SubjectResolver,
 ): VextMiddleware {
-    return async (req, _res, next) => {
+    return async (req, res, next) => {
         const runNext = async () => {
             activeRequests.add(req);
             try {
@@ -317,14 +423,32 @@ export function createPermissionRequestMiddleware(
             if (!("value" in existing) || !permissionStates.has(existing.value as object)) {
                 throw extensionConflict("internal request state is already occupied");
             }
+            installResponseProjection(req, res, existing.value as RequestPermissionState);
             await runNext();
             return;
         }
         let pending: Promise<VextRequestPermissionApi> | undefined;
+        let resolvedSubject: Readonly<PermissionSubject> | undefined;
+        let route: ResponseProjectionRoute | undefined;
         const state: RequestPermissionState = Object.freeze({
             resolve() {
-                pending ??= installPermissionApi(core, req, resolver);
+                pending ??= installPermissionApi(core, req, resolver, (subject) => {
+                    resolvedSubject = subject;
+                });
                 return pending;
+            },
+            bindRoute(value: ResponseProjectionRoute) {
+                route = value;
+            },
+            getRoute() {
+                return route;
+            },
+            async filterResponse(apiResource: ApiResource, payload: unknown) {
+                await state.resolve();
+                if (resolvedSubject === undefined) {
+                    throw authRequired("permission subject was not resolved");
+                }
+                return core.forSubject(resolvedSubject).menus.filterResponse(apiResource, payload);
             },
         });
         permissionStates.add(state);
@@ -338,8 +462,20 @@ export function createPermissionRequestMiddleware(
         } catch (cause) {
             throw extensionConflict("cannot install the internal lazy request state", cause);
         }
+        installResponseProjection(req, res, state);
         await runNext();
     };
+}
+
+export function bindPermissionResponseProjection(
+    req: VextRequest,
+    route: ResponseProjectionRoute,
+) {
+    const state = requestDataProperty(req, REQUEST_PERMISSION_STATE);
+    if (state === null || typeof state !== "object" || !permissionStates.has(state)) {
+        throw authRequired("permission middleware has not installed request state");
+    }
+    (state as RequestPermissionState).bindRoute(route);
 }
 
 export function hasPermissionContext(req: VextRequest): req is PermissionVextRequest {

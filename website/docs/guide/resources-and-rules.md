@@ -5,11 +5,11 @@ A permission rule contains an effect, an action pattern, a resource pattern, and
 
 ## Built-in Resource Schemes
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ## Action
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 await scoped.roles.allow('order-writer', {
@@ -19,7 +19,7 @@ await scoped.roles.allow('order-writer', {
 ```
 ## Allow, Deny, and Default Deny
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 await scoped.roles.allow('order-reader', {
@@ -33,7 +33,7 @@ await scoped.roles.deny('order-reader', {
 ```
 ## Conditional Rules
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 await scoped.roles.allow('merchant-reader', {
@@ -49,7 +49,7 @@ await scoped.roles.allow('merchant-reader', {
 ```
 ## Custom Schemes
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 const pc = new PermissionCore({

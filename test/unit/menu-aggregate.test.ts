@@ -3,6 +3,7 @@ import type {
     InternalApiBindingDocument,
     InternalMenuNodeDocument,
 } from "../../src/persistence/documents";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
 import type { ScopeStateView } from "../../src/persistence/scope-state";
 import {
     EMPTY_REPLACE_MANIFEST_BYTES,
@@ -32,15 +33,19 @@ function state(input: {
     return Object.freeze({
         scopeKey,
         scope,
-        schemaVersion: 2,
+        schemaVersion: PERSISTED_SCHEMA_VERSION,
         schemeContractDigest: "scheme",
         schemaContractKey: "contract",
         revision: 0,
         rbacRevision: 0,
         menuRevision: 0,
         auditRevision: 0,
+        menuConfigCount: 0,
+        menuConfigBytes: 0,
         menuNodeCount,
         apiBindingCount,
+        responseFieldCount: 0,
+        responseFieldOwnerCount: 0,
         replaceManifestBytes: input.replaceManifestBytes ?? calculateReplaceManifestBytes({
             menuNodeCount,
             apiBindingCount,

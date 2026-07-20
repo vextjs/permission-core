@@ -87,6 +87,9 @@ const ACTIONS_BY_OPERATION = Object.freeze({
     "menus.remove": ["remove"],
     "menus.repairStaleReferences": ["repair"],
     "menus.manifest.import": ["import"],
+    "menus.config.save": ["create", "update"],
+    "menus.config.remove": ["remove"],
+    "menus.config.applyChanges": ["replace"],
     "apiBindings.create": ["create"],
     "apiBindings.update": ["update"],
     "apiBindings.setStatus": ["update"],
@@ -126,6 +129,9 @@ const DOMAIN_OWNER_BY_OPERATION = Object.freeze({
     "menus.remove": "menu",
     "menus.repairStaleReferences": "menu",
     "menus.manifest.import": "menu",
+    "menus.config.save": "menu",
+    "menus.config.remove": "menu",
+    "menus.config.applyChanges": "menu",
     "apiBindings.create": "menu",
     "apiBindings.update": "menu",
     "apiBindings.setStatus": "menu",
@@ -146,6 +152,9 @@ const MENU_RBAC_REWRITE_OPERATIONS = new Set<InternalManagementAuditOperation>([
     "menus.executeUpdate",
     "menus.remove",
     "menus.manifest.import",
+    "menus.config.save",
+    "menus.config.remove",
+    "menus.config.applyChanges",
     "apiBindings.executeUpdate",
     "apiBindings.remove",
     "apiBindings.replace",
@@ -162,6 +171,7 @@ const ENTITY_REVISION_KINDS = new Set<InternalEntityRevisionKind>([
     "role",
     "user-role-set",
     "role-menu-grant",
+    "menu-config",
     "menu-node",
     "api-binding",
     "scope",
@@ -173,6 +183,7 @@ const RBAC_ENTITY_REVISION_KINDS = new Set<InternalEntityRevisionKind>([
 ]);
 const MENU_ENTITY_REVISION_KINDS = new Set<InternalEntityRevisionKind>([
     "menu-node",
+    "menu-config",
     "api-binding",
 ]);
 const REVISION_FIELDS = ["global", "rbac", "menu", "audit", "entities"] as const;

@@ -1,9 +1,18 @@
 import type { MongoSession } from "monsqlize";
 import type {
     AuthorizationCapacityAssessment,
+    ApiResource,
     BatchMutationSummary,
+    BoundedDetails,
+    CountSample,
     ImpactPreview,
     ManagementConflict,
+    MenuBusinessPermissionAssignment,
+    MenuBusinessPermissionChange,
+    MenuBusinessPermissionGrantResult,
+    MenuBusinessPermissionPlan,
+    MenuBusinessPermissionSelection,
+    MenuBusinessResponseFieldRef,
     MenuPermissionChange,
     MenuPermissionGrantResult,
     MenuPermissionPlan,
@@ -24,6 +33,8 @@ import type { SignedTokenCodec } from "../internal/signed-token";
 import {
     assertInternalDocumentBudget,
     assertRoleMenuGrantBudget,
+    type InternalApiBindingDocument,
+    type InternalMenuNodeDocument,
     type InternalRoleDocument,
     type InternalRoleMenuGrantDocument,
     type InternalRoleRuleDocument,
@@ -42,12 +53,14 @@ import {
     normalizeMenuPreviewExecutionOptions,
     normalizePreviewOptions,
 } from "../rbac/preview-inputs";
-import { createSemanticKey, MAX_ROLE_MENU_AGGREGATE_COUNT, MAX_RULE_SOURCES } from "../rbac/materialize";
+import { createMenuSourceId, createSemanticKey, MAX_ROLE_MENU_AGGREGATE_COUNT, MAX_RULE_SOURCES } from "../rbac/materialize";
 import { DetailBudgetAllocator, RESPONSE_DETAIL_LIMIT } from "../rbac/result";
 import { MAX_RULES_PER_ROLE, RbacScopeReader } from "../rbac/store";
 import { normalizeRbacId } from "../rbac/validation";
 import { boundedDetails } from "../rbac/views";
-import { authorizationCacheTargets } from "./impact-support";
+import { authorizationCacheTargets, sampledCountSample } from "./impact-support";
+import { compileMenuConfigSnapshot, type CompiledMenuConfig } from "./config-compiler";
+import { readScopedMenuConfigDocuments } from "./config-service";
 import {
     buildMenuPreview,
     emptyBatchCounts,
@@ -60,6 +73,7 @@ import {
 import {
     applySourceRewriteExecution,
     createRoleMenuAggregateFields,
+    createRoleMenuGrantSnapshotFromContributions,
     validateRoleMenuIntegrity,
 } from "./source-rewrite";
 import type {
@@ -76,6 +90,7 @@ import { MenuScopeReader } from "./store";
 import {
     normalizeMenuPermissionChange,
     normalizeMenuPermissionSelection,
+    normalizeMenuBusinessPermissionChange,
 } from "./validation";
 import { decodeBatchMutationSummaryReplay } from "./views";
 
@@ -554,6 +569,869 @@ function createTargetState(input: {
         changed,
         refreshedGrantIds: refreshedGrantIds.sort(compareUtf8),
     };
+}
+
+interface PlannedBusinessRoleMenuGrant extends PlannedRoleMenuGrant {
+    readonly configId: string;
+    readonly selection: MenuBusinessPermissionSelection;
+    readonly selectedAssetIds: readonly string[];
+    readonly responseFields: readonly MenuBusinessResponseFieldRef[];
+}
+
+interface PreparedBusinessRoleMenuMutation extends PreparedMenuPlan<MenuBusinessPermissionPlan> {
+    readonly role: Readonly<InternalRoleDocument>;
+    readonly beforeRules: readonly Readonly<InternalRoleRuleDocument>[];
+    readonly afterRules: readonly Readonly<InternalRoleRuleDocument>[];
+    readonly beforeGrants: readonly Readonly<InternalRoleMenuGrantDocument>[];
+    readonly afterGrants: readonly Readonly<InternalRoleMenuGrantDocument>[];
+    readonly writePlan: PreparedSourceRewriteExecution;
+    readonly changed: boolean;
+    readonly affectedUsers: AffectedUsers;
+    readonly grantResult: MenuBusinessPermissionGrantResult;
+    readonly batchResult: BatchMutationSummary;
+}
+
+function splitApiResource(resource: ApiResource) {
+    const separator = resource.indexOf(":/");
+    return {
+        method: resource.slice("api:".length, separator),
+        path: resource.slice(separator + 1),
+    };
+}
+
+function businessSourceContribution(
+    grantId: string,
+    effect: "allow" | "deny",
+    rule: { action: MenuRuleContribution["action"]; resource: string; where?: MenuRuleContribution["where"] },
+    provenance:
+        | { contribution: "node"; assetId: string }
+        | { contribution: "api"; assetId: string; apiBindingId: string }
+        | { contribution: "data"; assetId: string; dataResource: string },
+): MenuRuleContribution {
+    const semanticKey = createSemanticKey(effect, rule.action, rule.resource, rule.where);
+    return deepFreeze({
+        sourceId: createMenuSourceId({ grantId, semanticKey, ...provenance }),
+        grantId,
+        semanticKey,
+        effect,
+        action: rule.action,
+        resource: rule.resource,
+        ...(rule.where === undefined ? {} : { where: rule.where }),
+        ...provenance,
+    });
+}
+
+function stableBusinessResponseFields(values: readonly MenuBusinessResponseFieldRef[]) {
+    const byKey = new Map<string, MenuBusinessResponseFieldRef>();
+    for (const value of values) {
+        byKey.set(canonicalString([value.apiResource, value.targetDigest, value.field]), value);
+    }
+    return Object.freeze([...byKey.values()].sort((left, right) =>
+        compareUtf8(left.apiResource, right.apiResource)
+        || compareUtf8(left.targetDigest, right.targetDigest)
+        || compareUtf8(left.field, right.field)));
+}
+
+function stableBusinessContributions(values: readonly MenuRuleContribution[]) {
+    const bySourceId = new Map<string, MenuRuleContribution>();
+    for (const value of values) bySourceId.set(value.sourceId, value);
+    return Object.freeze([...bySourceId.values()].sort((left, right) => compareUtf8(left.sourceId, right.sourceId)));
+}
+
+function businessAffectedUsers(value: AffectedUsers): CountSample {
+    return deepFreeze({
+        total: value.total,
+        sampleIds: Object.freeze([...value.sampleIds].sort(compareUtf8)),
+        truncated: value.total > value.sampleIds.length,
+        digest: value.digest,
+    });
+}
+
+function businessGrantResult(input: {
+    readonly roleId: string;
+    readonly grantIds: readonly string[];
+    readonly generatedSources: number;
+    readonly generatedResponseFields: number;
+    readonly removedSources: number;
+}): MenuBusinessPermissionGrantResult {
+    const budget = new DetailBudgetAllocator();
+    return deepFreeze({
+        roleId: input.roleId,
+        grantIds: budget.bounded(input.grantIds),
+        generatedSources: input.generatedSources,
+        generatedResponseFields: input.generatedResponseFields,
+        removedSources: input.removedSources,
+    });
+}
+
+function decodeBusinessGrantResult(value: unknown): MenuBusinessPermissionGrantResult {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) persistedInvalid("business menu grant replay must be an object");
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record).sort(compareUtf8);
+    const expected = ["generatedResponseFields", "generatedSources", "grantIds", "removedSources", "roleId"].sort(compareUtf8);
+    if (canonicalString(keys) !== canonicalString(expected) || typeof record.roleId !== "string") persistedInvalid("business menu grant replay shape is invalid");
+    for (const field of ["generatedSources", "generatedResponseFields", "removedSources"] as const) {
+        if (!Number.isSafeInteger(record[field]) || (record[field] as number) < 0) persistedInvalid(`business menu grant replay ${field} is invalid`);
+    }
+    return deepFreeze({
+        roleId: record.roleId,
+        grantIds: decodeBoundedIds(record.grantIds, "grantIds"),
+        generatedSources: record.generatedSources as number,
+        generatedResponseFields: record.generatedResponseFields as number,
+        removedSources: record.removedSources as number,
+    });
+}
+
+function addNodeAndDescendants(
+    compiled: CompiledMenuConfig,
+    menuId: string,
+    includeDescendants: boolean,
+    includeLoads: boolean,
+    includeActions: boolean,
+    includeNavigationAncestors: boolean,
+    selectedNodeIds: Set<string>,
+    selectedApiResources: Set<ApiResource>,
+    apiOwnerIdsByResource: Map<ApiResource, Set<string>>,
+): void {
+    const visitMenu = (menu: CompiledMenuConfig["snapshot"]["menus"][number], selected: boolean) => {
+        const menuRef = compiled.menuIndex.get(menu.id);
+        if (selected && menuRef !== undefined) selectedNodeIds.add(menuRef.nodeId);
+        for (const view of menu.views) {
+            if (selected) addView(compiled, view, includeLoads, includeActions, false, selectedNodeIds, selectedApiResources, apiOwnerIdsByResource);
+        }
+        for (const child of menu.children) visitMenu(child, selected && includeDescendants);
+    };
+    const findMenu = (
+        menus: readonly CompiledMenuConfig["snapshot"]["menus"][number][],
+    ): CompiledMenuConfig["snapshot"]["menus"][number] | undefined => {
+        for (const menu of menus) {
+            if (menu.id === menuId) return menu;
+            const child = findMenu(menu.children);
+            if (child !== undefined) return child;
+        }
+        return undefined;
+    };
+    const target = findMenu(compiled.snapshot.menus);
+    if (target !== undefined) {
+        if (includeNavigationAncestors) addMenuAndAncestors(compiled, menuId, selectedNodeIds);
+        visitMenu(target, true);
+        return;
+    }
+    throw new PermissionCoreError("MENU_NOT_FOUND", `Menu ${menuId} was not found in config ${compiled.configId}.`, {
+        details: { kind: "validation", field: "selection.menus", reason: "menu does not exist in the selected config" },
+    });
+}
+
+function addMenuAndAncestors(
+    compiled: CompiledMenuConfig,
+    menuId: string,
+    selectedNodeIds: Set<string>,
+): boolean {
+    const visit = (
+        menus: readonly CompiledMenuConfig["snapshot"]["menus"][number][],
+        ancestors: readonly CompiledMenuConfig["snapshot"]["menus"][number][],
+    ): boolean => {
+        for (const menu of menus) {
+            const chain = [...ancestors, menu];
+            if (menu.id === menuId) {
+                for (const item of chain) {
+                    const ref = compiled.menuIndex.get(item.id);
+                    if (ref !== undefined) selectedNodeIds.add(ref.nodeId);
+                }
+                return true;
+            }
+            if (visit(menu.children, chain)) return true;
+        }
+        return false;
+    };
+    return visit(compiled.snapshot.menus, []);
+}
+
+function addView(
+    compiled: CompiledMenuConfig,
+    view: CompiledMenuConfig["snapshot"]["menus"][number]["views"][number],
+    includeLoads: boolean,
+    includeActions: boolean,
+    includeNavigationAncestors: boolean,
+    selectedNodeIds: Set<string>,
+    selectedApiResources: Set<ApiResource>,
+    apiOwnerIdsByResource: Map<ApiResource, Set<string>>,
+): void {
+    const ref = compiled.viewIndex.get(view.id);
+    if (ref === undefined) return;
+    if (includeNavigationAncestors) addMenuAndAncestors(compiled, ref.menuId, selectedNodeIds);
+    selectedNodeIds.add(ref.nodeId);
+    if (includeLoads) {
+        for (const load of view.load) {
+            selectedApiResources.add(load.resource);
+            const ownerIds = apiOwnerIdsByResource.get(load.resource) ?? new Set<string>();
+            ownerIds.add(ref.apiOwnerNodeId);
+            apiOwnerIdsByResource.set(load.resource, ownerIds);
+        }
+    }
+    if (!includeActions) return;
+    for (const action of view.actions) addAction(compiled, view.id, action, false, selectedNodeIds, selectedApiResources, apiOwnerIdsByResource);
+}
+
+function addAction(
+    compiled: CompiledMenuConfig,
+    viewId: string,
+    action: CompiledMenuConfig["snapshot"]["menus"][number]["views"][number]["actions"][number],
+    includeNavigationAncestors: boolean,
+    selectedNodeIds: Set<string>,
+    selectedApiResources: Set<ApiResource>,
+    apiOwnerIdsByResource: Map<ApiResource, Set<string>>,
+): void {
+    const ref = compiled.actionIndex.get(canonicalString([viewId, action.resource]));
+    if (ref === undefined) return;
+    if (includeNavigationAncestors) {
+        const viewRef = compiled.viewIndex.get(viewId);
+        if (viewRef !== undefined) {
+            addMenuAndAncestors(compiled, viewRef.menuId, selectedNodeIds);
+            selectedNodeIds.add(viewRef.nodeId);
+        }
+    }
+    selectedNodeIds.add(ref.nodeId);
+    if (action.resource.startsWith("api:")) {
+        const resource = action.resource as ApiResource;
+        selectedApiResources.add(resource);
+        const ownerIds = apiOwnerIdsByResource.get(resource) ?? new Set<string>();
+        ownerIds.add(ref.nodeId);
+        apiOwnerIdsByResource.set(resource, ownerIds);
+    }
+}
+
+function addExplicitLoad(
+    compiled: CompiledMenuConfig,
+    resource: ApiResource,
+    selectedApiResources: Set<ApiResource>,
+    apiOwnerIdsByResource: Map<ApiResource, Set<string>>,
+): void {
+    const owners = compiled.apiOwners.filter((owner) => owner.apiResource === resource);
+    if (owners.length === 0) {
+        throw new PermissionCoreError("MENU_NOT_FOUND", `Load ${resource} was not found in config ${compiled.configId}.`, {
+            details: { kind: "validation", field: "selection.loads", reason: "load API does not exist in the selected config" },
+        });
+    }
+    selectedApiResources.add(resource);
+    const ownerIds = apiOwnerIdsByResource.get(resource) ?? new Set<string>();
+    for (const owner of owners) ownerIds.add(owner.owner.id);
+    apiOwnerIdsByResource.set(resource, ownerIds);
+}
+
+function addExplicitAction(
+    compiled: CompiledMenuConfig,
+    selector: string,
+    includeNavigationAncestors: boolean,
+    selectedNodeIds: Set<string>,
+    selectedApiResources: Set<ApiResource>,
+    apiOwnerIdsByResource: Map<ApiResource, Set<string>>,
+): void {
+    type ActionMatch = CompiledMenuConfig["snapshot"]["menus"][number]["views"][number]["actions"][number] & { readonly viewId: string };
+    const matches: ActionMatch[] = [];
+    const visit = (menu: CompiledMenuConfig["snapshot"]["menus"][number]) => {
+        for (const view of menu.views) {
+            for (const action of view.actions) {
+                if (action.actionId === selector || action.resource === selector) {
+                    matches.push({ ...action, viewId: view.id });
+                }
+            }
+        }
+        for (const child of menu.children) visit(child);
+    };
+    for (const menu of compiled.snapshot.menus) visit(menu);
+    if (matches.length === 0) {
+        throw new PermissionCoreError("MENU_NOT_FOUND", `Action ${selector} was not found in config ${compiled.configId}.`, {
+            details: { kind: "validation", field: "selection.actions", reason: "action does not exist in the selected config" },
+        });
+    }
+    for (const action of matches) {
+        addAction(compiled, action.viewId, action, includeNavigationAncestors, selectedNodeIds, selectedApiResources, apiOwnerIdsByResource);
+    }
+}
+
+function responseFieldRefs(
+    compiled: CompiledMenuConfig,
+    selection: MenuBusinessPermissionSelection,
+    selectedApiResources: Set<ApiResource>,
+): readonly MenuBusinessResponseFieldRef[] {
+    const refs: MenuBusinessResponseFieldRef[] = [];
+    const addAllForApi = (apiResource: ApiResource) => {
+        const response = compiled.responseDefinitions.find((definition) => definition.apiResource === apiResource);
+        if (response === undefined) return;
+        for (const field of response.fields) {
+            refs.push(deepFreeze({
+                apiResource,
+                targetDigest: response.targetDigest,
+                field: field.field,
+                fieldId: field.fieldId,
+                title: field.title,
+                ownerViewIds: Object.freeze([...new Set(field.owners.map((owner) => owner.viewId))].sort(compareUtf8)),
+            }));
+        }
+    };
+    if (selection.include?.responseFields !== "none") {
+        for (const apiResource of [...selectedApiResources].sort(compareUtf8)) addAllForApi(apiResource);
+    }
+    for (const explicit of selection.responseFields ?? []) {
+        selectedApiResources.add(explicit.apiResource);
+        const response = compiled.responseDefinitions.find((definition) => definition.apiResource === explicit.apiResource);
+        if (response === undefined) {
+            throw new PermissionCoreError("MENU_NOT_FOUND", `Response definition for ${explicit.apiResource} was not found.`, {
+                details: { kind: "validation", field: "selection.responseFields", reason: "API response fields are not declared in the selected config" },
+            });
+        }
+        for (const fieldName of explicit.fields) {
+            const field = response.fields.find((candidate) => candidate.field === fieldName);
+            if (field === undefined) {
+                throw new PermissionCoreError("MENU_NOT_FOUND", `Response field ${fieldName} was not found on ${explicit.apiResource}.`, {
+                    details: { kind: "validation", field: "selection.responseFields.fields", reason: "field is not declared in the selected response schema" },
+                });
+            }
+            refs.push(deepFreeze({
+                apiResource: explicit.apiResource,
+                targetDigest: response.targetDigest,
+                field: field.field,
+                fieldId: field.fieldId,
+                title: field.title,
+                ownerViewIds: Object.freeze([...new Set(field.owners.map((owner) => owner.viewId))].sort(compareUtf8)),
+            }));
+        }
+    }
+    return stableBusinessResponseFields(refs);
+}
+
+function bindingForApiResource(
+    apiResource: ApiResource,
+    bindings: readonly Readonly<InternalApiBindingDocument>[],
+) {
+    const parsed = splitApiResource(apiResource);
+    return bindings.find((binding) =>
+        binding.method === parsed.method
+        && binding.path === parsed.path
+        && binding.authorization.permissions.some((permission) => permission.action === "invoke" && permission.resource === apiResource));
+}
+
+function planBusinessSelection(input: {
+    readonly scopeHash: string;
+    readonly roleId: string;
+    readonly effect: "allow" | "deny";
+    readonly selection: MenuBusinessPermissionSelection;
+    readonly compiled: CompiledMenuConfig;
+    readonly nodes: readonly Readonly<InternalMenuNodeDocument>[];
+    readonly bindings: readonly Readonly<InternalApiBindingDocument>[];
+}): PlannedBusinessRoleMenuGrant {
+    const includeDescendants = input.selection.include?.descendants ?? true;
+    const includeLoads = input.selection.include?.loads ?? true;
+    const includeActions = input.selection.include?.actions ?? false;
+    const includeNavigationAncestors = input.effect === "allow";
+    const selectedNodeIds = new Set<string>();
+    const selectedApiResources = new Set<ApiResource>();
+    const apiOwnerIdsByResource = new Map<ApiResource, Set<string>>();
+
+    for (const menuId of input.selection.menus ?? []) {
+        addNodeAndDescendants(input.compiled, menuId, includeDescendants, includeLoads, includeActions, includeNavigationAncestors, selectedNodeIds, selectedApiResources, apiOwnerIdsByResource);
+    }
+    for (const viewId of input.selection.views ?? []) {
+        const view = input.compiled.snapshot.menus.flatMap(function visit(menu): typeof menu.views {
+            return [...menu.views, ...menu.children.flatMap(visit)];
+        }).find((candidate) => candidate.id === viewId);
+        if (view === undefined) {
+            throw new PermissionCoreError("MENU_NOT_FOUND", `View ${viewId} was not found in config ${input.compiled.configId}.`, {
+                details: { kind: "validation", field: "selection.views", reason: "view does not exist in the selected config" },
+            });
+        }
+        addView(input.compiled, view, includeLoads, includeActions, includeNavigationAncestors, selectedNodeIds, selectedApiResources, apiOwnerIdsByResource);
+    }
+    for (const resource of input.selection.loads ?? []) {
+        addExplicitLoad(input.compiled, resource, selectedApiResources, apiOwnerIdsByResource);
+    }
+    for (const action of input.selection.actions ?? []) {
+        addExplicitAction(input.compiled, action, includeNavigationAncestors, selectedNodeIds, selectedApiResources, apiOwnerIdsByResource);
+    }
+    for (const explicit of input.selection.responseFields ?? []) {
+        addExplicitLoad(input.compiled, explicit.apiResource, selectedApiResources, apiOwnerIdsByResource);
+    }
+    const responseFields = responseFieldRefs(input.compiled, input.selection, selectedApiResources);
+
+    const nodesById = new Map(input.nodes.map((node) => [node.nodeId, node] as const));
+    const contributions: MenuRuleContribution[] = [];
+    const grantDigest = digestCanonical({
+        scopeHash: input.scopeHash,
+        roleId: input.roleId,
+        effect: input.effect,
+        selection: input.selection,
+        responseFields,
+    });
+    const grantId = `grant_${grantDigest}`;
+    const sortedNodeIds = [...selectedNodeIds].sort(compareUtf8);
+    for (const nodeId of sortedNodeIds) {
+        const node = nodesById.get(nodeId);
+        if (node === undefined) {
+            throw new PermissionCoreError("PERSISTED_STATE_INVALID", `Compiled menu node ${nodeId} was not materialized.`, {
+                details: { kind: "persisted-state-invalid", stage: "load", reason: "compiled-menu-node-missing" },
+            });
+        }
+        if (node.permission !== undefined) {
+            contributions.push(businessSourceContribution(grantId, input.effect, node.permission, {
+                contribution: "node",
+                assetId: node.nodeId,
+            }));
+        }
+    }
+
+    for (const apiResource of [...selectedApiResources].sort(compareUtf8)) {
+        const binding = bindingForApiResource(apiResource, input.bindings);
+        if (binding === undefined) {
+            throw new PermissionCoreError("PERSISTED_STATE_INVALID", `Compiled API binding ${apiResource} was not materialized.`, {
+                details: { kind: "persisted-state-invalid", stage: "load", reason: "compiled-api-binding-missing" },
+            });
+        }
+        const configuredOwnerIds = apiOwnerIdsByResource.get(apiResource);
+        const ownerIds = configuredOwnerIds === undefined || configuredOwnerIds.size === 0
+            ? binding.owners.map((owner) => owner.id)
+            : binding.owners
+                .filter((owner) => configuredOwnerIds.has(owner.id))
+                .map((owner) => owner.id);
+        for (const assetId of [...new Set(ownerIds)].sort(compareUtf8)) {
+            for (const permission of binding.authorization.permissions) {
+                contributions.push(businessSourceContribution(grantId, input.effect, permission, {
+                    contribution: "api",
+                    assetId,
+                    apiBindingId: binding.bindingId,
+                }));
+            }
+        }
+    }
+
+    const intent = deepFreeze({
+        anchorId: sortedNodeIds[0] ?? [...apiOwnerIdsByResource.values()][0]?.values().next().value ?? input.roleId,
+        include: deepFreeze({ descendants: false, buttons: false, apis: "none" as const, dataPermissions: false }),
+        apiChoices: deepFreeze({ bindingIds: Object.freeze([] as string[]), permissionsByBinding: deepFreeze({}) }),
+    });
+    const canonicalContributions = stableBusinessContributions(contributions);
+    const baseSnapshot = createRoleMenuGrantSnapshotFromContributions(intent, canonicalContributions);
+    const selectedAssetIds = [...new Set([
+        ...sortedNodeIds,
+        ...canonicalContributions.map((contribution) => contribution.assetId),
+    ])].sort(compareUtf8);
+    return deepFreeze({
+        grantId,
+        effect: input.effect,
+        intent,
+        snapshot: deepFreeze({
+            ...baseSnapshot,
+            business: deepFreeze({
+                configId: input.selection.configId,
+                selection: input.selection,
+                responseFields,
+            }),
+        }),
+        contributions: Object.freeze(canonicalContributions),
+        configId: input.selection.configId,
+        selection: input.selection,
+        selectedAssetIds: Object.freeze(selectedAssetIds),
+        responseFields,
+    });
+}
+
+function businessAssignments(change: MenuBusinessPermissionChange): readonly MenuBusinessPermissionAssignment[] {
+    if (change.operation === "revoke") return Object.freeze([]);
+    if (change.operation === "set") return change.assignments;
+    return Object.freeze([{ effect: change.operation === "grant" ? "allow" as const : "deny" as const, selection: change.selection }]);
+}
+
+function operationBusinessGrantPlans(input: {
+    readonly stateScopeKey: string;
+    readonly roleId: string;
+    readonly change: MenuBusinessPermissionChange;
+    readonly configs: readonly CompiledMenuConfig[];
+    readonly nodes: readonly Readonly<InternalMenuNodeDocument>[];
+    readonly bindings: readonly Readonly<InternalApiBindingDocument>[];
+}) {
+    if (input.change.operation === "revoke") return { grants: [] as PlannedBusinessRoleMenuGrant[], conflicts: [] as ManagementConflict[] };
+    const configById = new Map(input.configs.map((config) => [config.configId, config] as const));
+    const grants = new Map<string, PlannedBusinessRoleMenuGrant>();
+    const conflicts: ManagementConflict[] = [];
+    for (const assignment of businessAssignments(input.change)) {
+        const compiled = configById.get(assignment.selection.configId);
+        if (compiled === undefined) {
+            throw new PermissionCoreError("MENU_NOT_FOUND", `Menu config ${assignment.selection.configId} was not found.`, {
+                details: { kind: "validation", field: "selection.configId", reason: "menu config does not exist" },
+            });
+        }
+        const planned = planBusinessSelection({
+            scopeHash: input.stateScopeKey,
+            roleId: input.roleId,
+            effect: assignment.effect,
+            selection: assignment.selection,
+            compiled,
+            nodes: input.nodes,
+            bindings: input.bindings,
+        });
+        if (planned.contributions.length === 0 && planned.responseFields.length === 0) {
+            conflicts.push(menuConflict(planned.grantId, "MENU_SELECTION_EMPTY", "The menu business selection does not produce any permission contribution."));
+        }
+        grants.set(planned.grantId, planned);
+    }
+    const sourceCount = [...grants.values()].reduce((total, grant) => total + grant.contributions.length, 0);
+    if (sourceCount > MAX_ROLE_MENU_SOURCE_MUTATIONS) {
+        conflicts.push(menuConflict("menu-source-mutation-limit", "LIMIT_EXCEEDED", `The selection produces ${sourceCount} sources; the atomic limit is ${MAX_ROLE_MENU_SOURCE_MUTATIONS}.`));
+    }
+    return {
+        grants: [...grants.values()].sort((left, right) => compareUtf8(left.grantId, right.grantId)),
+        conflicts: conflicts.sort((left, right) => compareUtf8(left.code, right.code) || compareUtf8(left.id, right.id)),
+    };
+}
+
+function legacyChangeForTarget(change: MenuBusinessPermissionChange): MenuPermissionChange {
+    if (change.operation === "revoke") return { operation: "revoke", grantIds: change.grantIds };
+    if (change.operation === "set") return { operation: "set", assignments: Object.freeze([]) };
+    return {
+        operation: change.operation,
+        selection: {
+            nodeIds: Object.freeze([]),
+            include: { descendants: false, buttons: false, apis: "none", dataPermissions: false },
+            apiChoices: { bindingIds: Object.freeze([]), permissionsByBinding: {} },
+        },
+    } as MenuPermissionChange;
+}
+
+function publicBusinessGrantPlan(value: PlannedBusinessRoleMenuGrant): MenuBusinessPermissionPlan["grants"]["items"][number] {
+    return deepFreeze({
+        grantId: value.grantId,
+        effect: value.effect,
+        configId: value.configId,
+        selectedAssets: sampledCountSample(value.selectedAssetIds),
+        selectedResponseFields: sampledCountSample(value.responseFields.map((field) =>
+            `${field.apiResource}:${field.targetDigest}:${field.field}`)),
+    });
+}
+
+function publicBusinessRemovals(
+    values: readonly { grantId: string; sourceCount: number }[],
+    budget: DetailBudgetAllocator,
+): BoundedDetails<{ grantId: string; sourceCount: number }> {
+    return budget.bounded(values.map((value) => deepFreeze(value)));
+}
+
+export class BusinessRoleMenuPermissionMutationService {
+    private readonly executor: ManagementMutationExecutor;
+
+    constructor(
+        private readonly repository: PermissionRepository,
+        private readonly schemes: ResourceSchemeRegistry,
+        private readonly tokens: SignedTokenCodec,
+        invalidateCache?: CacheInvalidator,
+    ) {
+        this.executor = new ManagementMutationExecutor(repository, schemes, invalidateCache);
+    }
+
+    private async prepare(
+        rbacReader: RbacScopeReader,
+        menuReader: MenuScopeReader,
+        roleId: string,
+        change: MenuBusinessPermissionChange,
+        now: number,
+        session: MongoSession,
+    ): Promise<PreparedBusinessRoleMenuMutation> {
+        const role = await rbacReader.requireRole(roleId);
+        mutableRole(role);
+        const [beforeRules, beforeGrants, inventory, configDocuments] = await Promise.all([
+            rbacReader.readRulesForRole(roleId),
+            menuReader.readGrantsForRole(roleId),
+            menuReader.readCompleteInventory(),
+            readScopedMenuConfigDocuments(this.repository, this.schemes, menuReader, session),
+        ]);
+        validateRoleMenuIntegrity(role, beforeRules, beforeGrants);
+        const compiledConfigs = configDocuments.map((document) => compileMenuConfigSnapshot(document.config, this.schemes));
+        const planned = operationBusinessGrantPlans({
+            stateScopeKey: menuReader.state.scopeKey,
+            roleId,
+            change,
+            configs: compiledConfigs,
+            nodes: inventory.nodes,
+            bindings: inventory.bindings,
+        });
+        const conflicts = [...planned.conflicts];
+        const target = createTargetState({
+            role,
+            beforeRules,
+            beforeGrants,
+            plannedGrants: planned.grants,
+            change: legacyChangeForTarget(change),
+            now,
+            conflicts,
+        });
+        const affectedRoleIds = await loadAffectedRoleIds(this.repository, rbacReader, [roleId], session);
+        const affectedUsers = await loadAffectedUsers(
+            this.repository,
+            rbacReader,
+            affectedRoleIds,
+            `role-menu-business:${roleId}:${digestCanonical(change)}`,
+            session,
+        );
+        const capacity = conflicts.length > 0
+            ? null
+            : await assessAuthorizationCapacity({
+                repository: this.repository,
+                reader: rbacReader,
+                affectedUsers,
+                overlay: { rulesByRoleId: new Map([[roleId, target.afterRules]]) },
+                structuralCapacityNonIncreasing:
+                    target.afterRules.length <= beforeRules.length
+                    && sourceMap(target.afterRules).size <= sourceMap(beforeRules).size,
+                knownCapacityRiskMayBeAcknowledged: true,
+                accessHint: accessHint(beforeRules, target.afterRules),
+                session,
+            });
+        const completeGrants = planned.grants.map(publicBusinessGrantPlan);
+        const removals = beforeGrants
+            .filter((grant) => !target.afterGrants.some((candidate) => candidate.grantId === grant.grantId))
+            .map((grant) => ({
+                grantId: grant.grantId,
+                sourceCount: beforeRules.reduce((total, rule) => total + rule.sources.filter((source) =>
+                    source.kind === "menu" && source.grantId === grant.grantId).length, 0),
+            }))
+            .sort((left, right) => compareUtf8(left.grantId, right.grantId));
+        const completePlan = toPolicyValue({
+            roleId,
+            operation: change.operation,
+            grants: completeGrants,
+            removals,
+            affectedUsers: businessAffectedUsers(affectedUsers),
+        });
+        const revisionEntities = [{ kind: "role" as const, id: roleId, revision: role.revision }];
+        const expectedRevisions = expectedMenuRevisions(menuReader, revisionEntities, true);
+        const inputHash = digestCanonical({ roleId, change });
+        const planHash = menuPlanHash(ROLE_MENU_PREVIEW_METHOD, inputHash, expectedRevisions, completePlan);
+        const grantMutations = target.grantMutations;
+        const ruleMutations = target.ruleMutations;
+        const inserted = [...grantMutations, ...ruleMutations].filter((mutation) => mutation.before === null).length;
+        const deleted = [...grantMutations, ...ruleMutations].filter((mutation) => mutation.after === null).length;
+        const updated = [...grantMutations, ...ruleMutations].filter((mutation) => mutation.before !== null && mutation.after !== null).length
+            + (target.changed ? 1 : 0);
+        const summaryCounts = emptyBatchCounts({
+            inserted,
+            updated,
+            deleted,
+            unchanged: target.changed ? 0 : Math.max(1, planned.grants.length),
+            conflicted: conflicts.length,
+        });
+        const summarySamples = [
+            ...target.grantMutations.map((mutation) => ({
+                id: (mutation.after ?? mutation.before)!.grantId,
+                outcome: mutation.before === null ? "inserted" as const
+                    : mutation.after === null ? "deleted" as const
+                        : "updated" as const,
+            })),
+            ...(!target.changed && planned.grants.length > 0
+                ? planned.grants.map((grant) => ({ id: grant.grantId, outcome: "unchanged" as const }))
+                : []),
+        ];
+        const grantIds = planned.grants.map((grant) => grant.grantId);
+        const grantResult = businessGrantResult({
+            roleId,
+            grantIds,
+            generatedSources: target.sourceChanges.inserted,
+            generatedResponseFields: planned.grants.reduce((total, grant) => total + grant.responseFields.length, 0),
+            removedSources: target.sourceChanges.deleted,
+        });
+        const batchResult: BatchMutationSummary = deepFreeze({
+            ...summaryCounts,
+            samples: boundedDetails(sortBatchMutationSamples(summarySamples)),
+        });
+        const rolePlan: SourceRewriteRolePlan = {
+            beforeRole: role,
+            afterRole: target.afterRole,
+            rules: target.ruleMutations,
+            grants: target.grantMutations,
+            beforeRules,
+            afterRules: target.afterRules,
+        };
+        const writePlan: PreparedSourceRewriteExecution = {
+            roles: target.changed ? Object.freeze([rolePlan]) : Object.freeze([]),
+            beforeRulesByRole: new Map([[roleId, beforeRules]]),
+            afterRulesByRole: new Map([[roleId, target.afterRules]]),
+            sourceMutationCount: target.sourceChanges.total,
+            conflicts: Object.freeze(conflicts),
+            auditPlan: completePlan,
+        };
+        return {
+            method: ROLE_MENU_PREVIEW_METHOD,
+            reader: menuReader,
+            inputHash,
+            planHash,
+            completePlan,
+            requiredDecisionDetailCount: planned.grants.length + removals.length,
+            publicPlan: (budget) => deepFreeze({
+                roleId,
+                operation: change.operation,
+                grants: budget.bounded(completeGrants),
+                removals: publicBusinessRemovals(removals, budget),
+                affectedUsers: businessAffectedUsers(affectedUsers),
+            }),
+            expectedRevisions,
+            revisionEntities,
+            summaryCounts,
+            summarySamples,
+            warnings: [],
+            conflicts: Object.freeze(conflicts),
+            capacity,
+            role,
+            beforeRules,
+            afterRules: target.afterRules,
+            beforeGrants,
+            afterGrants: target.afterGrants,
+            writePlan,
+            changed: target.changed,
+            affectedUsers,
+            grantResult,
+            batchResult,
+        };
+    }
+
+    async preview(
+        scope: PermissionScope,
+        roleIdInput: string,
+        changeInput: MenuBusinessPermissionChange,
+        optionsValue?: PreviewOptions,
+    ): Promise<ImpactPreview<MenuBusinessPermissionPlan>> {
+        const roleId = normalizeRbacId(roleIdInput, "roleId");
+        const change = normalizeMenuBusinessPermissionChange(changeInput);
+        const actor = normalizePreviewOptions(optionsValue);
+        const issuedAt = await this.repository.getDatabaseTime();
+        const prepared = await this.repository.withTransaction(async (transaction) => {
+            const state = await this.repository.scopeStates.read(scope, transaction.session);
+            const rbacReader = new RbacScopeReader(this.repository, this.schemes, state, transaction.session);
+            const menuReader = new MenuScopeReader(this.repository, this.schemes, state, transaction.session);
+            return this.prepare(rbacReader, menuReader, roleId, change, issuedAt, transaction.session);
+        });
+        return buildMenuPreview({ tokens: this.tokens, actor, issuedAt, prepared });
+    }
+
+    grant(
+        scope: PermissionScope,
+        roleId: string,
+        selection: MenuBusinessPermissionSelection,
+        options: RequiredRevisionVectorOptions & PreviewExecutionOptions,
+    ) {
+        return this.executeGrantChange(scope, roleId, { operation: "grant", selection }, options);
+    }
+
+    deny(
+        scope: PermissionScope,
+        roleId: string,
+        selection: MenuBusinessPermissionSelection,
+        options: RequiredRevisionVectorOptions & PreviewExecutionOptions,
+    ) {
+        return this.executeGrantChange(scope, roleId, { operation: "deny", selection }, options);
+    }
+
+    revoke(
+        scope: PermissionScope,
+        roleId: string,
+        input: { grantIds: readonly string[] },
+        options: RequiredRevisionVectorOptions & PreviewExecutionOptions,
+    ) {
+        return this.executeBatchChange(scope, roleId, { operation: "revoke", grantIds: input.grantIds }, options);
+    }
+
+    set(
+        scope: PermissionScope,
+        roleId: string,
+        assignments: readonly MenuBusinessPermissionAssignment[],
+        options: RequiredRevisionVectorOptions & PreviewExecutionOptions,
+    ) {
+        return this.executeBatchChange(scope, roleId, { operation: "set", assignments }, options);
+    }
+
+    private executeGrantChange(
+        scope: PermissionScope,
+        roleId: string,
+        changeInput: Extract<MenuBusinessPermissionChange, { operation: "grant" | "deny" }>,
+        optionsValue: RequiredRevisionVectorOptions & PreviewExecutionOptions,
+    ): Promise<MutationResult<MenuBusinessPermissionGrantResult>> {
+        return this.execute(scope, roleId, changeInput, optionsValue, decodeBusinessGrantResult, (prepared) => prepared.grantResult);
+    }
+
+    private executeBatchChange(
+        scope: PermissionScope,
+        roleId: string,
+        changeInput: Extract<MenuBusinessPermissionChange, { operation: "revoke" | "set" }>,
+        optionsValue: RequiredRevisionVectorOptions & PreviewExecutionOptions,
+    ): Promise<MutationResult<BatchMutationSummary>> {
+        return this.execute(scope, roleId, changeInput, optionsValue, decodeBatchMutationSummaryReplay, (prepared) => prepared.batchResult);
+    }
+
+    private execute<T>(
+        scope: PermissionScope,
+        roleIdInput: string,
+        changeInput: MenuBusinessPermissionChange,
+        optionsValue: RequiredRevisionVectorOptions & PreviewExecutionOptions,
+        decodeReplay: (value: unknown) => T,
+        result: (prepared: PreparedBusinessRoleMenuMutation) => T,
+    ): Promise<MutationResult<T>> {
+        const roleId = normalizeRbacId(roleIdInput, "roleId");
+        const change = normalizeMenuBusinessPermissionChange(changeInput);
+        const options = normalizeMenuPreviewExecutionOptions(optionsValue);
+        const operation = `roles.menuPermissions.${change.operation}` as
+            | "roles.menuPermissions.grant"
+            | "roles.menuPermissions.deny"
+            | "roles.menuPermissions.revoke"
+            | "roles.menuPermissions.set";
+        const action: "grant" | "deny" | "revoke" | "set" = change.operation === "grant" ? "grant" : change.operation;
+        return this.executor.execute({
+            scope,
+            operation,
+            action,
+            resource: `role:${roleId}:menu-business-permissions`,
+            request: toPolicyValue({ roleId, change, expectedRevisions: options.expectedRevisions }),
+            options,
+            decodeReplay,
+            work: async ({ transaction, state, now }) => {
+                const rbacReader = new RbacScopeReader(this.repository, this.schemes, state, transaction.session);
+                const menuReader = new MenuScopeReader(this.repository, this.schemes, state, transaction.session);
+                const prepared = await this.prepare(rbacReader, menuReader, roleId, change, now, transaction.session);
+                validateMenuExecution({ tokens: this.tokens, prepared, options, now });
+                if (prepared.changed) {
+                    await applySourceRewriteExecution({
+                        repository: this.repository,
+                        schemes: this.schemes,
+                        session: transaction.session,
+                        prepared: prepared.writePlan,
+                    });
+                }
+                const data = result(prepared);
+                const returnedDetails = change.operation === "grant" || change.operation === "deny"
+                    ? prepared.grantResult.grantIds.items.length
+                    : prepared.batchResult.samples.items.length;
+                const totalDetails = change.operation === "grant" || change.operation === "deny"
+                    ? prepared.grantResult.grantIds.total
+                    : prepared.batchResult.samples.total;
+                return {
+                    changed: prepared.changed,
+                    data,
+                    primaryRevision: prepared.changed ? prepared.role.revision + 1 : prepared.role.revision,
+                    entity: {
+                        kind: "role",
+                        id: roleId,
+                        before: prepared.role.revision,
+                        after: prepared.changed ? prepared.role.revision + 1 : prepared.role.revision,
+                    },
+                    revisionImpact: { rbac: prepared.changed, menu: false },
+                    change: { kind: "role-menu-permission", plan: prepared.completePlan },
+                    cacheTargets: prepared.changed
+                        ? authorizationCacheTargets(state.scopeKey, prepared.affectedUsers)
+                        : [],
+                    returnedDetails,
+                    completeDetailTree: { totalDetails, planHash: prepared.planHash },
+                    validatedPlanHash: prepared.planHash,
+                    ...(prepared.capacity === null ? {} : { capacity: toPolicyValue(prepared.capacity) }),
+                };
+            },
+        });
+    }
 }
 
 export class RoleMenuPermissionMutationService {

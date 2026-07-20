@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
-    ApiBindingManager,
-    MenuManager,
+    MenuConfigManager,
+    MenuConfigRootManager,
     RoleManager,
     RowCondition,
     ScopedPermissionContext,
@@ -22,35 +22,30 @@ describe("public RBAC and menu type contract", () => {
         const userRoleMethods: readonly (keyof UserRoleManager)[] = [
             "assign", "revoke", "set", "clear", "getDirect", "getEffective", "listUsersByRole",
         ];
-        const menuMethods: readonly (keyof MenuManager)[] = [
-            "manifest", "create", "get", "list", "getTree", "update", "previewUpdate",
-            "executeUpdate", "previewMove", "move", "previewReorder", "reorder",
-            "previewSetStatus", "setStatus", "getRemovalImpact", "previewRemove", "remove",
-            "findStaleReferences", "previewRepairStaleReferences", "repairStaleReferences",
+        const menuRootMethods: readonly (keyof MenuConfigRootManager)[] = [
+            "config",
         ];
-        const apiBindingMethods: readonly (keyof ApiBindingManager)[] = [
-            "create", "get", "list", "update", "previewSetStatus", "setStatus",
-            "getRemovalImpact", "previewUpdate", "executeUpdate", "previewRemove", "remove",
-            "previewReplace", "replace",
+        const menuConfigMethods: readonly (keyof MenuConfigManager)[] = [
+            "preview", "save", "get", "list", "previewRemove", "remove", "previewChanges", "applyChanges",
         ];
         const scopedKeys: readonly (keyof ScopedPermissionContext)[] = [
-            "roles", "userRoles", "menus", "apiBindings",
+            "roles", "userRoles", "menus",
         ];
         const subjectMethods: readonly (keyof SubjectPermissionContext)[] = [
             "can", "cannot", "assert", "getPermissions", "getResources", "explain", "menus", "data",
         ];
         const subjectComplete: Exclude<keyof SubjectPermissionContext, typeof subjectMethods[number]> extends never ? true : false = true;
         const subjectMenuMethods: readonly (keyof SubjectMenuRuntime)[] = [
-            "getVisibleTree", "getButtonMap", "getRouteState",
+            "getViewTree", "getActionMap", "getViewState", "filterResponse",
         ];
         expect(roleMethods).toHaveLength(19);
         expect(userRoleMethods).toHaveLength(7);
-        expect(menuMethods).toHaveLength(20);
-        expect(apiBindingMethods).toHaveLength(13);
-        expect(scopedKeys).toEqual(["roles", "userRoles", "menus", "apiBindings"]);
+        expect(menuRootMethods).toHaveLength(1);
+        expect(menuConfigMethods).toHaveLength(8);
+        expect(scopedKeys).toEqual(["roles", "userRoles", "menus"]);
         expect(subjectMethods).toHaveLength(8);
         expect(subjectComplete).toBe(true);
-        expect(subjectMenuMethods).toHaveLength(3);
+        expect(subjectMenuMethods).toHaveLength(4);
     });
 });
 
@@ -64,9 +59,11 @@ if (false) {
     const empty: RowCondition = { all: [] };
     // @ts-expect-error A condition cannot provide literal and dynamic operands together.
     const ambiguous: RowCondition = { field: "merchantId", op: "eq", value: "m-1", valueFrom: "claims.merchantId" };
-    const menu = (null as unknown as ScopedPermissionContext).menus;
+    const menuConfig = (null as unknown as ScopedPermissionContext).menus.config;
+    // @ts-expect-error scoped.apiBindings is not a public 3.0 manager.
+    const legacyApiBindings = (null as unknown as ScopedPermissionContext).apiBindings;
     const manualSource: InternalRoleRuleSource = { kind: "manual", sourceId: "manual:key" };
     // @ts-expect-error API is a menu contribution, never a top-level persisted source kind.
     const legacyApiSource: InternalRoleRuleSource = { kind: "api", sourceId: "legacy" };
-    void [empty, ambiguous, menu, manualSource, legacyApiSource];
+    void [empty, ambiguous, menuConfig, legacyApiBindings, manualSource, legacyApiSource];
 }

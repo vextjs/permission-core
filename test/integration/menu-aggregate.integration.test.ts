@@ -30,6 +30,7 @@ import type {
 import { SIMPLE_COLLATION } from "../../src/persistence/indexes";
 import type { InternalPermissionCollection } from "../../src/persistence/native-collection";
 import { PermissionRepository } from "../../src/persistence/repository";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
 import {
     EMPTY_REPLACE_MANIFEST_BYTES,
     MAX_API_BINDING_COUNT,
@@ -52,7 +53,7 @@ function createRepository(
         schemeContractDigest,
         schemaContractKey: digestCanonical({
             canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest,
         }),
     }, findMaxLimit);
@@ -92,13 +93,17 @@ async function seedScope(
     await repository.collections.scopeState.insertOne({
         scopeKey,
         scope,
-        schemaVersion: 2,
+        schemaVersion: PERSISTED_SCHEMA_VERSION,
         schemeContractDigest: virtualState.schemeContractDigest,
         schemaContractKey: virtualState.schemaContractKey,
         revision,
         rbacRevision: 0,
         menuRevision: revision,
         auditRevision: revision,
+        menuConfigCount: 0,
+        menuConfigBytes: 0,
+        responseFieldCount: 0,
+        responseFieldOwnerCount: 0,
         menuNodeCount: input.nodes.length,
         apiBindingCount: input.bindings.length,
         replaceManifestBytes,
@@ -460,17 +465,21 @@ describe("v2 menu aggregate invariants on MonSQLize 3.1", () => {
         await repository.collections.scopeState.insertOne({
             scopeKey,
             scope,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest: schemes.schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest: schemes.schemeContractDigest,
             }),
             revision: 0,
             rbacRevision: 0,
             menuRevision: 0,
             auditRevision: 0,
+            menuConfigCount: 0,
+            menuConfigBytes: 0,
+            responseFieldCount: 0,
+            responseFieldOwnerCount: 0,
             menuNodeCount: 0,
             apiBindingCount: 0,
             replaceManifestBytes: EMPTY_REPLACE_MANIFEST_BYTES,

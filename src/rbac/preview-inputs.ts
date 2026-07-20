@@ -140,6 +140,7 @@ export function normalizeExpectedRoleRevisionVector(value: unknown, roleId: stri
 const MENU_ENTITY_KINDS = new Set([
     "role",
     "role-menu-grant",
+    "menu-config",
     "menu-node",
     "api-binding",
     "scope",
@@ -157,7 +158,7 @@ export function normalizeExpectedMenuRevisionVector(value: unknown): ExpectedRev
                 throw validationError("INVALID_ARGUMENT", `expectedRevisions.entities[${index}].kind`, "is not valid for a menu mutation");
             }
             return {
-                kind: entity.kind as "role" | "role-menu-grant" | "menu-node" | "api-binding" | "scope",
+                kind: entity.kind as "role" | "role-menu-grant" | "menu-config" | "menu-node" | "api-binding" | "scope",
                 id: normalizeRbacId(entity.id, `expectedRevisions.entities[${index}].id`),
                 revision: nonNegativeRevision(entity.revision, `expectedRevisions.entities[${index}].revision`),
             };

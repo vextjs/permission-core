@@ -1,5 +1,5 @@
 # Quick Start
-<!-- docs:inline-parity `quick-start.mjs` `msq.connect()` `pc.init()` `roles.create(input)` `id` `label` `tenantId` `MutationResult<Role>` `data` `roles.allow(roleId, rule)` `action/resource` `MutationResult<PermissionRuleView>` `userRoles.assign(userId, roleId)` `u-1` `MutationResult<UserRoleBindingSet>` `pc.scope({ tenantId: 'acme' })` `acme` `pc.forSubject({ userId, scope })` `subject.can(action, resource)` `allowed: true` `invoke + GET:/api/orders` `deleteAllowed: false` `DELETE:/api/orders` `false` `can()` `MONGODB_URI` `pc.close()` `msq.close()` `finally` `scope` `subject` -->
+<!-- docs:inline-parity `quick-start.mjs` `msq.connect()` `pc.init()` `roles.create(input)` `id` `label` `tenantId` `MutationResult<Role>` `data` `roles.allow(roleId, rule)` `action/resource` `MutationResult<PermissionRuleView>` `userRoles.assign(userId, roleId)` `u-1` `MutationResult<UserRoleBindingSet>` `pc.scope({ tenantId: 'acme' })` `acme` `pc.forSubject({ userId, scope })` `subject.can(action, resource)` `allowed: true` `invoke + api:GET:/api/orders` `deleteAllowed: false` `api:DELETE:/api/orders` `false` `can()` `MONGODB_URI` `pc.close()` `msq.close()` `finally` `scope` `subject` -->
 
 This page does one thing: create a role, give the user permission to read the orders API, and show one allowed result plus one default-denied result. After this first path works, continue to the role admin, menu, or data-permission guides.
 
@@ -49,13 +49,13 @@ try {
   });
   await scoped.roles.allow('order-reader', {
     action: 'invoke',
-    resource: 'GET:/api/orders',
+    resource: 'api:GET:/api/orders',
   });
   await scoped.userRoles.assign('u-1', 'order-reader');
 
   const subject = pc.forSubject({ userId: 'u-1', scope });
-  const allowed = await subject.can('invoke', 'GET:/api/orders');
-  const deleteAllowed = await subject.can('invoke', 'DELETE:/api/orders');
+  const allowed = await subject.can('invoke', 'api:GET:/api/orders');
+  const deleteAllowed = await subject.can('invoke', 'api:DELETE:/api/orders');
 
   console.log(JSON.stringify({ allowed, deleteAllowed }, null, 2));
 } finally {
@@ -94,8 +94,8 @@ Running the file should print:
 
 This is the **raw example output** printed by the program:
 
-- `allowed: true`: the role has the `invoke + GET:/api/orders` allow rule.
-- `deleteAllowed: false`: no rule allows `DELETE:/api/orders`, so the system denies it by default.
+- `allowed: true`: the role has the `invoke + api:GET:/api/orders` allow rule.
+- `deleteAllowed: false`: no rule allows `api:DELETE:/api/orders`, so the system denies it by default.
 
 The example does not assign a DELETE permission to the user, and it does not create a separate deny rule. `false` is simply the normal result of calling `can()` for an unauthorized operation.
 

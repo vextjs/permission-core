@@ -63,7 +63,7 @@ getChain(roleId: string): Promise<VersionedResult<RoleChainEntry[]>>
 | 类型/字段 | 必填 | 说明 |
 |---|:---:|---|
 | `PermissionRuleInput.action` | 是 | `read/invoke/...` 或 `*`；必须与资源 scheme 允许的 action 匹配。 |
-| `PermissionRuleInput.resource` | 是 | 资源字符串或模式，例如 `GET:/api/orders`、`db:orders`。 |
+| `PermissionRuleInput.resource` | 是 | 资源字符串或模式，例如 `api:GET:/api/orders`、`db:orders`。 |
 | `PermissionRuleInput.where` | 否 | 行条件 AST，只对支持数据条件的资源使用；不是任意 JavaScript 函数。 |
 | `RoleUpdateInput.label` | 否 | 修改展示名称；至少提供一个 patch 字段。 |
 | `RoleUpdateInput.description` | 否 | 字符串更新；`null` 删除说明。 |

@@ -50,7 +50,7 @@ await testApp.app.hooks.emit('server:beforeListen', {
 const scoped = testApp.app.permission.scope(scope);
 await scoped.roles.create({ id: 'route-reader', label: 'Route reader' });
 await scoped.roles.allow('route-reader', {
-  action: 'invoke', resource: 'GET:/orders/:id',
+  action: 'invoke', resource: 'api:GET:/orders/:id',
 });
 await scoped.userRoles.assign('u-vext', 'route-reader');
 
@@ -76,7 +76,7 @@ app.get('/orders/:id', { permission: true }, async (req, res) => {
 });
 ```
 
-`permission: true` 推导出对 `GET:/orders/:id` 的 `invoke`。测试专用 header middleware 提供可重复 `req.auth`；生产环境使用真实认证插件。
+`permission: true` 推导出对 `api:GET:/orders/:id` 的 `invoke`。测试专用 header middleware 提供可重复 `req.auth`；生产环境使用真实认证插件。
 
 ### 1. 启动 Vext 测试宿主与插件
 
@@ -96,7 +96,7 @@ app.get('/orders/:id', { permission: true }, async (req, res) => {
 
 <!-- docs:operation id=vext-policy calls=scope,roles.create,roles.allow,userRoles.assign outputs=responses.permissionDenied,responses.permissionAllowed -->
 
-**目的与目标。** `scope` 选择 Vext host 的 tenant context；`roles.create` 创建 `route-reader`，`roles.allow` 允许对 normalized template `GET:/orders/:id` 执行 `invoke`，`userRoles.assign` 把角色追加给 `u-vext`。
+**目的与目标。** `scope` 选择 Vext host 的 tenant context；`roles.create` 创建 `route-reader`，`roles.allow` 允许对 normalized template `api:GET:/orders/:id` 执行 `invoke`，`userRoles.assign` 把角色追加给 `u-vext`。
 
 **状态、参数与结果。** Permission resource 匹配由 `permission: true` 推导的 template，而不是具体 `/orders/42` URL。正是该持久化状态让 `u-vext` 得到 200，而另一个已认证用户得到 403。
 

@@ -6,9 +6,8 @@ import {
     type PermissionCoreHealth,
     type PermissionCoreOptions,
     type PermissionSubject,
-    type ApiBindingManager,
-    type MenuManager,
-    type MenuManifestManager,
+    type MenuConfigManager,
+    type MenuConfigRootManager,
     type RoleMenuPermissionManager,
     type SubjectMenuRuntime,
     type AuthorizedCollection,
@@ -28,31 +27,23 @@ describe("B1 public type contract", () => {
 });
 
 describe("B4 menu public type contract", () => {
-    it("exports the complete frozen manager method sets from the root", () => {
-        const menuKeys = [
-            "manifest", "create", "get", "list", "getTree", "update", "previewUpdate", "executeUpdate",
-            "previewMove", "move", "previewReorder", "reorder", "previewSetStatus", "setStatus",
-            "getRemovalImpact", "previewRemove", "remove", "findStaleReferences",
-            "previewRepairStaleReferences", "repairStaleReferences",
-        ] as const satisfies readonly (keyof MenuManager)[];
-        const manifestKeys = ["preview", "import", "export", "exportPage"] as const satisfies readonly (keyof MenuManifestManager)[];
-        const apiKeys = [
-            "create", "get", "list", "update", "previewSetStatus", "setStatus", "getRemovalImpact",
-            "previewUpdate", "executeUpdate", "previewRemove", "remove", "previewReplace", "replace",
-        ] as const satisfies readonly (keyof ApiBindingManager)[];
+    it("exports the complete high-level menu manager method sets from the root", () => {
+        const rootKeys = ["config"] as const satisfies readonly (keyof MenuConfigRootManager)[];
+        const configKeys = [
+            "preview", "save", "get", "list", "previewRemove", "remove", "previewChanges", "applyChanges",
+        ] as const satisfies readonly (keyof MenuConfigManager)[];
         const roleMenuKeys = [
             "preview", "grant", "revoke", "deny", "set", "getDirect", "listDirect", "getEffective",
-            "getAuthorizationTree", "listStale", "previewRepairStale", "repairStale",
+            "getAuthorizationTree",
         ] as const satisfies readonly (keyof RoleMenuPermissionManager)[];
-        const subjectMenuKeys = ["getVisibleTree", "getButtonMap", "getRouteState"] as const satisfies readonly (keyof SubjectMenuRuntime)[];
-        const menuComplete: Exclude<keyof MenuManager, typeof menuKeys[number]> extends never ? true : false = true;
-        const manifestComplete: Exclude<keyof MenuManifestManager, typeof manifestKeys[number]> extends never ? true : false = true;
-        const apiComplete: Exclude<keyof ApiBindingManager, typeof apiKeys[number]> extends never ? true : false = true;
+        const subjectMenuKeys = ["getViewTree", "getActionMap", "getViewState", "filterResponse"] as const satisfies readonly (keyof SubjectMenuRuntime)[];
+        const rootComplete: Exclude<keyof MenuConfigRootManager, typeof rootKeys[number]> extends never ? true : false = true;
+        const configComplete: Exclude<keyof MenuConfigManager, typeof configKeys[number]> extends never ? true : false = true;
         const roleMenuComplete: Exclude<keyof RoleMenuPermissionManager, typeof roleMenuKeys[number]> extends never ? true : false = true;
         const subjectMenuComplete: Exclude<keyof SubjectMenuRuntime, typeof subjectMenuKeys[number]> extends never ? true : false = true;
 
-        expect([menuComplete, manifestComplete, apiComplete, roleMenuComplete, subjectMenuComplete]).toEqual([
-            true, true, true, true, true,
+        expect([rootComplete, configComplete, roleMenuComplete, subjectMenuComplete]).toEqual([
+            true, true, true, true,
         ]);
     });
 });
@@ -104,7 +95,7 @@ if (false) {
     new PermissionCore({ monsqlize, cache: { enabled: true } });
     // @ts-expect-error Disabled cache cannot carry a TTL.
     new PermissionCore({ monsqlize, cache: { enabled: false, ttlMs: 1000 } });
-    // @ts-expect-error StorageAdapter is not part of the v2 constructor.
+    // @ts-expect-error StorageAdapter is not part of the public constructor.
     new PermissionCore({ monsqlize, storage: {} });
     // @ts-expect-error Authentication state cannot inject roles into the trusted subject.
     const invalidSubject: PermissionSubject = { userId: "u-1", scope: { tenantId: "t" }, roles: ["admin"] };
@@ -116,5 +107,11 @@ if (false) {
     void data.collection("orders", { resource: "db:orders", scopeFields: { tenantId: "tenantId" } }, {});
     // @ts-expect-error Raw Mongo handles are not part of the protected surface.
     void orders.raw();
+    // @ts-expect-error Old bottom-level menu manager is no longer exported from the package root.
+    type RemovedMenuManager = import("../../src").MenuManager;
+    // @ts-expect-error Old manifest manager is no longer exported from the package root.
+    type RemovedMenuManifestManager = import("../../src").MenuManifestManager;
+    // @ts-expect-error Old API binding manager is no longer exported from the package root.
+    type RemovedApiBindingManager = import("../../src").ApiBindingManager;
     void [invalidSubject, invalidDetails];
 }

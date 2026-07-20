@@ -194,8 +194,12 @@ function scopeVector(state: ScopeStateView) {
 
 function scopeAggregateSnapshot(state: ScopeStateView) {
     return {
+        menuConfigCount: state.menuConfigCount,
+        menuConfigBytes: state.menuConfigBytes,
         menuNodeCount: state.menuNodeCount,
         apiBindingCount: state.apiBindingCount,
+        responseFieldCount: state.responseFieldCount,
+        responseFieldOwnerCount: state.responseFieldOwnerCount,
         replaceManifestBytes: state.replaceManifestBytes,
     };
 }

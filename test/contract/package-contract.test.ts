@@ -5,7 +5,7 @@ describe("B1 package contract", () => {
     it("publishes root, match, and the native Vext plugin only", async () => {
         const packageJson = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
 
-        expect(packageJson.version).toBe("2.0.0");
+        expect(packageJson.version).toBe("3.0.0");
         expect(Object.keys(packageJson.exports)).toEqual([".", "./match", "./plugins/vext"]);
         expect(packageJson.exports["./menu"]).toBeUndefined();
         expect(packageJson.exports["./adapters/vext"]).toBeUndefined();

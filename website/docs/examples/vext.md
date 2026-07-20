@@ -1,5 +1,5 @@
 # Vext Integration
-<!-- docs:inline-parity `examples/vext/index.mjs` `docs:vext:start` `docs:vext:end` `examples/vext/app/src/routes/index.mjs` `200` `401` `403` `503` `permissionCoreClosedByPlugin` `hostDatabaseStillConnected` `true` `permission: true` `GET:/orders/:id` `invoke` `req.auth` `createTestApp` `permissionPlugin.setup` `permissionPlugin(...)` `.setup` `server:beforeListen` `app.permission` `createTestApp()` `permissionPlugin(options)` `.setup(app)` `void` `scope` `roles.create` `route-reader` `roles.allow` `userRoles.assign` `u-vext` `/orders/42` `app.permission.scope(scope)` `pc.scope()` `request.get` `allowedBody` `testApp.request.get(path)` `.set()` `status` `allowed.body.data` `routes:ready` `routeReloadRequiresRestart` `VEXT_ROUTE_RESTART_REQUIRED` `hooks.emit('routes:ready', ...)` `request.get('/public')` `testApp.close` `monsqlize.health` `PermissionCore.close()` `testApp.close()` `monsqlize.health()` `printExample()` `responses` `lifecycle` `x-example-user` `permissionPlugin` -->
+<!-- docs:inline-parity `examples/vext/index.mjs` `docs:vext:start` `docs:vext:end` `examples/vext/app/src/routes/index.mjs` `200` `401` `403` `503` `permissionCoreClosedByPlugin` `hostDatabaseStillConnected` `true` `permission: true` `api:GET:/orders/:id` `invoke` `req.auth` `createTestApp` `permissionPlugin.setup` `permissionPlugin(...)` `.setup` `server:beforeListen` `app.permission` `createTestApp()` `permissionPlugin(options)` `.setup(app)` `void` `scope` `roles.create` `route-reader` `roles.allow` `userRoles.assign` `u-vext` `/orders/42` `app.permission.scope(scope)` `pc.scope()` `request.get` `allowedBody` `testApp.request.get(path)` `.set()` `status` `allowed.body.data` `routes:ready` `routeReloadRequiresRestart` `VEXT_ROUTE_RESTART_REQUIRED` `hooks.emit('routes:ready', ...)` `request.get('/public')` `testApp.close` `monsqlize.health` `PermissionCore.close()` `testApp.close()` `monsqlize.health()` `printExample()` `responses` `lifecycle` `x-example-user` `permissionPlugin` -->
 
 ## Scenario
 
@@ -51,7 +51,7 @@ await testApp.app.hooks.emit('server:beforeListen', {
 const scoped = testApp.app.permission.scope(scope);
 await scoped.roles.create({ id: 'route-reader', label: 'Route reader' });
 await scoped.roles.allow('route-reader', {
-  action: 'invoke', resource: 'GET:/orders/:id',
+  action: 'invoke', resource: 'api:GET:/orders/:id',
 });
 await scoped.userRoles.assign('u-vext', 'route-reader');
 
@@ -77,7 +77,7 @@ app.get('/orders/:id', { permission: true }, async (req, res) => {
 });
 ```
 
-`permission: true` derives the `invoke` check for `GET:/orders/:id`. The header middleware is a fixture-only authentication source; production uses the real authentication plugin.
+`permission: true` derives the `invoke` check for `api:GET:/orders/:id`. The header middleware is a fixture-only authentication source; production uses the real authentication plugin.
 
 ### 1. Bootstrap the Vext test host and plugin
 

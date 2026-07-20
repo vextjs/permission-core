@@ -1,220 +1,255 @@
 # Manage Menus
-<!-- docs:inline-parity `directory` `id` `title` `menu` `path` `name` `permission` `page` `component` `button` `code` `external` `url` `iframe` `menus.create()` `MutationResult<MenuNode>` `revisions/operationId/replayed/cache/warnings/detailBudget` `pc.scope(scope)` `tenantId` `appId` `menus.create(input, options?)` `get(nodeId)` `list(filter)` `getTree({ rootId?, includeHidden? })` `VersionedResult<MenuNode>` `list(query?)` `parentId/type/status/hidden/search/first/after` `PageResult<MenuNode>` `getTree(options?)` `VersionedResult<MenuTreeNode[]>` `subject.menus.getVisibleTree(options?)` `SubjectRuntimeResult<VisibleMenuTreeNode[]>` `get()` `data.revision` `update()` `updated.data.revision` `previewUpdate` `executeUpdate` `previewMove(input)` `ImpactPreview<MenuMovePlan>` `executable` `conflicts` `expected` `previewToken` `move(input, options)` `REVISION_CONFLICT` `PREVIEW_STALE` `cascade: true` `getRemovalImpact(nodeId)` `VersionedResult<MenuRemovalImpact>` `previewRemove(nodeId, input)` `ImpactPreview<MenuRemovalPlan>` `remove(nodeId, input, options)` `MutationResult<BatchMutationSummary>` `nodes` `apiBindings` `manifest.preview(manifest)` `replace` `manifest.import(manifest, options)` `manifest.export()` `VersionedResult<FrontendMenuManifest>` `exported.data` `merge` -->
 
-Menu management stores the backend-owned navigation inventory. The easiest way to understand it is as one menu configuration: pages, buttons, the APIs used by those buttons, and optional data-permission templates can all be reviewed and imported through one manifest.
+Menu management starts from one `MenuConfigInput`: declare menus, views, view load APIs, action APIs, and response fields. permission-core compiles that config into internal inventory when you save it, so most admin systems do not need to manage low-level nodes or API bindings directly.
 
-The current manifest shape is flat: `nodes` contains directory/page/button UI nodes, while `apiBindings` contains real backend endpoints and points back to pages or buttons through `owners`. This is slightly more verbose than nested `page.buttons[].apis[]`, but it lets one API be shared by multiple UI assets and audited independently.
+The basic flow is:
 
-## One Importable Menu Config
+```mermaid
+flowchart TD
+  accTitle: Menu config lifecycle
+  accDescr: A MenuConfigInput is previewed and saved, role-menu grants assign its capabilities, user-role bindings activate them for a user, and subject runtime projects UI state and response fields.
+  A["Write MenuConfigInput"] --> B["menus.config.preview reviews impact"]
+  B --> C["menus.config.save stores the config"]
+  C --> D["roles.menuPermissions.grant grants role capabilities"]
+  D --> E["userRoles.assign binds the role to a user"]
+  E --> F["subject.menus.getViewTree / getActionMap projects UI state"]
+  F --> G["subject.menus.filterResponse projects response fields"]
+```
+
+<p className="pc-diagram-text" id="pc-diagram-menu-config-lifecycle-en-text" data-diagram-id="menu-config-lifecycle"><strong>Text equivalent.</strong> The backend writes a MenuConfigInput, previews its impact, and saves it as the source inventory for an admin console. A role-menu grant assigns the relevant views, load APIs, actions, and response fields. After a user receives that role, subject menu runtime projects the visible navigation, action state, view state, and filtered API response.</p>
+
+Saving a menu config does not authorize users. It records what the system can expose; role grants and user-role assignments decide what each user can access.
+
+## A Complete Config
 
 ```ts
-const manifest = {
-  schemaVersion: 2,
-  mode: 'merge',
-  nodes: [
-    {
-      id: 'operations',
-      type: 'directory',
-      title: 'Operations',
-      order: 0,
-    },
-    {
-      id: 'orders',
-      parentId: 'operations',
+const menuConfig = {
+  configId: 'admin',
+  title: 'Admin console',
+  menus: [{
+    id: 'orders',
+    title: 'Orders',
+    icon: 'shopping-cart',
+    views: [{
+      id: 'orders-list',
       type: 'page',
       title: 'Orders',
       path: '/orders',
-      name: 'orders',
       component: 'OrdersPage',
-      order: 0,
-      permission: { action: 'read', resource: 'ui:page:orders' },
-      dataPermissions: [
-        { action: 'read', resource: 'db:orders', label: 'Read orders' },
-      ],
-    },
-    {
-      id: 'orders-export',
-      parentId: 'orders',
-      type: 'button',
-      title: 'Export',
-      code: 'orders.export',
-      order: 0,
-      permission: { action: 'invoke', resource: 'ui:button:orders.export' },
-    },
-  ],
-  apiBindings: [
-    {
-      id: 'orders-list-api',
-      method: 'GET',
-      path: '/api/orders',
-      purpose: 'entry',
-      authorization: {
-        mode: 'all',
-        permissions: [
-          { action: 'invoke', resource: 'api:GET:/api/orders' },
-        ],
-      },
-      owners: [{ type: 'page', id: 'orders', required: true }],
-      canonicalOwner: { type: 'page', id: 'orders' },
-    },
-    {
-      id: 'orders-export-api',
-      method: 'POST',
-      path: '/api/orders/export',
-      purpose: 'importExport',
-      authorization: {
-        mode: 'all',
-        permissions: [
-          { action: 'invoke', resource: 'api:POST:/api/orders/export' },
-        ],
-      },
-      owners: [{ type: 'button', id: 'orders-export', required: true }],
-      canonicalOwner: { type: 'button', id: 'orders-export' },
-    },
-  ],
+      load: [{
+        resource: 'api:GET:/api/orders',
+        response: {
+          target: 'items',
+          preserve: ['total'],
+          fields: [
+            { field: 'orderNo', title: '订单号' },
+            { field: 'status', title: '状态' },
+            { field: 'amount', title: '金额' },
+          ],
+        },
+      }],
+      actions: [{
+        id: 'export',
+        title: '导出订单',
+        resource: 'api:POST:/api/orders/export',
+        response: [{ field: 'downloadUrl', title: '下载地址' }],
+      }],
+    }],
+  }],
 };
+```
 
-const preview = await scoped.menus.manifest.preview(manifest);
-if (preview.executable) {
-  await scoped.menus.manifest.import(manifest, {
-    ...preview.expected,
-    previewToken: preview.previewToken,
-  });
+| Field | Meaning | Runtime effect |
+|---|---|---|
+| `configId` | Stable ID for one menu config | Grants and runtime reads use it to find this admin menu. |
+| `menus[]` | Navigation groups | A group is not an API permission by itself. |
+| `views[]` | Pages, drawers, dialogs, or tabs | `getViewTree()` and `getViewState()` project these per user. |
+| `load[].resource` | API called when the page opens | Use `api:METHOD:/path`; action is automatically `invoke`. |
+| `actions[].resource` | API or UI resource used by a page action | Supports backend `api:*` and frontend `ui:*` resources. |
+| `response` | Fields that can be returned to the frontend | `filterResponse()` projects data according to granted fields. |
+
+`load.resource` must be an `api:` resource, for example `api:GET:/api/orders`. This lets Vext route guards, role-menu grants, and response-field projection use the same resource ID.
+
+## Response Fields
+
+Use an array when the endpoint returns an object or array directly:
+
+```ts
+response: [
+  { field: 'orderNo', title: '订单号' },
+  { field: 'buyer.name', title: '买家姓名' },
+]
+```
+
+Use an object for common paginated responses:
+
+```ts
+response: {
+  target: 'items',
+  preserve: ['total'],
+  fields: [
+    { field: 'orderNo', title: '订单号' },
+    { field: 'status', title: '状态' },
+  ],
 }
 ```
 
-This config means:
+`field` supports dot paths such as `buyer.name`. `target` points to the array or object to project, and `preserve` keeps outer structural fields such as totals or cursors. For a payload shaped like `{ items, total }`, set `target` to `items` and keep `total` in `preserve`. When granting the role later, `include.responseFields: 'none'` means only explicitly selected fields are exposed.
 
-| Config | Purpose | Runtime effect |
-|---|---|---|
-| `nodes[0]` directory | Navigation grouping only | It is not a business permission. |
-| `nodes[1]` page | The `/orders` page | A subject needs `ui:page:orders` for this page to appear in menu and route projections. |
-| `nodes[1].dataPermissions` | Business data-permission templates related to the page | They are not granted when the menu is created; role-menu authorization expands them only when `dataPermissions` is included. |
-| `nodes[2]` button | The export button on the page | A subject needs `ui:button:orders.export` for the button to appear in the button map. |
-| `apiBindings[0]` | The endpoint loaded by default when the orders page opens | If the subject misses the `api:GET:/api/orders` invoke permission, the route may still be visible but runtime state can report the page's required API as unavailable; the backend endpoint must still check access. |
-| `apiBindings[1]` | The backend endpoint used by the export button | If the subject misses the `api:POST:/api/orders/export` invoke permission, the button is projected as unavailable; the backend endpoint must still check access. |
-| `owners` | Which page, menu, or button owns the API binding | `type: 'page'` fits default page-load APIs, `type: 'menu'` fits APIs triggered by clicking a menu item itself, and `type: 'button'` fits button operation APIs; `required: true` means missing API access makes that UI asset unavailable. |
-
-You can treat this as one menu config file:
-
-- Page access lives in the page node `permission`.
-- APIs called by default when a page/menu opens live in `apiBindings[].authorization.permissions`, usually as `api:*` invoke permissions, with `owners: [{ type: 'page' | 'menu', id: ... }]` pointing back to that page or menu.
-- Pure button access lives in the button node `permission`.
-- Button API access lives in `apiBindings[].authorization.permissions`, usually as `api:*` invoke permissions.
-- The button-to-API relationship lives in `apiBindings[].owners`.
-- Do not mix data permissions into menu API access; related data-permission templates live in `dataPermissions`, and real data scope is enforced by data permissions or the data layer.
-- Which pages, buttons, APIs, and data templates a role receives is decided by [role-menu authorization](/guide/role-menu-authorization).
-
-## Node Types
-
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
-
-Menu nodes only define UI assets that can be authorized and projected. Real backend endpoints are not stored on the node itself; [API bindings](/guide/api-bindings) point to page/menu/button `id` values through `owners`, and [role-menu authorization](/guide/role-menu-authorization) later expands the selected menus, buttons, APIs, and data templates into role rules.
-
-## Create and Read Nodes
-
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+## Preview and Save
 
 ```ts
 const scoped = pc.scope({ tenantId: 'acme', appId: 'admin' });
 
-const root = await scoped.menus.create({
-  id: 'operations',
-  type: 'directory',
-  title: 'Operations',
+const preview = await scoped.menus.config.preview(menuConfig, {
+  actorId: 'admin',
 });
-const page = await scoped.menus.create({
-  id: 'orders',
-  parentId: 'operations',
-  type: 'page',
-  title: 'Orders',
-  path: '/orders',
-  name: 'orders',
-  component: 'OrdersPage',
-  permission: { action: 'read', resource: 'ui:page:orders' },
-  dataPermissions: [
-    { action: 'read', resource: 'db:orders', label: 'Read orders' },
-  ],
+if (!preview.executable) {
+  throw new Error('菜单配置存在冲突，需要先处理');
+}
+
+const saved = await scoped.menus.config.save(menuConfig, {
+  ...preview.expected,
+  previewToken: preview.previewToken,
+  actorId: 'admin',
+  idempotencyKey: 'admin-menu-v1',
 });
 ```
+
 ```json
 {
-  "committed": true,
   "changed": true,
   "data": {
-    "id": "orders",
-    "parentId": "operations",
-    "type": "page",
-    "revision": 1
-  },
-  "revision": 2,
-  "auditId": "..."
+    "config": {
+      "configId": "admin",
+      "revision": 1,
+      "menus": [{ "id": "orders", "views": [{ "id": "orders-list" }] }]
+    },
+    "manifestOperations": { "total": 3 },
+    "retainedGrantCount": 0,
+    "revokedGrantCount": 0
+  }
 }
 ```
-## Update Metadata and Structure
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+`menus.config.preview(config)` computes impact without writing. `menus.config.save(config, options)` writes the config and synchronizes internal menu, API, and response-field assets. Pass the returned `expected` vector and `previewToken` to avoid saving a stale model.
+
+## Change or Remove Configs
+
+Read configs:
 
 ```ts
-const current = await scoped.menus.get('orders');
-const updated = await scoped.menus.update(
-  'orders',
-  { title: 'Order management', icon: 'shopping-cart' },
-  { expectedRevision: current.data.revision },
-);
+const current = await scoped.menus.config.get('admin');
+const page = await scoped.menus.config.list({ first: 20 });
 ```
-```ts
-const preview = await scoped.menus.previewMove({
-  nodeId: 'orders',
-  parentId: null,
-});
-if (!preview.executable) throw new Error('Resolve conflicts first');
-await scoped.menus.move(
-  { nodeId: 'orders', parentId: null },
-  { ...preview.expected, previewToken: preview.previewToken },
-);
-```
-## Safe Removal
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+Remove a config:
 
 ```ts
-const impact = await scoped.menus.getRemovalImpact('orders');
-const preview = await scoped.menus.previewRemove('orders', {
-  cascade: true,
-});
-if (!preview.executable) throw new Error('Resolve dependencies first');
-const removed = await scoped.menus.remove(
-  'orders',
-  { cascade: true },
-  { ...preview.expected, previewToken: preview.previewToken },
-);
-```
-## Import and Export a Manifest
-
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
-
-```ts
-const manifest = {
-  schemaVersion: 2,
-  mode: 'replace',
-  nodes: [
-    { id: 'operations', type: 'directory', title: 'Operations', order: 0 },
-    {
-      id: 'orders', parentId: 'operations', type: 'page', title: 'Orders',
-      path: '/orders', name: 'orders', component: 'OrdersPage', order: 0,
-      permission: { action: 'read', resource: 'ui:page:orders' },
-    },
-  ],
-  apiBindings: [],
-};
-const preview = await scoped.menus.manifest.preview(manifest);
-if (preview.executable) {
-  await scoped.menus.manifest.import(manifest, {
-    ...preview.expected,
-    previewToken: preview.previewToken,
+const previewRemove = await scoped.menus.config.previewRemove('admin');
+if (previewRemove.executable) {
+  await scoped.menus.config.remove('admin', {
+    ...previewRemove.expected,
+    previewToken: previewRemove.previewToken,
+    actorId: 'admin',
   });
 }
-const exported = await scoped.menus.manifest.export();
 ```
-Continue with [Bind APIs](/guide/api-bindings).
+
+Apply multiple changes:
+
+```ts
+const changes = [
+  { operation: 'save', config: menuConfig },
+  { operation: 'remove', configId: 'legacy-admin' },
+];
+const previewChanges = await scoped.menus.config.previewChanges(changes);
+if (previewChanges.executable) {
+  await scoped.menus.config.applyChanges(changes, {
+    ...previewChanges.expected,
+    previewToken: previewChanges.previewToken,
+  });
+}
+```
+
+Use single saves for normal admin edits. Use `previewChanges/applyChanges` for plugin installation, module upgrades, or importing several configs at once.
+
+## Grant the Role
+
+After saving the config, the role still has no permission. Grant the page, its load API, its actions, and selected response fields:
+
+```ts
+const selection = {
+  configId: 'admin',
+  views: ['orders-list'],
+  responseFields: [{
+    apiResource: 'api:GET:/api/orders',
+    fields: ['orderNo', 'status'],
+  }],
+  include: {
+    loads: true,
+    actions: true,
+    responseFields: 'none',
+  },
+};
+
+const grantPreview = await scoped.roles.menuPermissions.preview(
+  'order-operator',
+  { operation: 'grant', selection },
+);
+const granted = await scoped.roles.menuPermissions.grant(
+  'order-operator',
+  selection,
+  {
+    ...grantPreview.expected,
+    previewToken: grantPreview.previewToken,
+  },
+);
+```
+
+`views` is what the admin selected. `include.loads: true` grants the page load APIs, `include.actions: true` grants page actions, and `responseFields` grants only the named response fields. The grant response includes `generatedSources`, `generatedResponseFields`, and `grantIds` so an admin screen can explain exactly what changed.
+
+## Runtime Reads
+
+```ts
+await scoped.userRoles.assign('u-menu', 'order-operator');
+
+const subjectMenus = pc.forSubject({
+  userId: 'u-menu',
+  scope: { tenantId: 'acme', appId: 'admin' },
+}).menus;
+
+const tree = await subjectMenus.getViewTree({ configId: 'admin' });
+const state = await subjectMenus.getViewState({ configId: 'admin', viewId: 'orders-list' });
+const actions = await subjectMenus.getActionMap({ configId: 'admin', viewId: 'orders-list' });
+const response = await subjectMenus.filterResponse('api:GET:/api/orders', {
+  items: [{ orderNo: 'O-1001', status: 'paid', amount: 88, internalCost: 51 }],
+  total: 1,
+  debug: true,
+});
+```
+
+```json
+{
+  "viewTreeIds": ["orders"],
+  "viewAllowed": true,
+  "exportEnabled": true,
+  "projectedResponse": {
+    "items": [{ "orderNo": "O-1001", "status": "paid" }],
+    "total": 1
+  }
+}
+```
+
+`getViewTree()` feeds navigation, `getViewState()` checks page access, `getActionMap()` returns action state, and `filterResponse()` checks `invoke` before projecting response fields on the server.
+
+## Common Mistakes
+
+| Mistake | Correct model |
+|---|---|
+| Saving a menu gives users access | Save records capabilities; `roles.menuPermissions.grant` and `userRoles.assign` grant access. |
+| `load` needs `action: 'invoke'` | It does not. `load.resource` automatically compiles to `invoke`. |
+| Response fields are shallow only | Dot paths and `{ target, preserve, fields }` are supported. |
+| `filterResponse()` replaces API guards | It does not. Protect business APIs with `subject.assert()` or a Vext guard. |
+
+See the runnable [menu admin example](/examples/menu-admin), [Menus API](/api/menus), and [Configure APIs and Response Fields](/api/api-bindings).

@@ -3,6 +3,7 @@ import type { PermissionRepository } from "../../src/persistence/repository";
 import type { ScopeStateView } from "../../src/persistence/scope-state";
 import { ResourceSchemeRegistry } from "../../src/check/resource-schemes";
 import { compareUtf8, digestCanonical } from "../../src/internal/canonical";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
 import { createScopeKey, normalizeScope } from "../../src/scope/scope";
 import {
     createSemanticKey,
@@ -77,15 +78,19 @@ function state(persisted = true): ScopeStateView {
     return Object.freeze({
         scopeKey,
         scope,
-        schemaVersion: 2,
+        schemaVersion: PERSISTED_SCHEMA_VERSION,
         schemeContractDigest: resourceSchemes.schemeContractDigest,
         schemaContractKey: digestCanonical({ test: "schema" }),
         revision: persisted ? 1 : 0,
         rbacRevision: persisted ? 1 : 0,
         menuRevision: 0,
         auditRevision: persisted ? 1 : 0,
+        menuConfigCount: 0,
+        menuConfigBytes: 0,
         menuNodeCount: 0,
         apiBindingCount: 0,
+        responseFieldCount: 0,
+        responseFieldOwnerCount: 0,
         replaceManifestBytes: 49,
         createdAt: persisted ? 100 : 0,
         updatedAt: persisted ? 100 : 0,

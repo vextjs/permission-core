@@ -6,7 +6,6 @@ export {
     hasPermissionContext,
     requirePermissionContext,
 } from "./request";
-export { toApiBindingInputs } from "./manifest";
 export type * from "./types";
 
 export const appExtensions = defineAppExtensions<{

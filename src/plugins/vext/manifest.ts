@@ -2,6 +2,7 @@ import { types as utilTypes } from "node:util";
 import type {
     ApiAuthorization,
     ApiBindingCreateInput,
+    ApiResource,
     PermissionAction,
 } from "../../types";
 import type { VextRouteHookInfo } from "vextjs";
@@ -39,6 +40,7 @@ export interface VextRouteRuntimeContract {
     readonly contractDigest: string;
     readonly method: string;
     readonly path: string;
+    readonly apiResource: ApiResource;
     readonly authorization: ApiAuthorization | null;
     readonly evaluation: null | {
         readonly mode: "all" | "any";
@@ -282,6 +284,13 @@ function readPermissionOption(route: Record<string, unknown>, field: string) {
     return record.permission as VextRoutePermission;
 }
 
+function hasEnabledRouteCache(route: Record<string, unknown>, field: string) {
+    const options = route.options;
+    if (options === undefined) return false;
+    const record = plainRecord(options, `${field}.options`);
+    return Object.hasOwn(record, "cache") && record.cache !== false;
+}
+
 function portableEntry(entry: Pick<VextRouteManifestEntry, "routeKey" | "method" | "path" | "authorization">) {
     return deepFreeze({
         routeKey: entry.routeKey,
@@ -306,7 +315,7 @@ function normalizeRoute(
     const route = plainRecord(value, field);
     const method = normalizeMethod(route.method, `${field}.method`);
     const path = normalizePath(route.path, `${field}.path`);
-    const defaultResource = `${method}:${path}`;
+    const defaultResource = `api:${method}:${path}` as ApiResource;
     try {
         schemes.validate(defaultResource, "pattern");
     } catch (cause) {
@@ -319,6 +328,9 @@ function normalizeRoute(
         schemes,
         `${field}.options.permission`,
     );
+    if (permission !== null && hasEnabledRouteCache(route, field)) {
+        throw invalidRoute(`${field}.options.cache`, "must be false on permission-protected routes because response fields are subject-specific");
+    }
     const entry = deepFreeze({
         routeKey,
         method,
@@ -336,6 +348,7 @@ function normalizeRoute(
             contractDigest,
             method,
             path,
+            apiResource: defaultResource,
             authorization: entry.authorization,
             evaluation: permission?.evaluation ?? null,
         }),

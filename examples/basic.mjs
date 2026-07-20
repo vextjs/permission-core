@@ -9,15 +9,15 @@ try {
     await scoped.roles.create({ id: "order-reader", label: "Order reader" });
     await scoped.roles.allow("order-reader", {
         action: "invoke",
-        resource: "GET:/api/orders",
+        resource: "api:GET:/api/orders",
     });
     await scoped.roles.create({ id: "operator", label: "Operator" });
 
     // FIRST_SUCCESS:start
     const assigned = await scoped.userRoles.assign("u-1", "order-reader");
     const subject = runtime.core.forSubject({ userId: "u-1", scope });
-    const allowed = await subject.can("invoke", "GET:/api/orders");
-    const cannotDelete = await subject.cannot("invoke", "DELETE:/api/orders");
+    const allowed = await subject.can("invoke", "api:GET:/api/orders");
+    const cannotDelete = await subject.cannot("invoke", "api:DELETE:/api/orders");
     // FIRST_SUCCESS:end
 
     await scoped.userRoles.assign("u-1", "operator");
@@ -34,7 +34,7 @@ try {
     const effectiveRoles = await scoped.userRoles.getEffective("u-1");
     const permissions = await subject.getPermissions();
     const resources = await subject.getResources("invoke");
-    const deleteExplanation = await subject.explain("invoke", "DELETE:/api/orders");
+    const deleteExplanation = await subject.explain("invoke", "api:DELETE:/api/orders");
 
     printExample("basic", {
         role: { id: role.data.id, label: role.data.label, revision: role.data.revision },

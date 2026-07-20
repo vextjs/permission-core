@@ -6,6 +6,7 @@ import {
     INTERNAL_BSON_GENERATED_ID_BYTES,
     MAX_AUDIT_CHANGE_BYTES,
     MAX_INTERNAL_DOCUMENT_BYTES,
+    PERSISTED_SCHEMA_VERSION,
     assertCanonicalBudget,
     assertInternalDocumentBudget,
 } from "../../src/persistence/documents";
@@ -24,9 +25,10 @@ import { createMonSQLizeStub } from "./helpers/monsqlize-stub";
 describe("private persistence contract", () => {
     it("freezes the complete named simple-collation index catalog", () => {
         const specs = Object.values(INTERNAL_INDEX_CATALOG).flat();
-        expect(specs).toHaveLength(38);
+        expect(specs).toHaveLength(42);
         expect(new Set(specs.map((spec) => spec.name)).size).toBe(specs.length);
         expect(specs.every((spec) => Object.isFrozen(spec) && spec.collation.locale === "simple")).toBe(true);
+        expect(INTERNAL_INDEX_CATALOG.menuConfigs).toHaveLength(4);
         expect(INTERNAL_INDEX_CATALOG.auditEntries).toHaveLength(12);
     });
 
@@ -434,7 +436,7 @@ describe("private persistence contract", () => {
         const schemeContractDigest = digestCanonical("aggregate-cas-scheme");
         const schemaContractKey = digestCanonical({
             canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest,
         });
         const repository = new PermissionRepository(stub.instance, "pc_aggregate_cas", {
@@ -447,15 +449,19 @@ describe("private persistence contract", () => {
         (scopeState.findOne as ReturnType<typeof vi.fn>).mockResolvedValue({
             scopeKey,
             scope,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest,
             schemaContractKey,
             revision: 0,
             rbacRevision: 0,
             menuRevision: 0,
             auditRevision: 0,
+            menuConfigCount: 0,
+            menuConfigBytes: 0,
             menuNodeCount: 1,
             apiBindingCount: 0,
+            responseFieldCount: 0,
+            responseFieldOwnerCount: 0,
             replaceManifestBytes: EMPTY_REPLACE_MANIFEST_BYTES + 1,
             createdAt: 1,
             updatedAt: 1,
@@ -474,8 +480,12 @@ describe("private persistence contract", () => {
             session,
             2,
             {
+                menuConfigCount: 0,
+                menuConfigBytes: 0,
                 menuNodeCount: 0,
                 apiBindingCount: 0,
+                responseFieldCount: 0,
+                responseFieldOwnerCount: 0,
                 replaceManifestBytes: EMPTY_REPLACE_MANIFEST_BYTES,
             },
         )).rejects.toMatchObject({
@@ -486,8 +496,12 @@ describe("private persistence contract", () => {
             expect.objectContaining({
                 revision: 0,
                 menuRevision: 0,
+                menuConfigCount: 0,
+                menuConfigBytes: 0,
                 menuNodeCount: 0,
                 apiBindingCount: 0,
+                responseFieldCount: 0,
+                responseFieldOwnerCount: 0,
                 replaceManifestBytes: EMPTY_REPLACE_MANIFEST_BYTES,
             }),
             expect.anything(),
@@ -818,6 +832,54 @@ describe("private persistence contract", () => {
                 entities: [{ kind: "menu-node", id: "orders", revision: 1 }],
             },
         }, session);
+        await repository.audits.append({
+            ...baseAudit,
+            auditId: "audit-menu-config-save",
+            operationId: "operation-menu-config-save",
+            operation: "menus.config.save",
+            action: "create",
+            revisionsBefore: {
+                global: 0,
+                rbac: 0,
+                menu: 0,
+                audit: 0,
+                entities: [{ kind: "menu-config", id: "orders", revision: 0 }],
+            },
+            revisionsAfter: {
+                global: 1,
+                rbac: 0,
+                menu: 1,
+                audit: 1,
+                entities: [{ kind: "menu-config", id: "orders", revision: 1 }],
+            },
+        }, session);
+        await repository.audits.append({
+            ...baseAudit,
+            auditId: "audit-menu-config-apply-changes",
+            operationId: "operation-menu-config-apply-changes",
+            operation: "menus.config.applyChanges",
+            action: "replace",
+            revisionsBefore: {
+                global: 0,
+                rbac: 0,
+                menu: 0,
+                audit: 0,
+                entities: [
+                    { kind: "menu-config", id: "orders", revision: 0 },
+                    { kind: "role", id: "reader", revision: 0 },
+                ],
+            },
+            revisionsAfter: {
+                global: 1,
+                rbac: 1,
+                menu: 1,
+                audit: 1,
+                entities: [
+                    { kind: "menu-config", id: "orders", revision: 1 },
+                    { kind: "role", id: "reader", revision: 1 },
+                ],
+            },
+        }, session);
 
         await expect(repository.audits.append({
             ...baseAudit,
@@ -868,6 +930,6 @@ describe("private persistence contract", () => {
             },
         }, session)).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
 
-        expect(auditInsertOne).toHaveBeenCalledTimes(3);
+        expect(auditInsertOne).toHaveBeenCalledTimes(5);
     });
 });

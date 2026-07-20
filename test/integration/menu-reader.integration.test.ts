@@ -26,6 +26,7 @@ import {
     createRoleMenuGrantSnapshot,
 } from "../../src/menu/source-rewrite";
 import { PermissionRepository } from "../../src/persistence/repository";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
 import { SIMPLE_COLLATION } from "../../src/persistence/indexes";
 import {
     createMenuSourceId,
@@ -59,7 +60,7 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         };
@@ -125,13 +126,17 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
         await repository.collections.scopeState.insertOne({
             scopeKey,
             scope,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest: contract.schemeContractDigest,
             schemaContractKey: contract.schemaContractKey,
             revision: 1,
             rbacRevision: 0,
             menuRevision: 1,
             auditRevision: 1,
+            menuConfigCount: 0,
+            menuConfigBytes: 0,
+            responseFieldCount: 0,
+            responseFieldOwnerCount: 0,
             menuNodeCount: nodeDocuments.length,
             apiBindingCount: bindingDocuments.length,
             replaceManifestBytes,
@@ -175,7 +180,7 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         });
@@ -308,7 +313,7 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         });
@@ -554,7 +559,7 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         });
@@ -635,7 +640,7 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         });
@@ -797,7 +802,7 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         });
@@ -1373,7 +1378,7 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         }, 1);
@@ -1429,7 +1434,7 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         });
@@ -1574,7 +1579,7 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         });
@@ -1784,7 +1789,7 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         });
@@ -1901,7 +1906,7 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         });
@@ -1930,17 +1935,21 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
         await repository.collections.scopeState.insertOne({
             scopeKey,
             scope,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
             revision: 1,
             rbacRevision: 0,
             menuRevision: 1,
             auditRevision: 1,
+            menuConfigCount: 0,
+            menuConfigBytes: 0,
+            responseFieldCount: 0,
+            responseFieldOwnerCount: 0,
             menuNodeCount: documents.length,
             apiBindingCount: 0,
             replaceManifestBytes,
@@ -1977,7 +1986,7 @@ describe("v2 menu read model on MonSQLize 3.1", () => {
             schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest,
             }),
         });

@@ -1,10 +1,14 @@
 import type {
+    ActionPermissionState,
+    ApiResource,
     BoundedDetails,
     ButtonPermissionState,
     MenuRuntimeApiRisk,
     RoutePermissionState,
     SubjectRuntimeResult,
     VisibleMenuTreeNode,
+    ViewPermissionState,
+    ViewTreeNode,
 } from "../types";
 import { ResourceSchemeRegistry } from "../check/resource-schemes";
 import { PermissionCoreError, validationError } from "../core/errors";
@@ -31,6 +35,15 @@ import {
 import { validateMenuGraph } from "./queries";
 import { MAX_MENU_TREE_NODES, MenuScopeReader } from "./store";
 import { exactMenuRecord, normalizeDeclaredPath } from "./validation";
+import {
+    aggregateCompiledMenuConfigs,
+} from "./config-aggregate";
+import {
+    compileMenuConfigSnapshot,
+    type CompiledMenuConfig,
+    type CompiledResponseDefinition,
+} from "./config-compiler";
+import { readScopedMenuConfigDocuments } from "./config-service";
 
 const MAX_BUTTONS_PER_OWNER = 1_000;
 const BUTTON_CODE = /^[A-Za-z][A-Za-z0-9._:-]{0,127}$/u;
@@ -47,6 +60,17 @@ interface SubjectMenuSnapshot {
     readonly graph: MenuGraph;
     readonly nodesByPath: ReadonlyMap<string, Readonly<InternalMenuNodeDocument>>;
     readonly bindingsByOwner: ReadonlyMap<string, readonly Readonly<InternalApiBindingDocument>[]>;
+    readonly configById: ReadonlyMap<string, CompiledMenuConfig>;
+    readonly responseByApi: ReadonlyMap<ApiResource, CompiledResponseDefinition>;
+}
+
+interface BusinessGrantFieldState {
+    readonly effect: "allow" | "deny";
+    readonly apiResource: ApiResource;
+    readonly targetDigest: string;
+    readonly field: string;
+    readonly roleId: string;
+    readonly depth: number;
 }
 
 function persistedInvalid(reason: string): never {
@@ -98,6 +122,56 @@ function ownerKey(type: RuntimeOwnerType, id: string) {
     return `${type}\u0000${id}`;
 }
 
+function isPlainRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function getPath(value: unknown, path: string): unknown {
+    let current = value;
+    for (const segment of path.split(".")) {
+        if (!isPlainRecord(current) || !Object.hasOwn(current, segment)) return undefined;
+        current = current[segment];
+    }
+    return current;
+}
+
+function setPath(target: Record<string, unknown>, path: string, value: unknown) {
+    const segments = path.split(".");
+    let current = target;
+    for (let index = 0; index < segments.length - 1; index += 1) {
+        const segment = segments[index]!;
+        const next = current[segment];
+        if (!isPlainRecord(next)) {
+            const created: Record<string, unknown> = {};
+            current[segment] = created;
+            current = created;
+        } else {
+            current = next as Record<string, unknown>;
+        }
+    }
+    current[segments[segments.length - 1]!] = value;
+}
+
+function pickFields(value: unknown, fields: ReadonlySet<string>): unknown {
+    if (Array.isArray(value)) return value.map((item) => pickFields(item, fields));
+    if (!isPlainRecord(value)) return null;
+    const output: Record<string, unknown> = {};
+    for (const field of [...fields].sort(compareUtf8)) {
+        const fieldValue = getPath(value, field);
+        if (fieldValue !== undefined) setPath(output, field, fieldValue);
+    }
+    return output;
+}
+
+function clonePreserved(payload: unknown, preserve: readonly string[]) {
+    const output: Record<string, unknown> = {};
+    for (const path of preserve) {
+        const value = getPath(payload, path);
+        if (value !== undefined) setPath(output, path, value);
+    }
+    return output;
+}
+
 function runtimeOwnerType(node: Readonly<InternalMenuNodeDocument>): RuntimeOwnerType | null {
     return node.type === "menu" || node.type === "page" || node.type === "button"
         ? node.type
@@ -138,6 +212,7 @@ function navigationNodeBase(
 
 export class SubjectMenuAuthorizationRuntime {
     private snapshotPromise?: Promise<SubjectMenuSnapshot>;
+    private businessFieldStatePromise?: Promise<readonly BusinessGrantFieldState[]>;
     private readonly permissionDecisions = new Map<string, Promise<boolean>>();
     private readonly bindingDecisions = new Map<string, Promise<boolean>>();
     private readonly ownerDecisions = new Map<string, Promise<OwnerApiAvailabilityDecision>>();
@@ -166,6 +241,11 @@ export class SubjectMenuAuthorizationRuntime {
                     if (hasInvalidMenuCodeCause(error)) persistedInvalid("invalid-menu-code");
                     throw error;
                 }
+                const configDocuments = await readScopedMenuConfigDocuments(this.repository, this.schemes, reader, this.rbacReader.databaseSession());
+                const compiledConfigs = configDocuments.map((document) => compileMenuConfigSnapshot(document.config, this.schemes));
+                const responseByApi = compiledConfigs.length === 0
+                    ? new Map<ApiResource, CompiledResponseDefinition>()
+                    : aggregateCompiledMenuConfigs(compiledConfigs, this.schemes).responseCatalog;
                 const graph = validateMenuGraph(inventory.nodes);
                 const nodesByPath = new Map<string, Readonly<InternalMenuNodeDocument>>();
                 for (const node of inventory.nodes) {
@@ -193,6 +273,8 @@ export class SubjectMenuAuthorizationRuntime {
                     graph,
                     nodesByPath,
                     bindingsByOwner,
+                    configById: new Map(compiledConfigs.map((config) => [config.configId, config] as const)),
+                    responseByApi,
                 });
             })();
         }
@@ -235,7 +317,15 @@ export class SubjectMenuAuthorizationRuntime {
     ): Promise<OwnerApiAvailabilityDecision> {
         const type = runtimeOwnerType(node);
         if (type === null) return Promise.resolve(deepFreeze({ enabled: true, risks: [] }));
-        const key = ownerKey(type, node.nodeId);
+        return this.ownerAvailabilityByOwner(snapshot, type, node.nodeId);
+    }
+
+    private ownerAvailabilityByOwner(
+        snapshot: SubjectMenuSnapshot,
+        type: RuntimeOwnerType,
+        id: string,
+    ): Promise<OwnerApiAvailabilityDecision> {
+        const key = ownerKey(type, id);
         let decision = this.ownerDecisions.get(key);
         if (!decision) {
             decision = (async () => {
@@ -250,7 +340,7 @@ export class SubjectMenuAuthorizationRuntime {
                         allowed: await this.bindingAllowed(binding),
                     });
                 }
-                return evaluateOwnerApiAvailability({ type, id: node.nodeId }, bindingDecisions);
+                return evaluateOwnerApiAvailability({ type, id }, bindingDecisions);
             })();
             this.ownerDecisions.set(key, decision);
         }
@@ -265,6 +355,335 @@ export class SubjectMenuAuthorizationRuntime {
         if (!(await this.permissionAllowed(node))) return null;
         const availability = await this.ownerAvailability(snapshot, node);
         return navigationNodeBase(node, availability);
+    }
+
+    private requireConfig(snapshot: SubjectMenuSnapshot, configIdInput: unknown) {
+        const configId = normalizeRbacId(configIdInput, "configId");
+        const config = snapshot.configById.get(configId);
+        if (config === undefined) throw new PermissionCoreError("MENU_NOT_FOUND", `Menu config ${configId} was not found.`);
+        return config;
+    }
+
+    private compiledNodePermission(config: CompiledMenuConfig, nodeId: string) {
+        return config.nodes.find((node) => node.id === nodeId)?.permission;
+    }
+
+    private async compiledNodeAllowed(config: CompiledMenuConfig, nodeId: string) {
+        const permission = this.compiledNodePermission(config, nodeId);
+        return permission === undefined
+            ? true
+            : this.checkPermission(permission.action, permission.resource);
+    }
+
+    private allViews(config: CompiledMenuConfig) {
+        const views: {
+            readonly menu: CompiledMenuConfig["snapshot"]["menus"][number];
+            readonly view: CompiledMenuConfig["snapshot"]["menus"][number]["views"][number];
+        }[] = [];
+        const visit = (menu: CompiledMenuConfig["snapshot"]["menus"][number]) => {
+            for (const view of menu.views) views.push({ menu, view });
+            for (const child of menu.children) visit(child);
+        };
+        for (const menu of config.snapshot.menus) visit(menu);
+        return views;
+    }
+
+    private findView(config: CompiledMenuConfig, viewId: string) {
+        return this.allViews(config).find((entry) => entry.view.id === viewId);
+    }
+
+    private async viewDecision(
+        snapshot: SubjectMenuSnapshot,
+        config: CompiledMenuConfig,
+        viewId: string,
+    ): Promise<{
+        readonly allowed: boolean;
+        readonly reason: ViewPermissionState["reason"];
+        readonly view?: CompiledMenuConfig["snapshot"]["menus"][number]["views"][number];
+        readonly menu?: CompiledMenuConfig["snapshot"]["menus"][number];
+    }> {
+        const found = this.findView(config, viewId);
+        if (found === undefined) return { allowed: false, reason: "not-found" };
+        const ref = config.viewIndex.get(viewId);
+        if (ref === undefined) return { allowed: false, reason: "not-found" };
+        if (!found.view.enabled) return { allowed: false, reason: "disabled", view: found.view, menu: found.menu };
+        if (!(await this.compiledNodeAllowed(config, ref.nodeId))) {
+            return { allowed: false, reason: "permission-denied", view: found.view, menu: found.menu };
+        }
+        const availability = await this.ownerAvailabilityByOwner(snapshot, "page", ref.apiOwnerNodeId);
+        if (!availability.enabled) return { allowed: false, reason: "load-unavailable", view: found.view, menu: found.menu };
+        return { allowed: true, reason: "allowed", view: found.view, menu: found.menu };
+    }
+
+    private async menuNavigationAllowed(config: CompiledMenuConfig, menu: CompiledMenuConfig["snapshot"]["menus"][number]) {
+        const ref = config.menuIndex.get(menu.id);
+        return ref === undefined ? false : this.compiledNodeAllowed(config, ref.nodeId);
+    }
+
+    private async navigationReason(
+        config: CompiledMenuConfig,
+        view: CompiledMenuConfig["snapshot"]["menus"][number]["views"][number],
+    ): Promise<ViewPermissionState["navigationReason"]> {
+        if (!view.navigation) return "navigation-disabled";
+        const ancestors: CompiledMenuConfig["snapshot"]["menus"][number][] = [];
+        const visit = (menus: readonly CompiledMenuConfig["snapshot"]["menus"][number][], stack: CompiledMenuConfig["snapshot"]["menus"][number][]): boolean => {
+            for (const menu of menus) {
+                if (menu.views.some((candidate) => candidate.id === view.id)) {
+                    ancestors.push(...stack, menu);
+                    return true;
+                }
+                if (visit(menu.children, [...stack, menu])) return true;
+            }
+            return false;
+        };
+        visit(config.snapshot.menus, []);
+        for (const menu of ancestors) {
+            if (!menu.enabled || !menu.navigation) return "disabled-ancestor";
+            if (!(await this.menuNavigationAllowed(config, menu))) return "permission-denied-ancestor";
+        }
+        return "reachable";
+    }
+
+    async getViewTree(optionsInput: { configId: string }): Promise<SubjectRuntimeResult<readonly ViewTreeNode[]>> {
+        const options = exactMenuRecord(optionsInput, ["configId"], "options");
+        const snapshot = await this.loadSnapshot();
+        const config = this.requireConfig(snapshot, options.configId);
+        const buildView = async (view: CompiledMenuConfig["snapshot"]["menus"][number]["views"][number]): Promise<ViewTreeNode | null> => {
+            if (view.type === "tab" || view.type === "dialog" || view.type === "drawer" || !view.navigation) return null;
+            const decision = await this.viewDecision(snapshot, config, view.id);
+            if (decision.reason === "permission-denied" || decision.reason === "not-found") return null;
+            return deepFreeze({
+                id: view.id,
+                type: view.type,
+                title: view.title,
+                ...(view.path === undefined ? {} : { path: view.path }),
+                ...(view.component === undefined ? {} : { component: view.component }),
+                ...(view.url === undefined ? {} : { url: view.url }),
+                ...(view.i18nKey === undefined ? {} : { i18nKey: view.i18nKey }),
+                ...(view.meta === undefined ? {} : { meta: view.meta }),
+                enabled: decision.reason === "allowed",
+                reason: decision.reason === "allowed" ? "allowed" as const
+                    : decision.reason === "load-unavailable" ? "load-unavailable" as const : "disabled" as const,
+                children: Object.freeze([]),
+            });
+        };
+        const buildMenu = async (menu: CompiledMenuConfig["snapshot"]["menus"][number]): Promise<ViewTreeNode | null> => {
+            const childMenus: ViewTreeNode[] = [];
+            for (const child of menu.children) {
+                const node = await buildMenu(child);
+                if (node !== null) childMenus.push(node);
+            }
+            const views: ViewTreeNode[] = [];
+            for (const view of menu.views) {
+                const node = await buildView(view);
+                if (node !== null) views.push(node);
+            }
+            const children = Object.freeze([...childMenus, ...views]);
+            if (!menu.navigation || !menu.enabled || !(await this.menuNavigationAllowed(config, menu))) {
+                return children.length === 0 ? null : deepFreeze({
+                    id: menu.id,
+                    type: "menu" as const,
+                    title: menu.title,
+                    ...(menu.icon === undefined ? {} : { icon: menu.icon }),
+                    ...(menu.i18nKey === undefined ? {} : { i18nKey: menu.i18nKey }),
+                    ...(menu.meta === undefined ? {} : { meta: menu.meta }),
+                    enabled: false,
+                    reason: "disabled" as const,
+                    children,
+                });
+            }
+            if (children.length === 0) return null;
+            return deepFreeze({
+                id: menu.id,
+                type: "menu" as const,
+                title: menu.title,
+                ...(menu.icon === undefined ? {} : { icon: menu.icon }),
+                ...(menu.i18nKey === undefined ? {} : { i18nKey: menu.i18nKey }),
+                ...(menu.meta === undefined ? {} : { meta: menu.meta }),
+                enabled: true,
+                reason: "allowed" as const,
+                children,
+            });
+        };
+        const nodes: ViewTreeNode[] = [];
+        for (const menu of config.snapshot.menus) {
+            const node = await buildMenu(menu);
+            if (node !== null) nodes.push(node);
+        }
+        const data = deepFreeze(nodes);
+        const detailBudget = new DetailBudgetAllocator().finish(data);
+        const result = deepFreeze({ data, detailBudget });
+        assertAuthorizationResponseBudget(result);
+        return result;
+    }
+
+    async getActionMap(
+        inputValue: { configId: string; viewId: string },
+    ): Promise<SubjectRuntimeResult<Readonly<Record<string, ActionPermissionState>>>> {
+        const input = exactMenuRecord(inputValue, ["configId", "viewId"], "input");
+        const snapshot = await this.loadSnapshot();
+        const config = this.requireConfig(snapshot, input.configId);
+        const viewId = normalizeRbacId(input.viewId, "input.viewId");
+        const found = this.findView(config, viewId);
+        if (found === undefined) throw new PermissionCoreError("MENU_NOT_FOUND", `View ${viewId} was not found.`);
+        const data: Record<string, ActionPermissionState> = {};
+        for (const action of [...found.view.actions].sort((left, right) => compareUtf8(left.actionId, right.actionId))) {
+            const ref = config.actionIndex.get(canonicalString([found.view.id, action.resource]));
+            const permissionAllowed = ref === undefined ? false : await this.compiledNodeAllowed(config, ref.nodeId);
+            const availability = ref !== undefined && action.resource.startsWith("api:")
+                ? await this.ownerAvailabilityByOwner(snapshot, "button", ref.nodeId)
+                : deepFreeze({ enabled: true, risks: [] });
+            const target = action.opens === undefined
+                ? null
+                : await this.viewDecision(snapshot, config, action.opens);
+            const reason: ActionPermissionState["reason"] = action.enabled === false
+                ? "disabled"
+                : !permissionAllowed ? "permission-denied"
+                    : target !== null && !target.allowed ? "target-denied"
+                        : !availability.enabled ? "load-unavailable" : "allowed";
+            data[action.actionId] = deepFreeze({
+                visible: reason === "allowed" || reason === "load-unavailable",
+                enabled: reason === "allowed",
+                reason,
+                resource: action.resource,
+                ...(action.opens === undefined ? {} : { opens: action.opens }),
+            });
+        }
+        deepFreeze(data);
+        const detailBudget = new DetailBudgetAllocator().finish(data);
+        const result = deepFreeze({ data, detailBudget });
+        assertAuthorizationResponseBudget(result);
+        return result;
+    }
+
+    async getViewState(inputValue: { configId: string; viewId: string } | { path: string }): Promise<SubjectRuntimeResult<ViewPermissionState>> {
+        const input = exactMenuRecord(inputValue, ["configId", "viewId", "path"], "input");
+        const snapshot = await this.loadSnapshot();
+        let config: CompiledMenuConfig | undefined;
+        let viewId: string | undefined;
+        let path: string | undefined;
+        if (Object.hasOwn(input, "path")) {
+            path = normalizeDeclaredPath(input.path, "input.path");
+            for (const candidate of snapshot.configById.values()) {
+                const found = this.allViews(candidate).find((entry) => entry.view.path === path);
+                if (found !== undefined) {
+                    config = candidate;
+                    viewId = found.view.id;
+                    break;
+                }
+            }
+        } else if (Object.hasOwn(input, "configId") && Object.hasOwn(input, "viewId")) {
+            config = this.requireConfig(snapshot, input.configId);
+            viewId = normalizeRbacId(input.viewId, "input.viewId");
+        } else {
+            throw validationError("INVALID_ARGUMENT", "input", "requires either path or configId and viewId");
+        }
+        if (config === undefined || viewId === undefined) {
+            const data: ViewPermissionState = deepFreeze({
+                allowed: false,
+                ...(path === undefined ? {} : { path }),
+                reason: "not-found",
+                navigationReachable: false,
+                navigationReason: "not-found",
+            });
+            const result = deepFreeze({ data, detailBudget: new DetailBudgetAllocator().finish(data) });
+            assertAuthorizationResponseBudget(result);
+            return result;
+        }
+        const decision = await this.viewDecision(snapshot, config, viewId);
+        const navigationReason = decision.view === undefined
+            ? "not-found"
+            : await this.navigationReason(config, decision.view);
+        const data: ViewPermissionState = deepFreeze({
+            allowed: decision.allowed,
+            viewId,
+            configId: config.configId,
+            ...(decision.view?.path === undefined ? {} : { path: decision.view.path }),
+            reason: decision.reason,
+            navigationReachable: decision.allowed && navigationReason === "reachable",
+            navigationReason,
+        });
+        const result = deepFreeze({ data, detailBudget: new DetailBudgetAllocator().finish(data) });
+        assertAuthorizationResponseBudget(result);
+        return result;
+    }
+
+    private loadBusinessFieldState() {
+        if (!this.businessFieldStatePromise) {
+            this.businessFieldStatePromise = (async () => {
+                const state = await this.authorization.loadState();
+                const roleIds = state.roles.filter((role) => role.included).map((role) => role.document.roleId);
+                if (roleIds.length === 0) return Object.freeze([]) as readonly BusinessGrantFieldState[];
+                const reader = new MenuScopeReader(
+                    this.repository,
+                    this.schemes,
+                    this.rbacReader.state,
+                    this.rbacReader.databaseSession(),
+                );
+                const grants = await reader.readGrantsForRoles(roleIds);
+                const roleDepth = new Map(state.roles.map((role) => [role.document.roleId, role.depth] as const));
+                const fields: BusinessGrantFieldState[] = [];
+                for (const grant of grants) {
+                    const business = grant.snapshot.business;
+                    if (business === undefined) continue;
+                    for (const field of business.responseFields) {
+                        fields.push(deepFreeze({
+                            effect: grant.effect,
+                            apiResource: field.apiResource,
+                            targetDigest: field.targetDigest,
+                            field: field.field,
+                            roleId: grant.roleId,
+                            depth: roleDepth.get(grant.roleId) ?? 0,
+                        }));
+                    }
+                }
+                await reader.verifyMenuAuthorizationUnchanged();
+                return Object.freeze(fields.sort((left, right) =>
+                    left.depth - right.depth
+                    || compareUtf8(left.roleId, right.roleId)
+                    || compareUtf8(left.apiResource, right.apiResource)
+                    || compareUtf8(left.field, right.field)));
+            })();
+        }
+        return this.businessFieldStatePromise;
+    }
+
+    async filterResponse(apiResourceInput: ApiResource, payload: unknown): Promise<SubjectRuntimeResult<unknown>> {
+        const apiResource = apiResourceInput;
+        await this.authorization.assert("invoke", apiResource);
+        const snapshot = await this.loadSnapshot();
+        const response = snapshot.responseByApi.get(apiResource);
+        if (response === undefined) {
+            const result = deepFreeze({ data: payload, detailBudget: new DetailBudgetAllocator().finish({ apiResource, mode: "unconfigured" }) });
+            assertAuthorizationResponseBudget(result);
+            return result;
+        }
+        const fields = await this.loadBusinessFieldState();
+        const denied = new Set(fields
+            .filter((field) => field.effect === "deny" && field.apiResource === apiResource && field.targetDigest === response.targetDigest)
+            .map((field) => field.field));
+        const allowed = new Set(fields
+            .filter((field) => field.effect === "allow" && field.apiResource === apiResource && field.targetDigest === response.targetDigest)
+            .map((field) => field.field)
+            .filter((field) => !denied.has(field)));
+        const filtered = response.target === undefined
+            ? pickFields(payload, allowed)
+            : (() => {
+                const output = clonePreserved(payload, response.preserve);
+                const targetValue = getPath(payload, response.target!);
+                setPath(output, response.target!, pickFields(targetValue, allowed));
+                return output;
+            })();
+        const data = deepFreeze(filtered);
+        const detailBudget = new DetailBudgetAllocator().finish({
+            apiResource,
+            targetDigest: response.targetDigest,
+            allowed: [...allowed].sort(compareUtf8),
+            denied: [...denied].sort(compareUtf8),
+        });
+        const result = deepFreeze({ data, detailBudget });
+        assertAuthorizationResponseBudget(result);
+        return result;
     }
 
     async getVisibleTree(optionsInput?: { rootId?: string }): Promise<SubjectRuntimeResult<VisibleMenuTreeNode[]>> {

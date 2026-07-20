@@ -14,6 +14,7 @@ import {
     RoleMenuPermissionMutationService,
 } from "../../src/menu";
 import { PermissionRepository } from "../../src/persistence/repository";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
 import {
     createSemanticKey,
     RoleMutationService,
@@ -30,7 +31,7 @@ function createRepository(context: RealMongoContext, prefix: string, schemes: Re
         schemeContractDigest,
         schemaContractKey: digestCanonical({
             canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest,
         }),
     });

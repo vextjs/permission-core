@@ -4,10 +4,12 @@ import { PermissionCore } from "../../src";
 import { ResourceSchemeRegistry } from "../../src/check/resource-schemes";
 import { CANONICAL_CONTRACT_VERSION, digestCanonical } from "../../src/internal/canonical";
 import { SignedTokenCodec } from "../../src/internal/signed-token";
-import { MenuManifestService } from "../../src/menu";
+import { MenuManifestService, RoleMenuPermissionMutationService } from "../../src/menu";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
 import { PermissionRepository } from "../../src/persistence/repository";
 import { normalizeScope } from "../../src/scope/scope";
 import type { MenuManifestInput, PermissionScope } from "../../src/types";
+import { legacyMenuScope, legacySubject } from "../helpers/legacy-menu-api";
 import { startRealMongo, type RealMongoContext } from "./helpers/real-mongo";
 
 const TEST_TIMEOUT = 120_000;
@@ -22,7 +24,7 @@ function createRepository(context: RealMongoContext, schemes: ResourceSchemeRegi
         schemeContractDigest: schemes.schemeContractDigest,
         schemaContractKey: digestCanonical({
             canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest: schemes.schemeContractDigest,
         }),
     });
@@ -63,6 +65,7 @@ describe("subject menu runtime on MonSQLize 3.1", () => {
     let core: PermissionCore;
     let repository: PermissionRepository;
     let manifests: MenuManifestService;
+    let legacyRoleMenus: RoleMenuPermissionMutationService;
 
     beforeAll(async () => {
         context = await startRealMongo({ findMaxLimit: 97 });
@@ -74,11 +77,13 @@ describe("subject menu runtime on MonSQLize 3.1", () => {
             tokenSecret: "permission-core-subject-menu-runtime-secret",
         });
         await core.init();
+        const tokens = new SignedTokenCodec(Buffer.alloc(32, 73), "subject-menu-runtime-tests");
         manifests = new MenuManifestService(
             repository,
             schemes,
-            new SignedTokenCodec(Buffer.alloc(32, 73), "subject-menu-runtime-tests"),
+            tokens,
         );
+        legacyRoleMenus = new RoleMenuPermissionMutationService(repository, schemes, tokens);
     }, TEST_TIMEOUT);
 
     afterAll(async () => {
@@ -88,7 +93,7 @@ describe("subject menu runtime on MonSQLize 3.1", () => {
 
     it("projects visible navigation, button states, routes, and API availability from one bound snapshot", async () => {
         const targetScope = scope("projection");
-        const scoped = core.scope(targetScope);
+        const scoped = legacyMenuScope(core.scope(targetScope));
         await scoped.roles.create({ id: "operator", label: "Operator" });
         await scoped.userRoles.assign("u-1", "operator");
         await importManifest(manifests, targetScope, {
@@ -312,7 +317,7 @@ describe("subject menu runtime on MonSQLize 3.1", () => {
             await scoped.roles.allow("operator", rule);
         }
 
-        const bound = core.forSubject({ userId: "u-1", scope: targetScope });
+        const bound = legacySubject(core.forSubject({ userId: "u-1", scope: targetScope }));
         expect(Object.isFrozen(bound)).toBe(true);
         expect(Object.isFrozen(bound.menus)).toBe(true);
         const tree = await bound.menus.getVisibleTree();
@@ -386,13 +391,13 @@ describe("subject menu runtime on MonSQLize 3.1", () => {
         await expect(bound.menus.getButtonMap("orders")).resolves.toMatchObject({
             data: { "orders.denied": { reason: "permission-denied" } },
         });
-        await expect(core.forSubject({ userId: "u-1", scope: targetScope }).menus.getButtonMap("orders"))
+        await expect(legacySubject(core.forSubject({ userId: "u-1", scope: targetScope })).menus.getButtonMap("orders"))
             .resolves.toMatchObject({ data: { "orders.denied": { reason: "allowed" } } });
     }, TEST_TIMEOUT);
 
     it("rejects incomplete policy context before returning menu data", async () => {
         const targetScope = scope("context");
-        const scoped = core.scope(targetScope);
+        const scoped = legacyMenuScope(core.scope(targetScope));
         await scoped.roles.create({ id: "conditional", label: "Conditional" });
         await scoped.userRoles.assign("u-context", "conditional");
         await scoped.roles.allow("conditional", {
@@ -425,27 +430,27 @@ describe("subject menu runtime on MonSQLize 3.1", () => {
             where: { field: "status", op: "eq", valueFrom: "context.requiredStatus" },
         });
 
-        await expect(core.forSubject({ userId: "u-context", scope: targetScope }).menus.getVisibleTree())
+        await expect(legacySubject(core.forSubject({ userId: "u-context", scope: targetScope })).menus.getVisibleTree())
             .rejects.toMatchObject({ code: "POLICY_CONTEXT_MISSING" });
-        await expect(core.forSubject(
+        await expect(legacySubject(core.forSubject(
             { userId: "u-context", scope: targetScope },
             { status: "open", requiredStatus: "open" },
-        ).menus.getVisibleTree()).resolves.toMatchObject({
+        )).menus.getVisibleTree()).resolves.toMatchObject({
             data: [expect.objectContaining({ children: [expect.objectContaining({ id: "conditional-page" })] })],
         });
-        await expect(core.forSubject(
+        await expect(legacySubject(core.forSubject(
             { userId: "u-context", scope: targetScope },
             { status: "closed", requiredStatus: "open" },
-        ).menus.getVisibleTree()).resolves.toMatchObject({ data: [] });
-        await expect(core.forSubject(
+        )).menus.getVisibleTree()).resolves.toMatchObject({ data: [] });
+        await expect(legacySubject(core.forSubject(
             { userId: "u-context", scope: targetScope },
             { requiredStatus: "open" },
-        ).menus.getVisibleTree()).resolves.toMatchObject({ data: [] });
+        )).menus.getVisibleTree()).resolves.toMatchObject({ data: [] });
     }, TEST_TIMEOUT);
 
     it("fails closed when the persisted menu graph is corrupted", async () => {
         const targetScope = scope("corrupt");
-        const scoped = core.scope(targetScope);
+        const scoped = legacyMenuScope(core.scope(targetScope));
         await scoped.roles.create({ id: "reader", label: "Reader" });
         await scoped.userRoles.assign("u-corrupt", "reader");
         await importManifest(manifests, targetScope, {
@@ -461,13 +466,13 @@ describe("subject menu runtime on MonSQLize 3.1", () => {
             { cache: { invalidate: false } },
         );
 
-        await expect(core.forSubject({ userId: "u-corrupt", scope: targetScope }).menus.getVisibleTree())
+        await expect(legacySubject(core.forSubject({ userId: "u-corrupt", scope: targetScope })).menus.getVisibleTree())
             .rejects.toMatchObject({ code: "PERSISTED_STATE_INVALID" });
     }, TEST_TIMEOUT);
 
     it("fails closed when a persisted role menu source no longer matches its grant", async () => {
         const targetScope = scope("source-corrupt");
-        const scoped = core.scope(targetScope);
+        const scoped = legacyMenuScope(core.scope(targetScope));
         await scoped.roles.create({ id: "reader", label: "Reader" });
         await scoped.userRoles.assign("u-source-corrupt", "reader");
         await importManifest(manifests, targetScope, {
@@ -494,13 +499,14 @@ describe("subject menu runtime on MonSQLize 3.1", () => {
             include: { descendants: false, buttons: false, apis: "none" as const, dataPermissions: false },
             apiChoices: { bindingIds: [], permissionsByBinding: {} },
         };
-        const preview = await scoped.roles.menuPermissions.preview(
+        const preview = await legacyRoleMenus.preview(
+            targetScope,
             "reader",
             { operation: "grant", selection },
             { actorId: "admin" },
         );
         if (!preview.executable) throw new Error("expected role menu preview to be executable");
-        await scoped.roles.menuPermissions.grant("reader", selection, {
+        await legacyRoleMenus.grant(targetScope, "reader", selection, {
             ...preview.expected,
             previewToken: preview.previewToken,
             actorId: "admin",
@@ -513,7 +519,7 @@ describe("subject menu runtime on MonSQLize 3.1", () => {
             { cache: { invalidate: false } },
         );
 
-        await expect(core.forSubject({ userId: "u-source-corrupt", scope: targetScope }).menus.getVisibleTree())
+        await expect(legacySubject(core.forSubject({ userId: "u-source-corrupt", scope: targetScope })).menus.getVisibleTree())
             .rejects.toMatchObject({ code: "PERSISTED_STATE_INVALID" });
     }, TEST_TIMEOUT);
 });

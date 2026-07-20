@@ -10,9 +10,9 @@ const subject = pc.forSubject({
   scope: { tenantId: 'acme' },
 });
 
-const allowed = await subject.can('invoke', 'GET:/api/orders');
-const blocked = await subject.cannot('invoke', 'DELETE:/api/orders');
-await subject.assert('invoke', 'GET:/api/orders');
+const allowed = await subject.can('invoke', 'api:GET:/api/orders');
+const blocked = await subject.cannot('invoke', 'api:DELETE:/api/orders');
+await subject.assert('invoke', 'api:GET:/api/orders');
 ```
 
 ```json
@@ -30,14 +30,14 @@ await subject.assert('invoke', 'GET:/api/orders');
 
 `can` 返回布尔值，`cannot` 返回精确逻辑取反。允许时 `assert` 完成且没有返回值，否则抛出 `PERMISSION_DENIED`。操作被阻止不代表一定存在显式 deny；默认拒绝也会阻止。
 
-接口检查应使用匹配后的路由模板，例如 `GET:/orders/:id`，不要使用带查询参数的具体 URL。授权和检查时必须保持 action 与 resource 命名一致。
+接口检查应使用匹配后的 API 路由模板，例如 `api:GET:/orders/:id`，不要使用带查询参数的具体 URL。授权和检查时必须保持 action 与 resource 命名一致。
 
 ## 解释一次决策
 
 ```ts
 const explanation = await subject.explain(
   'invoke',
-  'DELETE:/api/orders',
+  'api:DELETE:/api/orders',
 );
 ```
 
@@ -46,7 +46,7 @@ const explanation = await subject.explain(
   "data": {
     "allowed": false,
     "action": "invoke",
-    "resource": "DELETE:/api/orders",
+    "resource": "api:DELETE:/api/orders",
     "reason": "no-allow",
     "evaluations": [
       { "action": "invoke", "allowed": false, "reason": "no-allow" }
@@ -80,7 +80,7 @@ const chain = await scoped.roles.getChain('order-reader');
 {
   "role": { "id": "order-reader", "parentId": null, "revision": 2 },
   "ownRules": [
-    { "effect": "allow", "action": "invoke", "resource": "GET:/api/orders" }
+    { "effect": "allow", "action": "invoke", "resource": "api:GET:/api/orders" }
   ],
   "effectiveRuleCount": 1,
   "chain": [{ "role": { "id": "order-reader" }, "depth": 0, "included": true }]
@@ -160,7 +160,7 @@ const invokeResources = await subject.getResources('invoke');
         "items": [{
           "effect": "allow",
           "action": "invoke",
-          "resource": "GET:/api/orders",
+          "resource": "api:GET:/api/orders",
           "sourceRoleId": "order-reader",
           "inherited": false,
           "depth": 0
@@ -175,7 +175,7 @@ const invokeResources = await subject.getResources('invoke');
   "invokeResources": {
     "data": [{
       "action": "invoke",
-      "resource": "GET:/api/orders",
+      "resource": "api:GET:/api/orders",
       "conditional": false,
       "sourceRoleIds": {
         "total": 1,

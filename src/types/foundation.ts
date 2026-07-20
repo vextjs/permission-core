@@ -92,7 +92,7 @@ export interface PermissionCoreHealth {
         errorCode?: string;
     };
     schema: {
-        expectedVersion: 2;
+        expectedVersion: 3;
         expectedSchemeContractDigest: string;
         expectedSchemaContractKey: string;
         indexedContractMismatchScopes: BoundedHealthCount;

@@ -19,6 +19,7 @@ import type {
     InternalMenuNodeDocument,
 } from "../../src/persistence/documents";
 import { PermissionRepository } from "../../src/persistence/repository";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
 import { createScopeKey, normalizeScope } from "../../src/scope/scope";
 import { startRealMongo, type RealMongoContext } from "./helpers/real-mongo";
 
@@ -34,7 +35,7 @@ function createRepository(
         schemeContractDigest,
         schemaContractKey: digestCanonical({
             canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-            schemaVersion: 2,
+            schemaVersion: PERSISTED_SCHEMA_VERSION,
             schemeContractDigest,
         }),
     });
@@ -58,13 +59,17 @@ async function seedScope(
     await repository.collections.scopeState.insertOne({
         scopeKey,
         scope,
-        schemaVersion: 2,
+        schemaVersion: PERSISTED_SCHEMA_VERSION,
         schemeContractDigest: state.schemeContractDigest,
         schemaContractKey: state.schemaContractKey,
         revision: 1,
         rbacRevision: 0,
         menuRevision: 1,
         auditRevision: 1,
+        menuConfigCount: 0,
+        menuConfigBytes: 0,
+        responseFieldCount: 0,
+        responseFieldOwnerCount: 0,
         menuNodeCount: nodes.length,
         apiBindingCount: bindings.length,
         replaceManifestBytes,

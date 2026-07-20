@@ -1,11 +1,11 @@
 # Check Permissions
-<!-- docs:inline-parity `pc.forSubject(input)` `userId` `scope` `claims` `subject.can(action, resource, context?)` `Promise<boolean>` `subject.cannot(...)` `can` `!can(...)` `subject.assert(...)` `Promise<void>` `cannot` `assert` `PERMISSION_DENIED` `GET:/orders/:id` `explain()` `SubjectRuntimeResult<PermissionExplanation>` `data` `detailBudget` `can()` `action` `invoke` `resource` `context?` `valueFrom` `can/assert` `allow` `explicit-deny` `no-allow` `policy-unknown` `role-disabled` `context-missing` `roles.get(roleId)` `VersionedResult<Role>` `roles.getOwnRules(roleId)` `VersionedResult<PermissionRuleView[]>` `roles.getEffectiveRules(roleId)` `roles.getChain(roleId)` `getOwnRules` `getEffectiveRules` `getChain` `assign()` `set()` `getDirect/getEffective` `userRoles.assign(userId, roleId, options?)` `UserRoleBindingSet` `userRoles.getDirect(userId)` `set` `userRoles.set(userId, roleIds, options)` `expectedRevision` `userRoles.getEffective(userId)` `assign` `permissions/invokeResources` `subject.getPermissions(options?)` `subject.getResources(action?, options?)` `conditional=true` `getPermissions()` `getResources(action?)` -->
+<!-- docs:inline-parity `pc.forSubject(input)` `userId` `scope` `claims` `subject.can(action, resource, context?)` `Promise<boolean>` `subject.cannot(...)` `can` `!can(...)` `subject.assert(...)` `Promise<void>` `cannot` `assert` `PERMISSION_DENIED` `api:GET:/orders/:id` `explain()` `SubjectRuntimeResult<PermissionExplanation>` `data` `detailBudget` `can()` `action` `invoke` `resource` `context?` `valueFrom` `can/assert` `allow` `explicit-deny` `no-allow` `policy-unknown` `role-disabled` `context-missing` `roles.get(roleId)` `VersionedResult<Role>` `roles.getOwnRules(roleId)` `VersionedResult<PermissionRuleView[]>` `roles.getEffectiveRules(roleId)` `roles.getChain(roleId)` `getOwnRules` `getEffectiveRules` `getChain` `assign()` `set()` `getDirect/getEffective` `userRoles.assign(userId, roleId, options?)` `UserRoleBindingSet` `userRoles.getDirect(userId)` `set` `userRoles.set(userId, roleIds, options)` `expectedRevision` `userRoles.getEffective(userId)` `assign` `permissions/invokeResources` `subject.getPermissions(options?)` `subject.getResources(action?, options?)` `conditional=true` `getPermissions()` `getResources(action?)` -->
 
 Use a subject context for request-time decisions and a scoped context for management reads. Both facades read the same tenant-scoped authorization state.
 
 ## Boolean Checks and Enforcement
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+Use `can()` when the caller needs a boolean, `cannot()` when you want the inverse, and `assert()` when a blocked request should throw `PERMISSION_DENIED`. All three read the current subject scope and never create permissions.
 
 ```ts
 const subject = pc.forSubject({
@@ -13,21 +13,21 @@ const subject = pc.forSubject({
   scope: { tenantId: 'acme' },
 });
 
-const allowed = await subject.can('invoke', 'GET:/api/orders');
-const blocked = await subject.cannot('invoke', 'DELETE:/api/orders');
-await subject.assert('invoke', 'GET:/api/orders');
+const allowed = await subject.can('invoke', 'api:GET:/api/orders');
+const blocked = await subject.cannot('invoke', 'api:DELETE:/api/orders');
+await subject.assert('invoke', 'api:GET:/api/orders');
 ```
 ```json
 { "allowed": true, "blocked": true, "assertResult": "void" }
 ```
 ## Explain One Decision
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+Use `explain()` when a decision is surprising. It returns the same allow/deny result plus the reason and bounded evaluation details, so diagnostics do not need to guess why a rule matched or missed.
 
 ```ts
 const explanation = await subject.explain(
   'invoke',
-  'DELETE:/api/orders',
+  'api:DELETE:/api/orders',
 );
 ```
 ```json
@@ -35,7 +35,7 @@ const explanation = await subject.explain(
   "data": {
     "allowed": false,
     "action": "invoke",
-    "resource": "DELETE:/api/orders",
+    "resource": "api:DELETE:/api/orders",
     "reason": "no-allow",
     "evaluations": [
       { "action": "invoke", "allowed": false, "reason": "no-allow" }
@@ -46,7 +46,7 @@ const explanation = await subject.explain(
 ```
 ## Read Roles and Rules
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+Use role reads for admin and support screens. `getOwnRules()` shows rules written directly on the role; `getEffectiveRules()` includes inherited rules; `getChain()` explains which parent roles contributed.
 
 ```ts
 const scoped = pc.scope({ tenantId: 'acme' });
@@ -59,7 +59,7 @@ const chain = await scoped.roles.getChain('order-reader');
 {
   "role": { "id": "order-reader", "parentId": null, "revision": 2 },
   "ownRules": [
-    { "effect": "allow", "action": "invoke", "resource": "GET:/api/orders" }
+    { "effect": "allow", "action": "invoke", "resource": "api:GET:/api/orders" }
   ],
   "effectiveRuleCount": 1,
   "chain": [{ "role": { "id": "order-reader" }, "depth": 0, "included": true }]
@@ -67,7 +67,7 @@ const chain = await scoped.roles.getChain('order-reader');
 ```
 ## Read and Replace User Roles
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+Use `assign()` for an additive grant and `set()` for saving the complete direct-role set from an admin form. Read `getDirect()` first and pass `expectedRevision` so stale edits are rejected.
 
 ```ts
 await scoped.userRoles.assign('u-1', 'order-reader');
@@ -88,7 +88,7 @@ const effectiveRoles = await scoped.userRoles.getEffective('u-1');
 ```
 ## Read a User Permission Snapshot
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+Use these snapshot reads when you need to display the subject's resolved permissions or debug a route guard. Results may be bounded by `detailBudget`, so callers should treat them as diagnostics rather than a replacement for `can()` or `assert()`.
 
 ```ts
 const permissions = await subject.getPermissions();
@@ -117,7 +117,7 @@ const invokeResources = await subject.getResources('invoke');
         "items": [{
           "effect": "allow",
           "action": "invoke",
-          "resource": "GET:/api/orders",
+          "resource": "api:GET:/api/orders",
           "sourceRoleId": "order-reader",
           "inherited": false,
           "depth": 0
@@ -132,7 +132,7 @@ const invokeResources = await subject.getResources('invoke');
   "invokeResources": {
     "data": [{
       "action": "invoke",
-      "resource": "GET:/api/orders",
+      "resource": "api:GET:/api/orders",
       "conditional": false,
       "sourceRoleIds": {
         "total": 1,

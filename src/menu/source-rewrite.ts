@@ -478,6 +478,17 @@ export function createRoleMenuGrantSnapshotFromContributions(
     });
 }
 
+function contributionSnapshotOnly(snapshot: Readonly<InternalRoleMenuGrantDocument["snapshot"]>) {
+    return deepFreeze({
+        contributionContractDigest: snapshot.contributionContractDigest,
+        contributionDigest: snapshot.contributionDigest,
+        contributingAssetCount: snapshot.contributingAssetCount,
+        contributingBindingCount: snapshot.contributingBindingCount,
+        contributingAssetIds: snapshot.contributingAssetIds,
+        contributingBindingIds: snapshot.contributingBindingIds,
+    });
+}
+
 export function createRoleMenuAggregateFields(
     grants: readonly Readonly<InternalRoleMenuGrantDocument>[],
     rules: readonly Readonly<InternalRoleRuleDocument>[],
@@ -550,7 +561,7 @@ export function validateRoleMenuIntegrity(
         const contributions = contributionsByGrant.get(grant.grantId) ?? [];
         if (contributions.length === 0) persistedInvalid(`menu grant ${grant.grantId} has no rule contribution`);
         const expected = createRoleMenuGrantSnapshot(grant.intent, contributions);
-        if (canonicalString(grant.snapshot) !== canonicalString(expected)) {
+        if (canonicalString(contributionSnapshotOnly(grant.snapshot)) !== canonicalString(expected)) {
             persistedInvalid(`menu grant ${grant.grantId} snapshot does not match its rule contributions`);
         }
     }

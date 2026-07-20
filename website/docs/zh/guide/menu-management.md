@@ -1,272 +1,259 @@
 # 管理菜单
 
-菜单管理保存由后端负责的导航模型。最推荐从“一份菜单配置”开始理解：页面、按钮、按钮调用的接口、以及授权角色时顺带生成的数据权限模板，都可以放在同一个 manifest 里维护。
+菜单管理只需要从一份 `MenuConfigInput` 开始：你声明菜单、页面、页面加载接口、按钮接口和接口响应字段，permission-core 会在保存时编译成内部库存。多数后台系统不需要手动维护底层节点或接口绑定。
 
-当前 API 的 manifest 是扁平结构：`nodes` 放目录、页面、按钮等 UI 节点；`apiBindings` 放真实后端接口，并通过 `owners` 指回按钮或页面。这样写起来比嵌套稍长，但好处是一个接口可以被多个按钮复用，也可以独立审计和变更。
+最小心智模型是：
 
-## 一份可导入的菜单配置
+```mermaid
+flowchart TD
+  accTitle: 菜单配置生命周期
+  accDescr: MenuConfigInput 经过预览和保存后，角色菜单授权分配其中能力，用户绑定角色后，subject runtime 投影前端状态和响应字段。
+  A["写一份 MenuConfigInput"] --> B["menus.config.preview 预览影响"]
+  B --> C["menus.config.save 保存配置"]
+  C --> D["roles.menuPermissions.grant 给角色分配菜单能力"]
+  D --> E["userRoles.assign 把角色给用户"]
+  E --> F["subject.menus.getViewTree / getActionMap 投影前端状态"]
+  F --> G["subject.menus.filterResponse 裁剪接口响应字段"]
+```
+
+<p className="pc-diagram-text" id="pc-diagram-menu-config-lifecycle-zh-text" data-diagram-id="menu-config-lifecycle"><strong>文字等价说明。</strong>后端先编写 MenuConfigInput，预览影响并保存为后台菜单库存；角色菜单授权再分配其中的页面、加载接口、操作和响应字段；用户绑定该角色后，subject 菜单运行时会投影可见导航、操作状态、页面状态和裁剪后的接口响应。</p>
+
+保存菜单不是授权用户。它只是把“系统有哪些菜单和接口”登记清楚；用户能看到什么、能调用什么，仍由角色授权决定。
+
+## 一份完整配置
 
 ```ts
-const manifest = {
-  schemaVersion: 2,
-  mode: 'merge',
-  nodes: [
-    {
-      id: 'operations',
-      type: 'directory',
-      title: 'Operations',
-      order: 0,
-    },
-    {
-      id: 'orders',
-      parentId: 'operations',
+const menuConfig = {
+  configId: 'admin',
+  title: 'Admin console',
+  menus: [{
+    id: 'orders',
+    title: 'Orders',
+    icon: 'shopping-cart',
+    views: [{
+      id: 'orders-list',
       type: 'page',
       title: 'Orders',
       path: '/orders',
-      name: 'orders',
       component: 'OrdersPage',
-      order: 0,
-      permission: { action: 'read', resource: 'ui:page:orders' },
-      dataPermissions: [
-        { action: 'read', resource: 'db:orders', label: 'Read orders' },
-      ],
-    },
-    {
-      id: 'orders-export',
-      parentId: 'orders',
-      type: 'button',
-      title: 'Export',
-      code: 'orders.export',
-      order: 0,
-      permission: { action: 'invoke', resource: 'ui:button:orders.export' },
-    },
-  ],
-  apiBindings: [
-    {
-      id: 'orders-list-api',
-      method: 'GET',
-      path: '/api/orders',
-      purpose: 'entry',
-      authorization: {
-        mode: 'all',
-        permissions: [
-          { action: 'invoke', resource: 'api:GET:/api/orders' },
-        ],
-      },
-      owners: [{ type: 'page', id: 'orders', required: true }],
-      canonicalOwner: { type: 'page', id: 'orders' },
-    },
-    {
-      id: 'orders-export-api',
-      method: 'POST',
-      path: '/api/orders/export',
-      purpose: 'importExport',
-      authorization: {
-        mode: 'all',
-        permissions: [
-          { action: 'invoke', resource: 'api:POST:/api/orders/export' },
-        ],
-      },
-      owners: [{ type: 'button', id: 'orders-export', required: true }],
-      canonicalOwner: { type: 'button', id: 'orders-export' },
-    },
-  ],
+      load: [{
+        resource: 'api:GET:/api/orders',
+        response: {
+          target: 'items',
+          preserve: ['total'],
+          fields: [
+            { field: 'orderNo', title: '订单号' },
+            { field: 'status', title: '状态' },
+            { field: 'amount', title: '金额' },
+          ],
+        },
+      }],
+      actions: [{
+        id: 'export',
+        title: '导出订单',
+        resource: 'api:POST:/api/orders/export',
+        response: [{ field: 'downloadUrl', title: '下载地址' }],
+      }],
+    }],
+  }],
 };
+```
 
-const preview = await scoped.menus.manifest.preview(manifest);
-if (preview.executable) {
-  await scoped.menus.manifest.import(manifest, {
-    ...preview.expected,
-    previewToken: preview.previewToken,
-  });
+这份配置表达四件事：
+
+| 字段 | 表达什么 | 运行时影响 |
+|---|---|---|
+| `configId` | 一套菜单配置的稳定 ID | 后续授权和运行时读取都用它定位这一套后台菜单。 |
+| `menus[]` | 左侧导航分组 | 分组本身不是接口权限；通常用于组织页面。 |
+| `views[]` | 可打开的页面、抽屉、弹窗或 tab | `getViewTree()` 和 `getViewState()` 会按用户权限投影这些视图。 |
+| `load[].resource` | 页面进入时需要调用的接口 | 只写 `api:METHOD:/path`；省略 action，系统自动补成 `invoke`。 |
+| `actions[].resource` | 页面按钮或操作调用的接口 | 支持 `api:*` 后端接口，也支持 `ui:*` 前端纯按钮资源。 |
+| `response` | 允许返回给前端的字段清单 | 授权角色后，`filterResponse()` 会按用户拥有的字段裁剪响应。 |
+
+`load.resource` 必须是 `api:` 资源，例如 `api:GET:/api/orders`。这样 Vext 路由守卫、角色菜单授权和响应字段投影才能使用同一份资源 ID。`actions[].resource` 可以是后端接口，也可以是纯 UI 资源；如果是接口，同样建议使用 `api:`。
+
+## 响应字段怎么写
+
+响应字段支持数组，也支持对象形式：
+
+```ts
+response: [
+  { field: 'orderNo', title: '订单号' },
+  { field: 'buyer.name', title: '买家姓名' },
+]
+```
+
+数组形式适合接口直接返回一条对象或对象数组。字段名支持点路径，例如 `buyer.name`。
+
+```ts
+response: {
+  target: 'items',
+  preserve: ['total'],
+  fields: [
+    { field: 'orderNo', title: '订单号' },
+    { field: 'status', title: '状态' },
+  ],
 }
 ```
 
-这段配置表达的是：
+对象形式适合常见分页响应 `{ items, total }`：`target` 表示要裁剪的数组字段，`preserve` 表示保留但不参与字段授权的外层字段。上例会裁剪 `items` 中每一行，只保留 `total` 作为分页信息。
 
-| 配置 | 作用 | 运行时影响 |
-|---|---|---|
-| `nodes[0]` directory | 只是导航分组 | 不代表业务权限。 |
-| `nodes[1]` page | `/orders` 页面 | 用户拿到 `ui:page:orders` 后，页面才会出现在可见菜单/路由状态中。 |
-| `nodes[1].dataPermissions` | 这个页面关联的业务数据权限模板 | 不会在创建菜单时立即授权；角色菜单授权勾选 `dataPermissions` 后，才会展开成角色规则。 |
-| `nodes[2]` button | 页面里的导出按钮 | 用户拿到 `ui:button:orders.export` 后，按钮才会进入按钮状态表。 |
-| `apiBindings[0]` | 点击/进入订单页面后默认加载的接口 | 如果用户缺少这里的 `api:GET:/api/orders` 调用权限，页面路由仍可能可见，但运行时会报告该页面依赖的必需接口不可用；后端接口仍要独立检查。 |
-| `apiBindings[1]` | 导出按钮调用的后端接口 | 如果用户缺少这里的 `api:POST:/api/orders/export` 调用权限，按钮会被投影为不可用；后端接口仍要独立检查。 |
-| `owners` | 把接口绑定到哪个页面、菜单或按钮 | `type: 'page'` 适合页面默认加载接口，`type: 'menu'` 适合点击菜单本身触发的接口，`type: 'button'` 适合按钮操作接口；`required: true` 表示缺少该接口权限时对应 UI 应视为不可用。 |
-
-所以你可以把它当成一份“菜单配置文件”：
-
-- 页面权限写在页面节点的 `permission`。
-- 点击页面/菜单默认调用的接口权限写在 `apiBindings[].authorization.permissions`，通常只放 `api:*` 调用权限，并用 `owners: [{ type: 'page' | 'menu', id: ... }]` 指回该页面或菜单。
-- 纯按钮权限写在按钮节点的 `permission`。
-- 按钮对应接口权限写在 `apiBindings[].authorization.permissions`，通常只放 `api:*` 调用权限。
-- 接口与按钮的关系写在 `apiBindings[].owners`。
-- 数据权限不要混进菜单接口权限里；页面关联的数据权限模板放 `dataPermissions`，真实数据范围由数据权限/数据层检查负责。
-- 角色拿到哪些页面、按钮、接口和数据模板，由[角色菜单授权](/zh/guide/role-menu-authorization)决定。
-
-## 节点类型
-
-| 类型 | 用途 | 必填字段 |
-|---|---|---|
-| `directory` | 结构化导航分组 | `id`、`title` |
-| `menu` | 没有组件的可导航菜单 | `path`、`name`、`permission` |
-| `page` | 可导航应用页面 | `path`、`name`、`component`、`permission` |
-| `button` | 菜单或页面中的操作 | `code`、`permission` |
-| `external` | 外部 URL 入口 | `url`、`permission` |
-| `iframe` | 带内部路由的嵌入 URL | `url`、`path`、`name`、`permission` |
-
-按钮不会作为导航节点出现在树中，而是由 subject 按所属页面或菜单返回按钮状态表。
-
-菜单节点只定义可被授权和投影的 UI 资产。真实后端 endpoint 不写在节点上，而是在[接口绑定](/zh/guide/api-bindings)中通过 `owners` 指向这些 page/menu/button `id`；随后[角色菜单授权](/zh/guide/role-menu-authorization)才把选中的菜单、按钮、接口和数据模板展开成角色规则。
-
-## 创建并读取节点
+## 预览并保存配置
 
 ```ts
 const scoped = pc.scope({ tenantId: 'acme', appId: 'admin' });
 
-const root = await scoped.menus.create({
-  id: 'operations',
-  type: 'directory',
-  title: 'Operations',
+const preview = await scoped.menus.config.preview(menuConfig, {
+  actorId: 'admin',
 });
-const page = await scoped.menus.create({
-  id: 'orders',
-  parentId: 'operations',
-  type: 'page',
-  title: 'Orders',
-  path: '/orders',
-  name: 'orders',
-  component: 'OrdersPage',
-  permission: { action: 'read', resource: 'ui:page:orders' },
-  dataPermissions: [
-    { action: 'read', resource: 'db:orders', label: 'Read orders' },
-  ],
+if (!preview.executable) {
+  throw new Error('菜单配置存在冲突，需要先处理');
+}
+
+const saved = await scoped.menus.config.save(menuConfig, {
+  ...preview.expected,
+  previewToken: preview.previewToken,
+  actorId: 'admin',
+  idempotencyKey: 'admin-menu-v1',
 });
 ```
 
 ```json
 {
-  "committed": true,
   "changed": true,
   "data": {
-    "id": "orders",
-    "parentId": "operations",
-    "type": "page",
-    "revision": 1
-  },
-  "revision": 2,
-  "auditId": "..."
+    "config": {
+      "configId": "admin",
+      "revision": 1,
+      "menus": [{ "id": "orders", "views": [{ "id": "orders-list" }] }]
+    },
+    "manifestOperations": { "total": 3 },
+    "retainedGrantCount": 0,
+    "revokedGrantCount": 0
+  }
 }
 ```
 
-这是第二次 `menus.create()` 原始 `MutationResult<MenuNode>` 的节选；完整响应还含 `revisions/operationId/replayed/cache/warnings/detailBudget`。第一次创建 root 也会独立返回同结构响应。
+`menus.config.preview(config)` 只计算影响，不写数据库。`menus.config.save(config, options)` 才会写入配置，并同步内部菜单节点、接口绑定和可授权资源。执行时必须带上预览返回的 `expected` 和 `previewToken`，避免管理员保存一份已经过期的菜单模型。
 
-| 调用 | 参数说明 | 状态变化与下一步 |
-|---|---|---|
-| [`pc.scope(scope)`](/zh/api/core-and-contexts#core-scope) | 可信 `tenantId`，本例还带 `appId` | 同步创建管理 facade，不写数据库。 |
-| [`menus.create(input, options?)`](/zh/api/menus#menus-create) | `directory` 只需 id/type/title；`page` 还需 parentId/path/name/component/permission | 每次创建一个节点并返回其 revision；不会自动创建 API binding 或角色授权。 |
+## 修改和删除配置
 
-管理页面可使用 `get(nodeId)`、游标式 `list(filter)` 或 `getTree({ rootId?, includeHidden? })`。这些方法返回包含停用和隐藏节点的管理状态，与 subject 运行时投影有意不同。
-
-| 读取方法 | 参数 | 原始返回 | 适合界面 |
-|---|---|---|---|
-| [`get(nodeId)`](/zh/api/menus#menus-get) | 节点 ID | `VersionedResult<MenuNode>` | 编辑单节点、取得 expectedRevision |
-| [`list(query?)`](/zh/api/menus#menus-list) | `parentId/type/status/hidden/search/first/after` | `PageResult<MenuNode>` | 可筛选的管理列表 |
-| [`getTree(options?)`](/zh/api/menus#menus-get-tree) | 可选 rootId/includeHidden | `VersionedResult<MenuTreeNode[]>` | 管理端完整嵌套树 |
-| [`subject.menus.getVisibleTree(options?)`](/zh/api/menus#subject-menus-get-visible-tree) | subject 已绑定身份 | `SubjectRuntimeResult<VisibleMenuTreeNode[]>` | 当前用户导航；不可用于编辑库存 |
-
-## 更新元数据与结构
-
-简单元数据变更使用实体修订：
+读取配置：
 
 ```ts
-const current = await scoped.menus.get('orders');
-const updated = await scoped.menus.update(
-  'orders',
-  { title: 'Order management', icon: 'shopping-cart' },
-  { expectedRevision: current.data.revision },
-);
+const current = await scoped.menus.config.get('admin');
+const page = await scoped.menus.config.list({ first: 20 });
 ```
 
-`get()` 的 `data.revision` 是单节点并发基线；`update()` 只接受 title/component/icon/hidden/i18nKey/meta 等非授权字段，返回更新后的原始 mutation envelope。`updated.data.revision` 可作为下一次简单更新的基线。
-
-路径、权限、数据模板等带来源字段的修改，必须先 `previewUpdate` 再 `executeUpdate`。预览会列出必须替换或撤销的全部角色来源。移动、排序、状态变更和删除在影响后代或角色授权时也采用相同 preview/execute 模式。
+删除配置：
 
 ```ts
-const preview = await scoped.menus.previewMove({
-  nodeId: 'orders',
-  parentId: null,
-});
-if (!preview.executable) throw new Error('Resolve conflicts first');
-await scoped.menus.move(
-  { nodeId: 'orders', parentId: null },
-  { ...preview.expected, previewToken: preview.previewToken },
-);
-```
-
-`previewMove(input)` 只生成 `ImpactPreview<MenuMovePlan>`；它的 `executable`、`conflicts`、`expected` 和 `previewToken` 决定能否执行。`move(input, options)` 的 input 必须与预览完全相同，执行后返回移动后的 `MutationResult<MenuNode>`。
-
-出现 `REVISION_CONFLICT` 或 `PREVIEW_STALE` 时，管理界面必须重新加载当前状态，不能用旧预览操作已经变化的层级。
-
-## 安全移除
-
-先读取影响，再预览准确的级联决定：
-
-```ts
-const impact = await scoped.menus.getRemovalImpact('orders');
-const preview = await scoped.menus.previewRemove('orders', {
-  cascade: true,
-});
-if (!preview.executable) throw new Error('Resolve dependencies first');
-const removed = await scoped.menus.remove(
-  'orders',
-  { cascade: true },
-  { ...preview.expected, previewToken: preview.previewToken },
-);
-```
-
-影响结果会列出后代、接口绑定和角色来源。依赖或来源重写未解决时不能移除。`cascade: true` 会原子删除后代，但不会静默拆除无关角色规则。
-
-| 方法 | 原始返回 | 是否写入 |
-|---|---|---|
-| [`getRemovalImpact(nodeId)`](/zh/api/menus#menus-get-removal-impact) | `VersionedResult<MenuRemovalImpact>` | 否；快速清点依赖，不产生 token |
-| [`previewRemove(nodeId, input)`](/zh/api/menus#menus-preview-remove) | `ImpactPreview<MenuRemovalPlan>` | 否；展开 nodes、detachedApiBindings、sourceImpacts |
-| [`remove(nodeId, input, options)`](/zh/api/menus#menus-remove) | `MutationResult<BatchMutationSummary>` | 是；只有匹配预览才执行 |
-
-## 导入和导出 manifest
-
-`nodes` 是完整菜单节点声明的有序列表；`apiBindings` 是后端接口及其 owner 的有序列表。两者放在版本 2 manifest 中，使前端路由声明与后端授权清单可以作为一个整体审查。
-
-```ts
-const manifest = {
-  schemaVersion: 2,
-  mode: 'replace',
-  nodes: [
-    { id: 'operations', type: 'directory', title: 'Operations', order: 0 },
-    {
-      id: 'orders', parentId: 'operations', type: 'page', title: 'Orders',
-      path: '/orders', name: 'orders', component: 'OrdersPage', order: 0,
-      permission: { action: 'read', resource: 'ui:page:orders' },
-    },
-  ],
-  apiBindings: [],
-};
-const preview = await scoped.menus.manifest.preview(manifest);
-if (preview.executable) {
-  await scoped.menus.manifest.import(manifest, {
-    ...preview.expected,
-    previewToken: preview.previewToken,
+const previewRemove = await scoped.menus.config.previewRemove('admin');
+if (previewRemove.executable) {
+  await scoped.menus.config.remove('admin', {
+    ...previewRemove.expected,
+    previewToken: previewRemove.previewToken,
+    actorId: 'admin',
   });
 }
-const exported = await scoped.menus.manifest.export();
 ```
 
-| 方法 | 输入/输出 | 关键边界 |
-|---|---|---|
-| [`manifest.preview(manifest)`](/zh/api/menus#menus-manifest-preview) | 返回 node/binding 增删改及来源影响计划 | `replace` 会把未声明库存列为删除，必须先审查 |
-| [`manifest.import(manifest, options)`](/zh/api/menus#menus-manifest-import) | 返回 `MutationResult<BatchMutationSummary>` | manifest 和 token 必须来自同一次可执行预览 |
-| [`manifest.export()`](/zh/api/menus#menus-manifest-export) | 返回 `VersionedResult<FrontendMenuManifest>` | `exported.data` 才是 schemaVersion/nodes/apiBindings；大清单用 exportPage |
+批量变更：
 
-`merge` 修改已声明 ID 并保留其他项；`replace` 让 manifest 成为该 scope 的权威清单。两种模式都有修订、审计、容量边界和来源完整性检查。
+```ts
+const changes = [
+  { operation: 'save', config: menuConfig },
+  { operation: 'remove', configId: 'legacy-admin' },
+];
+const previewChanges = await scoped.menus.config.previewChanges(changes);
+if (previewChanges.executable) {
+  await scoped.menus.config.applyChanges(changes, {
+    ...previewChanges.expected,
+    previewToken: previewChanges.previewToken,
+  });
+}
+```
 
-下一步在[接口绑定](/zh/guide/api-bindings)挂接真实接口，再通过[角色菜单授权](/zh/guide/role-menu-authorization)给角色分配结构。
+单次保存适合普通后台菜单编辑；`previewChanges/applyChanges` 适合一次提交多个模块菜单，例如插件安装、应用升级或导入配置包。
+
+## 给角色分配菜单能力
+
+保存配置后，角色仍然没有权限。要让角色看到订单页、调用加载接口、看到导出按钮，并只拿到部分响应字段，需要单独授权：
+
+```ts
+const selection = {
+  configId: 'admin',
+  views: ['orders-list'],
+  responseFields: [{
+    apiResource: 'api:GET:/api/orders',
+    fields: ['orderNo', 'status'],
+  }],
+  include: {
+    loads: true,
+    actions: true,
+    responseFields: 'none',
+  },
+};
+
+const grantPreview = await scoped.roles.menuPermissions.preview(
+  'order-operator',
+  { operation: 'grant', selection },
+);
+const granted = await scoped.roles.menuPermissions.grant(
+  'order-operator',
+  selection,
+  {
+    ...grantPreview.expected,
+    previewToken: grantPreview.previewToken,
+  },
+);
+```
+
+`views` 是管理员勾选的页面。`include.loads: true` 会把页面加载接口一起授权；`include.actions: true` 会把页面按钮或操作一起授权；`responseFields` 明确允许哪些响应字段。`include.responseFields: 'none'` 表示不要自动全选字段，只使用 `responseFields` 中列出的字段。
+
+完整授权规则见[角色菜单授权](/zh/guide/role-menu-authorization)。
+
+## 用户端读取菜单和接口响应
+
+```ts
+await scoped.userRoles.assign('u-menu', 'order-operator');
+
+const subjectMenus = pc.forSubject({
+  userId: 'u-menu',
+  scope: { tenantId: 'acme', appId: 'admin' },
+}).menus;
+
+const tree = await subjectMenus.getViewTree({ configId: 'admin' });
+const state = await subjectMenus.getViewState({ configId: 'admin', viewId: 'orders-list' });
+const actions = await subjectMenus.getActionMap({ configId: 'admin', viewId: 'orders-list' });
+const response = await subjectMenus.filterResponse('api:GET:/api/orders', {
+  items: [{ orderNo: 'O-1001', status: 'paid', amount: 88, internalCost: 51 }],
+  total: 1,
+  debug: true,
+});
+```
+
+```json
+{
+  "viewTreeIds": ["orders"],
+  "viewAllowed": true,
+  "exportEnabled": true,
+  "projectedResponse": {
+    "items": [{ "orderNo": "O-1001", "status": "paid" }],
+    "total": 1
+  }
+}
+```
+
+`getViewTree()` 给前端导航树；`getViewState()` 判断某个页面是否允许进入；`getActionMap()` 返回页面下每个按钮是否可见和可用；`filterResponse()` 先检查当前用户是否能 `invoke` 这个 `api:` 资源，再按响应字段授权裁剪数据。它不是前端隐藏字段，而是在后端返回前过滤。
+
+## 常见误区
+
+| 误区 | 正确理解 |
+|---|---|
+| 保存菜单后用户就有权限 | 保存只是登记系统能力；还要 `roles.menuPermissions.grant` 和 `userRoles.assign`。 |
+| `load` 里还要写 `action: 'invoke'` | 不需要。`load.resource` 使用 `api:` 资源时系统自动补成 `invoke`。 |
+| 响应字段只支持一层字段 | 支持点路径，也支持 `{ target, preserve, fields }` 处理分页响应。 |
+| `filterResponse()` 可以替代接口鉴权 | 不能。它会做接口权限检查，但业务接口仍应使用 `subject.assert()` 或 Vext guard 保护入口。 |
+
+可运行完整示例见[菜单管理示例](/zh/examples/menu-admin)，精确签名见[菜单 API](/zh/api/menus)和[配置接口与响应字段](/zh/api/api-bindings)。

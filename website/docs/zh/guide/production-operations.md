@@ -2,7 +2,7 @@
 
 生产就绪依赖健康的宿主 MonSQLize 3.1 连接、兼容的权限 schema、有界授权状态、持久化变更证据和正确关闭顺序。进程能够访问并不代表权限服务已就绪；就绪门禁应读取 `PermissionCore.health()`。
 
-> **版本状态。** 当前文档描述仓库中的 `v2.0.0` preview，尚未形成正式稳定发布承诺。上线决策应同时检查 [CHANGELOG](https://github.com/vextjs/permission-core/blob/main/CHANGELOG.md) 和实际安装包版本；本页不提供旧版本迁移保证。
+> **版本状态。** 当前文档描述仓库中的 `v3.0.0` candidate。上线决策应同时检查 [CHANGELOG](https://github.com/vextjs/permission-core/blob/main/CHANGELOG.md)、实际安装包版本和准备推广的部署制品。
 
 ## 前置条件
 
@@ -27,7 +27,7 @@ const ready = health.status === 'up'
   "initialized": true,
   "database": { "status": "up" },
   "schema": {
-    "expectedVersion": 2,
+    "expectedVersion": 3,
     "indexedContractMismatchScopes": { "value": 0, "cap": 1000, "truncated": false }
   },
   "tokens": { "keySource": "configured", "crossInstanceStable": true },

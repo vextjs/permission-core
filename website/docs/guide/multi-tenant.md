@@ -5,7 +5,7 @@ Tenant isolation is part of every authorization identity. Roles, bindings, menus
 
 ## Relationship Model
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```mermaid
 flowchart TD
@@ -24,7 +24,7 @@ flowchart TD
 <p className="pc-diagram-text" id="pc-diagram-tenant-relationship-en-text" data-diagram-id="tenant-relationship"><strong>Text equivalent.</strong>A tenant contains one or more complete scopes. Each scope independently owns roles, user-role sets, menu nodes, and API bindings. Users bind to roles through a scoped assignment set, and roles hold allow or deny rules plus menu grants. Reusing the same userId or roleId in another scope does not share authorization state.</p>
 ## Same Identifiers, Isolated State
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 const scopeA = { tenantId: 'tenant-a', appId: 'admin' };
@@ -61,7 +61,7 @@ const tenantBCrossResource = await subjectB.can('read', 'ui:page:tenant-a-dashbo
 ```
 ## Construct a Trusted Subject
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 const subject = pc.forSubject({
@@ -75,7 +75,7 @@ const subject = pc.forSubject({
 ```
 ## Enforce Scope in Business Data
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 const orders = subject.data.collection('orders', {
@@ -88,10 +88,10 @@ const orders = subject.data.collection('orders', {
 ```
 ## Persistence, Cache, and Audit Isolation
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ## Operational Checks
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 Continue with [Cache](/guide/cache).

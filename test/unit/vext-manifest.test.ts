@@ -56,18 +56,18 @@ describe("Vext route manifest", () => {
         expect(snapshot.manifest.routes.find(({ path }) => path === "/public")?.authorization).toBeNull();
         expect(snapshot.manifest.routes.find(({ method }) => method === "GET")?.authorization).toEqual({
             mode: "all",
-            permissions: [{ action: "invoke", resource: "GET:/orders/:id" }],
+            permissions: [{ action: "invoke", resource: "api:GET:/orders/:id" }],
         });
         const post = snapshot.manifest.routes.find(({ method }) => method === "POST")!;
         expect(post.authorization).toEqual({
             mode: "all",
-            permissions: [{ action: "create", resource: "POST:/orders" }],
+            permissions: [{ action: "create", resource: "api:POST:/orders" }],
         });
         const patch = snapshot.manifest.routes.find(({ method }) => method === "PATCH")!;
         expect(patch.authorization).toEqual({
             mode: "any",
             permissions: expect.arrayContaining([
-                { action: "update", resource: "PATCH:/orders/:id" },
+                { action: "update", resource: "api:PATCH:/orders/:id" },
                 { action: "manage", resource: "ui:button:orders.override" },
             ]),
         });
@@ -116,13 +116,13 @@ describe("Vext route manifest", () => {
             mode: "all",
             requirements: [
                 { action: "read" },
-                { action: "read", resource: "GET:/orders/:id" },
+                { action: "read", resource: "api:GET:/orders/:id" },
                 { action: "manage", resource: "ui:page:orders" },
             ],
         }), schemes);
 
         expect(contract.evaluation?.requirements).toEqual(expect.arrayContaining([
-            { action: "read", resource: "GET:/orders/:id" },
+            { action: "read", resource: "api:GET:/orders/:id" },
             { action: "manage", resource: "ui:page:orders" },
         ]));
     });

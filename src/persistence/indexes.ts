@@ -52,6 +52,14 @@ export const INTERNAL_INDEX_CATALOG: Readonly<Record<InternalCollectionKey, read
         index("pc_grants_scope_role_effect", { scopeKey: 1, roleId: 1, effect: 1, grantId: 1 }),
         index("pc_grants_scope_grant_revision", { scopeKey: 1, grantId: 1, grantRevision: 1 }),
     ]),
+    menuConfigs: Object.freeze([
+        index("pc_menu_config_scope_config_uq", { scopeKey: 1, configId: 1 }, { unique: true }),
+        index("pc_menu_config_scope_updated", { scopeKey: 1, updatedAt: -1, configId: 1 }),
+        index("pc_menu_config_scope_digest", { scopeKey: 1, configDigest: 1, configId: 1 }),
+        index("pc_menu_config_scope_title", { scopeKey: 1, title: 1, configId: 1 }, {
+            partialFilterExpression: Object.freeze({ title: STRING_FIELD }),
+        }),
+    ]),
     menuNodes: Object.freeze([
         index("pc_menu_scope_node_uq", { scopeKey: 1, nodeId: 1 }, { unique: true }),
         index("pc_menu_scope_path_uq", { scopeKey: 1, path: 1 }, {
@@ -114,7 +122,7 @@ export const INTERNAL_INDEX_CATALOG: Readonly<Record<InternalCollectionKey, read
 });
 
 function indexConflict(collection: string, indexName: string, reason: string, cause?: unknown) {
-    return new PermissionCoreError("INDEX_CONFLICT", `Index ${indexName} on ${collection} conflicts with the v2 schema contract.`, {
+    return new PermissionCoreError("INDEX_CONFLICT", `Index ${indexName} on ${collection} conflicts with the current schema contract.`, {
         details: { kind: "database-failure", stage: "index" },
         cause: cause ?? new Error(reason),
     });

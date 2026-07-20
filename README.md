@@ -31,13 +31,13 @@ const scoped = pc.scope(scope);
 await scoped.roles.create({ id: 'order-reader', label: 'Order reader' });
 await scoped.roles.allow('order-reader', {
   action: 'invoke',
-  resource: 'GET:/api/orders',
+  resource: 'api:GET:/api/orders',
 });
 await scoped.userRoles.assign('u-1', 'order-reader');
 
 const subject = pc.forSubject({ userId: 'u-1', scope });
-console.log(await subject.can('invoke', 'GET:/api/orders')); // true
-console.log(await subject.cannot('invoke', 'DELETE:/api/orders')); // true
+console.log(await subject.can('invoke', 'api:GET:/api/orders')); // true
+console.log(await subject.cannot('invoke', 'api:DELETE:/api/orders')); // true
 
 await pc.close();
 await msq.close();
@@ -48,7 +48,7 @@ await msq.close();
 ## Included capabilities
 
 - scoped roles, direct user-role bindings, single-parent inheritance, allow/deny rules, and effective permission reads
-- menu/page/button management, API bindings, previewed role-menu grants, visible trees, button maps, and route state
+- high-level menu config, page/action/API ownership, previewed role-menu grants, view trees, action maps, view state, and response field projection
 - authorized Mongo collections that compose business filters, exact tenant fields, row conditions, field permissions, and bounded writes
 - optimistic revisions, idempotency, audit evidence, health reporting, and optional MonSQLize-backed semantic caching
 - optional native Vext integration from `permission-core/plugins/vext` for hosts on Node.js `>=20.19.0`
@@ -71,7 +71,7 @@ Run all five with `npm run example:all`. Each emits stable JSON and uses an in-m
 
 ## Documentation map
 
-- [Quick Start](./website/docs/guide/quick-start.md): installation through role reads, menu/API grants, row and field filtering, and owner-order shutdown
+- [Quick Start](./website/docs/guide/quick-start.md): installation through a first role check, plus the next menu/API/response-field path
 - [Permission lifecycle](./website/docs/guide/permission-lifecycle.md): transaction, revision, audit, cache, and fail-closed behavior
 - [API reference](./website/docs/api/core-and-contexts.md): exact public managers, responses, errors, and limits
 - [Troubleshooting](./website/docs/guide/troubleshooting.md): recovery by error code and details discriminator

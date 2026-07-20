@@ -1,9 +1,8 @@
 # Menu Administration
-<!-- docs:inline-parity `examples/menu-admin.mjs` `docs:menu-admin:start` `docs:menu-admin:end` `roleGrant.generatedSources: 4` `roleGrant.auditRecorded: true` `subjectRuntime.exportButton.enabled: true` `manifest.apiBindingCount: 1` `menus.create` `apiBindings.create` `created` `menus.create()` `MutationResult<MenuNode>` `apiBindings.create()` `MutationResult<ApiBinding>` `root/page/button/binding.data.id` `roles.create` `order-operator` `userRoles.assign` `u-menu` `roles.create()` `userRoles.assign()` `set()` `menuPermissions.preview` `menuPermissions.grant` `menuPermissions.getDirect` `orders` `apiChoices` `roleGrant` `menuPermissions.preview(roleId, change)` `{ operation:'grant', selection }` `ImpactPreview<MenuPermissionPlan>` `menuPermissions.grant(roleId, selection, options)` `MutationResult<MenuPermissionGrantResult>` `menuPermissions.getDirect(roleId)` `VersionedResult<DirectMenuPermissionSnapshot>` `menus.update` `Order management` `revision` `expectedRevision` `2` `update` `page.data.revision` `updated` `updated.data.title/revision` `forSubject` `getVisibleTree` `getButtonMap` `/orders` `getRouteState` `subjectRuntime` `SubjectRuntimeResult<VisibleMenuTreeNode[]>` `data` `detailBudget` `menus.manifest.export` `schemaVersion` `manifest` `manifest.export()` `VersionedResult<FrontendMenuManifest>` `manifest.data.nodes/apiBindings` `printExample()` `generatedSources` `auditRecorded` -->
 
 ## Scenario
 
-This example creates a directory, page, button, and API binding; grants the page workflow to a role; updates presentation state; projects user menu/button/route state; and exports a frontend manifest with audit evidence.
+This example shows the complete backend menu path: save one `MenuConfigInput`, grant a role its page, API, action, and response-field permissions, then read user runtime menu state and project the API response.
 
 ## Run
 
@@ -15,212 +14,152 @@ The canonical source is the `docs:menu-admin:start` to `docs:menu-admin:end` blo
 
 ## First Check the Result
 
-A successful run confirms `roleGrant.generatedSources: 4`, `roleGrant.auditRecorded: true`, `subjectRuntime.exportButton.enabled: true`, and `manifest.apiBindingCount: 1`.
+A successful run should include `roleGrant.generatedSources`, `roleGrant.auditRecorded`, `subjectRuntime.exportEnabled`, and `subjectRuntime.projectedResponse`. These values prove that role sources were generated, important writes were audited, the user can use the export action, and the API response was projected by field permissions.
 
 ## Source walkthrough
 
 ```js
-const root = await scoped.menus.create({
-  id: 'operations', type: 'directory', title: 'Operations',
-}, { actorId: 'admin' });
-const page = await scoped.menus.create({
-  id: 'orders', parentId: 'operations', type: 'page', title: 'Orders',
-  path: '/orders', name: 'orders', component: 'OrdersPage',
-  permission: { action: 'read', resource: 'ui:page:orders' },
-  dataPermissions: [{ action: 'read', resource: 'db:orders', label: 'Read orders' }],
-}, { actorId: 'admin' });
-const button = await scoped.menus.create({
-  id: 'orders-export', parentId: 'orders', type: 'button', title: 'Export orders',
-  code: 'orders.export',
-  permission: { action: 'invoke', resource: 'ui:button:orders.export' },
-}, { actorId: 'admin' });
-const binding = await scoped.apiBindings.create({
-  id: 'orders-export-api', method: 'POST', path: '/api/orders/export',
-  purpose: 'importExport',
-  authorization: {
-    mode: 'all',
-    permissions: [{ action: 'invoke', resource: 'api:POST:/api/orders/export' }],
-  },
-  owners: [{ type: 'button', id: 'orders-export', required: true }],
-  canonicalOwner: { type: 'button', id: 'orders-export' },
-}, { actorId: 'admin' });
+const runtime = await startExampleCore("menu-admin");
+const scope = { tenantId: "acme", appId: "admin" };
+const scoped = runtime.core.scope(scope);
 
-await scoped.roles.create({ id: 'order-operator', label: 'Order operator' });
-await scoped.userRoles.assign('u-menu', 'order-operator');
-const selection = {
-  nodeIds: ['orders'],
-  include: { descendants: true, buttons: true, apis: 'required', dataPermissions: true },
-  apiChoices: { bindingIds: [], permissionsByBinding: {} },
-};
-const preview = await scoped.roles.menuPermissions.preview(
-  'order-operator',
-  { operation: 'grant', selection },
-);
-if (!preview.executable) throw new Error('Grant is not executable');
-const granted = await scoped.roles.menuPermissions.grant('order-operator', selection, {
-  ...preview.expected,
-  previewToken: preview.previewToken,
+const configPreview = await scoped.menus.config.preview(menuConfig, { actorId: "admin" });
+const savedConfig = await scoped.menus.config.save(menuConfig, {
+  ...configPreview.expected,
+  previewToken: configPreview.previewToken,
+  actorId: "admin",
+  idempotencyKey: "example-menu-config-save",
 });
 
-const updated = await scoped.menus.update(
-  'orders',
-  { title: 'Order management' },
-  { expectedRevision: page.data.revision, actorId: 'admin' },
+await scoped.roles.create({ id: "order-operator", label: "Order operator" });
+const selection = {
+  configId: "admin",
+  views: ["orders-list"],
+  responseFields: [{
+    apiResource: "api:GET:/api/orders",
+    fields: ["orderNo", "status"],
+  }],
+  include: { loads: true, actions: true, responseFields: "none" },
+};
+const grantPreview = await scoped.roles.menuPermissions.preview(
+  "order-operator",
+  { operation: "grant", selection },
+  { actorId: "admin" },
 );
-const subjectMenus = core.forSubject({ userId: 'u-menu', scope }).menus;
-const visible = await subjectMenus.getVisibleTree();
-const buttons = await subjectMenus.getButtonMap('orders');
-const route = await subjectMenus.getRouteState('/orders');
-const manifest = await scoped.menus.manifest.export();
-const directGrant = await scoped.roles.menuPermissions.getDirect('order-operator');
+const granted = await scoped.roles.menuPermissions.grant("order-operator", selection, {
+  ...grantPreview.expected,
+  previewToken: grantPreview.previewToken,
+  actorId: "admin",
+  idempotencyKey: "example-menu-role-grant",
+});
+await scoped.userRoles.assign("u-menu", "order-operator");
+
+const subjectMenus = runtime.core.forSubject({ userId: "u-menu", scope }).menus;
+const tree = await subjectMenus.getViewTree({ configId: "admin" });
+const viewState = await subjectMenus.getViewState({ configId: "admin", viewId: "orders-list" });
+const actions = await subjectMenus.getActionMap({ configId: "admin", viewId: "orders-list" });
+const projected = await subjectMenus.filterResponse("api:GET:/api/orders", rawOrders);
+const directGrant = await scoped.roles.menuPermissions.getDirect("order-operator");
 ```
 
-The selection includes descendants, buttons, required APIs, and data templates. The grant creates provenance-bearing rule sources, and UI projection evaluates those sources for the user.
+The snippet omits the `menuConfig` and `rawOrders` definitions; the full file declares the `orders-list` page, the `api:GET:/api/orders` load API, the `export` action, and the response fields.
 
-### 1. Create the menu and API ownership model
+### 1. Preview and save the menu config
 
-<!-- docs:operation id=menu-model calls=menus.create,apiBindings.create outputs=created -->
+<!-- docs:operation id=menu-model calls=menus.config.preview,menus.config.save outputs=config -->
 
-**Purpose and target.** This operation explains `menus.create`, `apiBindings.create` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
+**Purpose and target.** `menus.config.preview` validates `menuConfig` before writing and shows which internal menu, API, and response-field assets will be produced. `menus.config.save` writes the same config with the returned `expected` vector and `previewToken`. This step produces `config`, showing that the config was saved and whether the internal manifest changed.
 
-**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `created`.
+**State, arguments, and result.** `menuConfig.configId` is the key used later by role grants and runtime reads. `load.resource` uses `api:GET:/api/orders`, so no separate `action: 'invoke'` is needed. `response` declares the fields that can later be granted. The save call returns `MutationResult<MenuConfigSaveResult>`; `savedConfig.data.config` is the snapshot and `savedConfig.data.manifestOperations` summarizes internal synchronization.
 
-**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
+**Failure and next step.** If preview is not executable, the config has conflicts, invalid resources, or would break existing grant sources. Show `conflicts`, fix the config, and preview again. Do not skip preview, and do not reuse an old token for changed input.
 
-**API reference.** See [menus](/api/menus), [api-bindings](/api/api-bindings) for exact signatures, response wrappers, and public error codes.
+**API reference.** See [Menus API](/api/menus) for `MenuConfigInput`, preview/save signatures, response envelopes, and error boundaries.
 
 ### 2. Create the role identity used by the workflow
 
-<!-- docs:operation id=menu-role calls=roles.create,userRoles.assign outputs=subjectRuntime -->
+<!-- docs:operation id=menu-role calls=roles.create outputs=subjectRuntime -->
 
-**Purpose and target.** This operation explains `roles.create`, `userRoles.assign` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
+**Purpose and target.** `roles.create` creates the `order-operator` role that will receive the menu grant. The user role assignment happens after the grant is committed, making the example separate "the role exists" from "the user has permissions".
 
-**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `subjectRuntime`.
+**State, arguments, and result.** `id` is the stable role ID and `label` is display text. Creating the role does not grant any menu, API, action, or response-field permission. Those abilities appear only after `menuPermissions.grant` succeeds. This step ultimately feeds `subjectRuntime`, because runtime projection depends on the role participating in effective permissions.
 
-**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
+**Failure and next step.** If the role already exists, reuse it or start with a clean example database. If the role is missing, the later grant fails. Do not patch around this with manual `roles.allow`, because that loses menu provenance and response-field semantics.
 
-**API reference.** See [roles](/api/roles), [user-roles](/api/user-roles) for exact signatures, response wrappers, and public error codes.
+**API reference.** See [Roles API](/api/roles) and [User Roles API](/api/user-roles) for role creation, user assignment, and response shapes.
 
 ### 3. Preview and commit the role-menu grant
 
 <!-- docs:operation id=menu-grant calls=menuPermissions.preview,menuPermissions.grant,menuPermissions.getDirect outputs=roleGrant -->
 
-**Purpose and target.** This operation explains `menuPermissions.preview`, `menuPermissions.grant`, `menuPermissions.getDirect` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
+**Purpose and target.** `menuPermissions.preview` expands `selection` into the page, load API, action, and response fields. `menuPermissions.grant` commits the allow grant using the preview. `menuPermissions.getDirect` reads the saved grant and response-field sources. This step produces `roleGrant`.
 
-**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `roleGrant`.
+**State, arguments, and result.** `selection.configId` points at the `admin` config, `views` selects `orders-list`, `include.loads/actions` automatically includes the page load API and export action, and `responseFields` grants only `orderNo/status` for `api:GET:/api/orders`. The grant returns `generatedSources`, `generatedResponseFields`, and `grantIds`; the direct read returns `responseFields.total`.
 
-**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
+**Failure and next step.** If a selected view, action, or field does not exist, preview rejects the input. If revisions or the token expire, grant execution fails. Refresh the config and role state, preview again, then submit the new token.
 
-**API reference.** See [role-menu-permissions](/api/role-menu-permissions) for exact signatures, response wrappers, and public error codes.
+**API reference.** See [Role Menu Permissions API](/api/role-menu-permissions) for `MenuBusinessPermissionSelection`, `responseFields`, `selectedResponseFields`, and `generatedSources`.
 
-### 4. Update presentation state with a revision
+### 4. Project the user's menu runtime and response
 
-<!-- docs:operation id=menu-update calls=menus.update outputs=update -->
+<!-- docs:operation id=menu-subject calls=forSubject,getViewTree,getViewState,getActionMap,filterResponse outputs=subjectRuntime -->
 
-**Purpose and target.** This operation explains `menus.update` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
+**Purpose and target.** `forSubject` binds the current user and scope. `getViewTree` returns visible navigation, `getViewState` checks page access, `getActionMap` checks action state, and `filterResponse` projects the API response by response-field permissions. This step produces `subjectRuntime`.
 
-**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `update`.
+**State, arguments, and result.** After `userRoles.assign` gives `order-operator` to `u-menu`, the subject runtime can see the grant. `filterResponse("api:GET:/api/orders", rawOrders)` first checks invoke permission, then removes `internalCost` and other ungranted fields from `items` while preserving `total`.
 
-**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
+**Failure and next step.** If the user lacks the role, the config ID is wrong, the view is not granted, or the API permission is missing, runtime fails closed. Do not rely on frontend hiding alone; business APIs still need `subject.assert` or the Vext plugin guard.
 
-**API reference.** See [menus](/api/menus) for exact signatures, response wrappers, and public error codes.
-
-### 5. Project the user's visible runtime state
-
-<!-- docs:operation id=menu-subject calls=forSubject,getVisibleTree,getButtonMap,getRouteState outputs=subjectRuntime -->
-
-**Purpose and target.** This operation explains `forSubject`, `getVisibleTree`, `getButtonMap`, `getRouteState` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
-
-**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `subjectRuntime`.
-
-**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
-
-**API reference.** See [core-and-contexts](/api/core-and-contexts), [menus](/api/menus), [role-menu-permissions](/api/role-menu-permissions) for exact signatures, response wrappers, and public error codes.
-
-### 6. Export the frontend manifest
-
-<!-- docs:operation id=menu-manifest calls=menus.manifest.export outputs=manifest -->
-
-**Purpose and target.** This operation explains `menus.manifest.export` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
-
-**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `manifest`.
-
-**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
-
-**API reference.** See [menus](/api/menus), [api-bindings](/api/api-bindings) for exact signatures, response wrappers, and public error codes.
-
+**API reference.** See [Core and Contexts API](/api/core-and-contexts), [Menus API](/api/menus), and [Role Menu Permissions API](/api/role-menu-permissions).
 
 ## Expected output
 
-The following JSON is the **Example summary output** generated by `printExample()`. It combines selected fields from several API calls and is not the raw response of one method.
+The following JSON is the **Example summary output** generated by `printExample()`. It combines selected fields from several API responses and is not the raw response of one method.
 
 ```json
 {
   "example": "menu-admin",
   "ok": true,
-  "created": {
-    "nodes": ["operations", "orders", "orders-export"],
-    "apiBinding": "orders-export-api"
+  "config": {
+    "id": "admin",
+    "menuCount": 1,
+    "manifestChanged": true
   },
-  "update": { "title": "Order management", "revision": 2 },
   "roleGrant": {
-    "generatedSources": 4,
+    "generatedSources": 3,
+    "generatedResponseFields": 2,
     "grantCount": 1,
-    "sourceStatus": { "integrity": "valid", "availability": "active", "drift": "current" },
+    "responseFieldCount": 2,
     "auditRecorded": true
   },
   "subjectRuntime": {
-    "visibleNodeIds": ["operations", "orders"],
-    "exportButton": {
-      "visible": true,
-      "enabled": true,
-      "reason": "allowed",
-      "action": "invoke",
-      "resource": "ui:button:orders.export",
-      "apiRisks": {
-        "total": 1,
-        "items": [
-          {
-            "bindingId": "orders-export-api",
-            "required": true,
-            "allowed": true
-          }
-        ],
-        "truncated": false,
-        "digest": "tLtCyOJN4gP1FKjpuujpqJC7WfPZPYQkWlncDHSbiMY"
-      }
-    },
-    "route": { "allowed": true, "reason": "allowed", "navigationReachable": true }
-  },
-  "manifest": { "schemaVersion": 2, "nodeCount": 3, "apiBindingCount": 1 }
+    "viewTreeIds": ["orders"],
+    "viewAllowed": true,
+    "exportEnabled": true,
+    "projectedResponse": {
+      "items": [{ "orderNo": "O-1001", "status": "paid" }],
+      "total": 1
+    }
+  }
 }
 ```
 
-<!-- docs:output group=created producer=menu-model -->
+<!-- docs:output group=config producer=menu-model -->
 
-**`created` provenance.** This output group is produced by the menu-model walkthrough and should be read together with `menus.create`. It is a selected, documented example field rather than a new API response shape.
-
-<!-- docs:output group=update producer=menu-update -->
-
-**`update` provenance.** This output group is produced by the menu-update walkthrough and should be read together with `menus.update`. It is a selected, documented example field rather than a new API response shape.
+**`config` provenance.** `menus.config.save` returns the saved config snapshot and internal synchronization summary. The example prints only `configId`, menu count, and whether internal assets changed; the raw response still carries revision, auditId, and cache outcome.
 
 <!-- docs:output group=roleGrant producer=menu-grant -->
 
-**`roleGrant` provenance.** This output group is produced by the menu-grant walkthrough and should be read together with `menuPermissions.grant`. It is a selected, documented example field rather than a new API response shape.
+**`roleGrant` provenance.** `menuPermissions.grant` provides `generatedSources`, `generatedResponseFields`, and audit evidence. `menuPermissions.getDirect` provides grant count and response-field count. Together they prove the role received menu-sourced grants rather than hand-built rules.
 
 <!-- docs:output group=subjectRuntime producer=menu-subject -->
 
-**`subjectRuntime` provenance.** This output group is produced by the menu-subject walkthrough and should be read together with `getVisibleTree`. It is a selected, documented example field rather than a new API response shape.
-
-<!-- docs:output group=manifest producer=menu-manifest -->
-
-**`manifest` provenance.** This output group is produced by the menu-manifest walkthrough and should be read together with `menus.manifest.export`. It is a selected, documented example field rather than a new API response shape.
-
+**`subjectRuntime` provenance.** `filterResponse` produces `projectedResponse`; `getViewTree`, `getViewState`, and `getActionMap` produce visible navigation, page state, and action state. This summary is the user runtime view, not the backend configuration inventory.
 
 ## Production boundary
 
-This is a backend management workflow, not frontend-only filtering. Protect every management endpoint and every bound business API, and require preview tokens for high-impact changes.
+This is a backend management flow, not frontend menu filtering. In production, saving menu configs, granting role-menu permissions, assigning user roles, and accessing business APIs should all be protected backend operations. Response-field projection belongs on the server before returning data, not only in the browser.
 
 ## Related
 
-See [Manage Menus](/guide/menu-management), [Bind APIs](/guide/api-bindings), and [Authorize Role Menus](/guide/role-menu-authorization).
+See [Manage Menus](/guide/menu-management), [Configure APIs and Response Fields](/guide/api-bindings), and [Authorize Role Menus](/guide/role-menu-authorization).

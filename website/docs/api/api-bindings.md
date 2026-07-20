@@ -1,226 +1,215 @@
-# API Bindings
-<!-- docs:inline-parity `scoped.apiBindings` `create()` `get()` `list()` `update()` `previewSetStatus()` `setStatus()` `previewUpdate()` `executeUpdate()` `getRemovalImpact()` `previewRemove()` `previewReplace()` `replace()` `update` `previewUpdate` `executeUpdate` `ApiBindingCreateInput` `id` `string` `method` `post` `POST` `path` `/api/orders/:id` `purpose` `entry \| lookup \| detail \| operation \| importExport \| background` `authorization.mode` `all \| any` `all` `any` `authorization.permissions` `{ action, resource }[]` `can/assert` `owners` `ApiOwnerRelation[]` `[]` `canonicalOwner` `{ type, id }` `status` `enabled \| disabled \| deprecated` `enabled` `description` `ApiOwnerRelation` `type` `menu/page/button` `required` `true` `false` `availabilityGroup` `availabilityMode` `required=true` `ApiBindingFilter` `method/path/status/purpose/ownerId` `first/after` `ApiBindingImpactUpdateRequest` `patch` `sourceRewrite` `ApiBindingRemoveInput` `ApiBindingReplaceInput` `bindings` `create(input, options?)` `MutationResult<ApiBinding>` `data` `get(bindingId)` `VersionedResult<ApiBinding>` `data.revision` `list(query?)` `first` `50` `200` `PageResult<ApiBinding>` `endCursor` `update(bindingId, patch, options)` `expectedRevision` `REVISION_CONFLICT` `previewSetStatus(bindingId, status, options?)` `ImpactPreview<ApiBindingStatusPlan>` `setStatus(bindingId, status, options)` `expected/previewToken` `getRemovalImpact(bindingId)` `VersionedResult<ApiBindingImpact>` `previewRemove/remove` `previewUpdate(bindingId, request, options?)` `request.patch` `ImpactPreview<ApiBindingRewritePlan>` `executeUpdate(bindingId, request, options)` `previewRemove(bindingId, input, options?)` `input.sourceRewrite` `ImpactPreview<ApiBindingRemovalPlan>` `detachedOwners/sourceImpacts/executable` `remove(bindingId, input, options)` `MutationResult<BatchMutationSummary>` `previewReplace(input, options?)` `input.bindings` `ImpactPreview<ApiBindingReplacePlan>` `operations` `unchanged` `replace(input, options)` `1000` `PREVIEW_STALE` `API_BINDING_NOT_FOUND` `API_BINDING_ALREADY_EXISTS` `DEPENDENCY_EXISTS` `STALE_REFERENCE` `20000` `orders-export` -->
-
-`scoped.apiBindings` manages endpoint contracts and their owners. Bindings affect UI availability and backend authorization, but they do not grant roles by themselves.
+# Configure APIs and Response Fields API
 
 ## Purpose and preconditions
 
-This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+This page describes API and response-field configuration inside `MenuConfigInput`. Applications no longer need to directly create API bindings through a public manager. Declare `load`, `actions`, and `response` in the menu config; `menus.config.save()` compiles the internal endpoint contracts.
+
+Before using it:
+
+- You have a `MenuConfigInput`.
+- API resources use `ApiResource` in `api:METHOD:/path` form.
+- Response fields are declared in config before role-menu grants select them.
 
 ## What Do You Want to Do?
 
-Use this table as the shortest route from a task to the first method. Methods that can change broad state use a preview/execute pair so the admin UI can show impact before writing.
+| Goal | Field or API | Notes |
+|---|---|---|
+| Declare a load API | `MenuConfigInput.load` | Use `load.resource`; permission-core automatically treats it as `invoke`. |
+| Declare an action API | `MenuConfigInput.actions` | Use `actions[].resource`; `api:*` actions can also declare `response`. |
+| Declare response fields | `response` / `ResponseProjectionConfigInput` | Use array form for direct objects or `{ target, preserve, fields }` for paged responses. |
+| Runtime check | `subject.assert()` / `subject.menus.filterResponse()` | Guard the API and project the response by granted fields. |
+| Common errors | validation errors and permission errors | Check invalid resource format, field path conflicts, missing grants, and no-allow results. |
 
 ## Signatures
 
-The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.
+```ts
+MenuConfigInput.load: readonly MenuLoadInput[]
+load.resource: ApiResource
+load.response?: ResponseProjectionInput
+
+MenuConfigInput.actions: readonly MenuActionInput[]
+actions[].resource: ApiResource | UiResource
+actions[].response?: ResponseProjectionInput
+
+MenuConfigInput.response?: ResponseProjectionConfigInput
+response?: ResponseProjectionConfigInput
+```
+
+Signature markers: `load.resource: ApiResource`, `actions[].resource: ApiResource | UiResource`, `response?: ResponseProjectionConfigInput`.
+
+## Parameters
+
+<!-- docs:params owner=MenuConfigInput locale=en -->
+
+### `MenuLoadInput`
+
+| Field | Type | Required/default | Meaning |
+|---|---|---|---|
+| `resource` | `ApiResource` | Required | View load API, for example `api:GET:/api/orders`. The system treats it as `invoke`; do not write action separately. |
+| `response` | `ResponseProjectionInput` | Optional | Response fields that can be granted for this API. |
+| `meta` | `Record<string, PolicyValue>` | Optional | Custom admin metadata. |
+
+### `MenuActionInput`
+
+| Field | Type | Required/default | Meaning |
+|---|---|---|---|
+| `id` | `string` | Optional | Action ID; the compiler can generate one, but explicit IDs are easier to manage. |
+| `title` | `string` | Required | Action display name. |
+| `resource` | `ApiResource \| UiResource` | Required | Backend APIs use `api:`, frontend-only actions use `ui:`. |
+| `opens` | `string` | Optional | View ID opened by the action. |
+| `response` | `ResponseProjectionInput` | Optional | Field config for the action API response. |
+| `enabled` | `boolean` | Default `true` | Whether the action is active. |
+| `i18nKey/meta` | Display metadata | Optional | For frontend or management UI. |
+
+### `ResponseProjectionConfigInput`
+
+| Field | Type | Required/default | Meaning |
+|---|---|---|---|
+| `fields` | `ResponseFieldDefinition[]` | Required | Grantable field definitions. |
+| `target` | `string` | Optional | Object or array path to project, such as `items` or `data.items`. |
+| `preserve` | `string[]` | Default `[]` | Outer fields to keep without field grants, such as `total` or `cursor`. |
+
+`ResponseProjectionInput` can be a field array or an object with `{ target, preserve, fields }`.
+
+## Load API field
+
+<span id="menu-config-input-load"></span>
+### `MenuConfigInput.load`
+
+<!-- docs:method name=MenuConfigInput.load locale=en -->
+
+- **Purpose**: Declare backend APIs required when entering a view.
+- **Parameters**: `load.resource` is an `ApiResource`; `load.response` declares grantable response fields.
+- **State impact**: Saving the config creates an internal endpoint contract; selecting `include.loads: true` in a role grant creates invoke permission sources.
+- **Raw return**: The field has no standalone return. Results appear in `menus.config.preview/save` plans and snapshots.
+
+Example:
 
 ```ts
-create(input: ApiBindingCreateInput, options?: MutationOptions): Promise<MutationResult<ApiBinding>>
-get(bindingId: string): Promise<VersionedResult<ApiBinding>>
-list(query?: CursorQuery & ApiBindingFilter): Promise<PageResult<ApiBinding>>
-update(bindingId: string, patch: ApiBindingUpdateInput, options: RequiredRevisionOptions): Promise<MutationResult<ApiBinding>>
-previewSetStatus(bindingId: string, status: EntityStatus, options?: PreviewOptions): Promise<ImpactPreview<ApiBindingStatusPlan>>
-setStatus(bindingId: string, status: EntityStatus, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<ApiBinding>>
-getRemovalImpact(bindingId: string): Promise<VersionedResult<ApiBindingImpact>>
-previewUpdate(bindingId: string, request: ApiBindingImpactUpdateRequest, options?: PreviewOptions): Promise<ImpactPreview<ApiBindingRewritePlan>>
-executeUpdate(bindingId: string, request: ApiBindingImpactUpdateRequest, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<ApiBinding>>
-previewRemove(bindingId: string, input: ApiBindingRemoveInput, options?: PreviewOptions): Promise<ImpactPreview<ApiBindingRemovalPlan>>
-remove(bindingId: string, input: ApiBindingRemoveInput, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
-previewReplace(input: ApiBindingReplaceInput, options?: PreviewOptions): Promise<ImpactPreview<ApiBindingReplacePlan>>
-replace(input: ApiBindingReplaceInput, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
+load: [{
+  resource: 'api:GET:/api/orders',
+  response: {
+    target: 'items',
+    preserve: ['total'],
+    fields: [
+      { field: 'orderNo', title: '订单号' },
+      { field: 'status', title: '状态' },
+    ],
+  },
+}]
 ```
-## Parameter Objects
 
-The table explains object fields that are easy to confuse at call sites. Required fields are validated before the method mutates persistent authorization state.
+## Action API field
 
-<!-- docs:params owner=ApiBindingCreateInput locale=en -->
-### `ApiBindingCreateInput`
-<!-- docs:params owner=ApiOwnerRelation locale=en -->
-### `ApiOwnerRelation`
-<!-- docs:params owner=ApiBindingMutationInputs locale=en -->
-## Method Details: Create and Read Bindings
+<span id="menu-config-input-actions"></span>
+### `MenuConfigInput.actions`
 
-This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+<!-- docs:method name=MenuConfigInput.actions locale=en -->
 
-<span id="api-bindings-create"></span>
-### `create(input, options?)`
-<!-- docs:method name=apiBindings.create locale=en -->
+- **Purpose**: Declare buttons, toolbar actions, or row actions under a view.
+- **Parameters**: `actions[].resource` is `ApiResource | UiResource`; use `api:` when the action calls the backend.
+- **State impact**: Saving the config creates grantable actions; selecting `include.actions: true` creates action or API permission sources.
+- **Raw return**: The field has no standalone return. User-side state is read with `subject.menus.getActionMap()`.
 
-- **Purpose**: Use `apiBindings.create` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+Example:
 
-<span id="api-bindings-get"></span>
-### `get(bindingId)`
-<!-- docs:method name=apiBindings.get locale=en -->
+```ts
+actions: [{
+  id: 'export',
+  title: '导出订单',
+  resource: 'api:POST:/api/orders/export',
+  response: [{ field: 'downloadUrl', title: '下载地址' }],
+}]
+```
 
-- **Purpose**: Use `apiBindings.get` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+## Response field projection
 
-<span id="api-bindings-list"></span>
-### `list(query?)`
-<!-- docs:method name=apiBindings.list locale=en -->
+<span id="menu-config-input-response"></span>
+### `MenuConfigInput.response`
 
-- **Purpose**: Use `apiBindings.list` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `PageResult<T>` or the documented paged business result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+<!-- docs:method name=MenuConfigInput.response locale=en -->
 
-<span id="api-bindings-update"></span>
-## Method Details: Directly Update Display Fields
+- **Purpose**: Define which fields in an API response can be granted to roles.
+- **Parameters**: Array form declares fields directly; object form uses `target/preserve/fields` for paginated or nested responses.
+- **State impact**: Saving the config creates field inventory. After role grants select `responseFields`, `filterResponse()` returns only those fields.
+- **Raw return**: Field declarations appear in `MenuConfigSnapshot` load/action responses; runtime projection appears in `SubjectRuntimeResult.data`.
 
-This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+Array form:
 
-### `update(bindingId, patch, options)`
-<!-- docs:method name=apiBindings.update locale=en -->
+```ts
+response: [
+  { field: 'orderNo', title: '订单号' },
+  { field: 'buyer.name', title: '买家姓名' },
+]
+```
 
-- **Purpose**: Use `apiBindings.update` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+Paginated form:
 
-<span id="api-bindings-preview-set-status"></span>
-## Method Details: Change Status
-
-This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
-
-### `previewSetStatus(bindingId, status, options?)`
-<!-- docs:method name=apiBindings.previewSetStatus locale=en -->
-
-- **Purpose**: Use `apiBindings.previewSetStatus` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `ImpactPreview<Plan>` with `executable`, `expected`, and `previewToken` when applicable. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
-
-<span id="api-bindings-set-status"></span>
-### `setStatus(bindingId, status, options)`
-<!-- docs:method name=apiBindings.setStatus locale=en -->
-
-- **Purpose**: Use `apiBindings.setStatus` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
-
-<span id="api-bindings-get-removal-impact"></span>
-## Method Details: Change Structure and Remove Safely
-
-This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
-
-### `getRemovalImpact(bindingId)`
-<!-- docs:method name=apiBindings.getRemovalImpact locale=en -->
-
-- **Purpose**: Use `apiBindings.getRemovalImpact` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
-
-<span id="api-bindings-preview-update"></span>
-### `previewUpdate(bindingId, request, options?)`
-<!-- docs:method name=apiBindings.previewUpdate locale=en -->
-
-- **Purpose**: Use `apiBindings.previewUpdate` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `ImpactPreview<Plan>` with `executable`, `expected`, and `previewToken` when applicable. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
-
-<span id="api-bindings-execute-update"></span>
-### `executeUpdate(bindingId, request, options)`
-<!-- docs:method name=apiBindings.executeUpdate locale=en -->
-
-- **Purpose**: Use `apiBindings.executeUpdate` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
-
-<span id="api-bindings-preview-remove"></span>
-### `previewRemove(bindingId, input, options?)`
-<!-- docs:method name=apiBindings.previewRemove locale=en -->
-
-- **Purpose**: Use `apiBindings.previewRemove` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `ImpactPreview<Plan>` with `executable`, `expected`, and `previewToken` when applicable. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
-
-<span id="api-bindings-remove"></span>
-### `remove(bindingId, input, options)`
-<!-- docs:method name=apiBindings.remove locale=en -->
-
-- **Purpose**: Use `apiBindings.remove` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
-
-<span id="api-bindings-preview-replace"></span>
-## Method Details: Full Replacement
-
-This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
-
-### `previewReplace(input, options?)`
-<!-- docs:method name=apiBindings.previewReplace locale=en -->
-
-- **Purpose**: Use `apiBindings.previewReplace` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `ImpactPreview<Plan>` with `executable`, `expected`, and `previewToken` when applicable. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
-
-<span id="api-bindings-replace"></span>
-### `replace(input, options)`
-<!-- docs:method name=apiBindings.replace locale=en -->
-
-- **Purpose**: Use `apiBindings.replace` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+```ts
+response: {
+  target: 'items',
+  preserve: ['total'],
+  fields: [
+    { field: 'orderNo', title: '订单号' },
+    { field: 'status', title: '状态' },
+  ],
+}
+```
 
 ## Responses and side effects
 
-Side effects are scoped and revisioned. Writes record audit evidence and invalidate affected semantic cache keys; reads preserve bounded detail metadata so callers can tell whether diagnostics were complete.
+`load/actions/response` are config fields, not standalone mutation methods. Their validation and compiled results surface through these APIs:
+
+| Operation | Result |
+|---|---|
+| `menus.config.preview(config)` | Previews whether the config is valid and which internal assets it creates. |
+| `menus.config.save(config, options)` | Saves the config and returns `MenuConfigSaveResult`. |
+| `roles.menuPermissions.preview/grant` | Selects load, action, and responseFields and creates role sources. |
+| `subject.menus.filterResponse(apiResource, payload)` | Projects response fields for the current user. |
 
 ```json
 {
-  "data": {
-    "id": "orders-export-api",
-    "method": "POST",
-    "path": "/api/orders/export",
-    "purpose": "importExport",
-    "authorization": {
-      "mode": "all",
-      "permissions": [{ "action": "invoke", "resource": "api:POST:/api/orders/export" }]
-    },
-    "owners": [{ "type": "button", "id": "orders-export", "required": true }],
-    "status": "enabled",
-    "revision": 1
+  "load": {
+    "resource": "api:GET:/api/orders",
+    "responseFieldCount": 2
+  },
+  "action": {
+    "id": "export",
+    "resource": "api:POST:/api/orders/export"
   }
 }
 ```
+
 ## Failures and limits
 
-Failures close authorization instead of widening it. Important limits are enforced before state is committed, and stale previews or revisions must be refreshed rather than guessed.
+`load.resource` must be an `api:` resource. `actions[].resource` must use a supported resource scheme. Field paths cannot be empty or unsafe, and role grants cannot select undeclared fields. `preserve` bypasses field grants, so keep it for structural fields, not sensitive business fields.
 
 ## Example
 
-The example keeps one narrow path per page. It shows the raw method family and a compact response shape, while the full runnable scenarios live in the examples section.
-
 ```ts
-const binding = await scoped.apiBindings.create({
-  id: 'orders-export-api', method: 'POST', path: '/api/orders/export',
-  purpose: 'importExport',
-  authorization: {
-    mode: 'all',
-    permissions: [{ action: 'invoke', resource: 'api:POST:/api/orders/export' }],
-  },
-  owners: [{ type: 'button', id: 'orders-export', required: true }],
+const selection = {
+  configId: 'admin',
+  views: ['orders-list'],
+  responseFields: [{
+    apiResource: 'api:GET:/api/orders',
+    fields: ['orderNo', 'status'],
+  }],
+  include: { loads: true, actions: true, responseFields: 'none' },
+};
+
+const projected = await subject.menus.filterResponse('api:GET:/api/orders', {
+  items: [{ orderNo: 'O-1001', status: 'paid', amount: 88 }],
+  total: 1,
 });
 ```
+
 ```json
-{ "bindingId": "orders-export-api", "changed": true }
+{
+  "items": [{ "orderNo": "O-1001", "status": "paid" }],
+  "total": 1
+}
 ```
+
 ## Related
 
-Continue with the linked guide or neighboring API page when you need workflow context rather than only signatures.
-
-Continue with [Role Menu Permissions](/api/role-menu-permissions).
+See [Manage Menus](/guide/menu-management), [Authorize Role Menus](/guide/role-menu-authorization), and [Menus API](/api/menus).

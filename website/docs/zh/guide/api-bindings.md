@@ -1,159 +1,148 @@
-# 绑定接口
+# 配置接口与响应字段
 
-接口绑定把真实后端 endpoint 连接到使用它的菜单、页面或按钮，同时回答两个独立问题：接口需要哪些权限，以及接口不可调用时是否应禁用它的 UI owner。
+在新版菜单模型里，业务侧不再直接维护公开的接口绑定管理 API。你只需要在 `MenuConfigInput` 里写 `load`、`actions` 和 `response`，保存配置时 permission-core 会自动生成内部接口契约，并把它们用于角色菜单授权、Vext 路由守卫和响应字段投影。
 
-## 与菜单如何关联
+## 页面加载接口
 
-菜单节点先定义 UI 结构：页面、菜单和按钮各自有稳定 `id`，按钮还会有前端使用的 `code`。接口绑定不会挂在路由字符串上，而是通过 `owners` 指向这些菜单对象：
-
-```ts
-owners: [
-  { type: 'button', id: 'orders-export', required: true },
-],
-canonicalOwner: { type: 'button', id: 'orders-export' },
-```
-
-这表示 `/api/orders/export` 是 `orders-export` 按钮使用的真实后端接口。`owners` 决定运行时可用性：当当前 subject 缺少 binding 的 `authorization` 权限时，`required: true` 的 owner 会被投影为不可用，例如按钮 `enabled=false`、`reason='api-unavailable'`。`canonicalOwner` 只是主要管理归属，必须也出现在 `owners` 中；它不会替代 owner 列表，也不会自动给角色授权。
-
-角色菜单授权会读取菜单节点和这些 owner 关系。管理员选择 `orders` 页面并包含 `buttons/apis` 时，preview 会把页面、按钮、关联 API binding 和数据模板展开成带来源的角色规则；执行 grant 后，用户通过角色绑定同时获得可见菜单、按钮状态和后端 `api:` 权限。完整选择流程见[角色菜单授权](/zh/guide/role-menu-authorization)。
-
-在菜单场景里，`authorization.permissions` 建议只表达“是否允许调用这个 endpoint”，也就是 `api:*` 权限。不要把 `db:*` 数据权限混进接口绑定；页面或按钮关联的数据权限模板放在菜单节点的 `dataPermissions`，真实数据范围仍由数据权限或数据层查询负责。
-
-## 绑定结构
-
-以下示例承接[管理菜单](/zh/guide/menu-management)：当前 scope 中已经存在 `orders` 页面，以及其子按钮 `id='orders-export'`、`code='orders.export'`。owner 不存在时 `create()` 会拒绝写入。
+页面进入时要调用的接口写在 `views[].load[]`：
 
 ```ts
-const created = await scoped.apiBindings.create({
-  id: 'orders-export-api',
-  method: 'POST',
-  path: '/api/orders/export',
-  purpose: 'importExport',
-  authorization: {
-    mode: 'all',
-    permissions: [
-      { action: 'invoke', resource: 'api:POST:/api/orders/export' },
+load: [{
+  resource: 'api:GET:/api/orders',
+  response: {
+    target: 'items',
+    preserve: ['total'],
+    fields: [
+      { field: 'orderNo', title: '订单号' },
+      { field: 'status', title: '状态' },
+      { field: 'amount', title: '金额' },
     ],
   },
-  owners: [
-    { type: 'button', id: 'orders-export', required: true },
+}]
+```
+
+`load.resource` 必须是 `ApiResource`，格式是 `api:METHOD:/path`。这里不需要写 `action: 'invoke'`；系统会自动把 load 编译成 `invoke + api:GET:/api/orders`。
+
+这条 load 会影响三处：
+
+| 场景 | 影响 |
+|---|---|
+| 菜单保存 | `menus.config.save()` 会把该接口登记到内部契约。 |
+| 角色授权 | `include.loads: true` 时会把该接口调用权限授给角色。 |
+| 用户运行时 | `getViewState()` 会用接口权限判断页面是否可用；`filterResponse()` 会按响应字段裁剪返回值。 |
+
+## 页面按钮和操作
+
+页面内按钮、工具栏动作、行操作写在 `views[].actions[]`：
+
+```ts
+actions: [{
+  id: 'export',
+  title: '导出订单',
+  resource: 'api:POST:/api/orders/export',
+  response: [{ field: 'downloadUrl', title: '下载地址' }],
+}]
+```
+
+`actions[].resource` 可以是后端接口，也可以是纯前端 UI 资源：
+
+| 资源 | 适合场景 |
+|---|---|
+| `api:POST:/api/orders/export` | 点击后会请求后端接口，应该由后端鉴权。 |
+| `ui:button:orders.export` | 纯前端能力，例如只控制按钮展示，后端没有对应接口。 |
+
+如果按钮调用后端，优先使用 `api:`。这样 `roles.menuPermissions.grant()` 勾选 `include.actions: true` 后，角色会同时拿到按钮状态和接口调用能力。
+
+## 响应字段配置
+
+响应字段有两种写法。
+
+对象或数组直接裁剪：
+
+```ts
+response: [
+  { field: 'orderNo', title: '订单号' },
+  { field: 'buyer.name', title: '买家姓名' },
+]
+```
+
+分页响应裁剪：
+
+```ts
+response: {
+  target: 'items',
+  preserve: ['total'],
+  fields: [
+    { field: 'orderNo', title: '订单号' },
+    { field: 'status', title: '状态' },
   ],
-  canonicalOwner: { type: 'button', id: 'orders-export' },
+}
+```
+
+`field` 支持点路径，例如 `buyer.name`。`target` 也支持点路径，例如 `data.items`。`preserve` 适合保留分页总数、游标、状态码等外层字段，但不要把敏感业务字段放进 `preserve`，因为它不参与字段授权。
+
+## 授权响应字段
+
+配置里声明字段后，还需要在角色菜单授权里选择字段：
+
+```ts
+const selection = {
+  configId: 'admin',
+  views: ['orders-list'],
+  responseFields: [{
+    apiResource: 'api:GET:/api/orders',
+    fields: ['orderNo', 'status'],
+  }],
+  include: { loads: true, actions: true, responseFields: 'none' },
+};
+```
+
+`fields` 必须来自配置中已经声明的字段。不要给角色分配配置里不存在的字段；preview 会拒绝这种输入。
+
+## 后端裁剪响应
+
+接口处理器返回前调用：
+
+```ts
+const projected = await subject.menus.filterResponse('api:GET:/api/orders', {
+  items: [
+    { orderNo: 'O-1001', status: 'paid', amount: 88, internalCost: 51 },
+  ],
+  total: 1,
+  debug: true,
 });
 ```
 
 ```json
 {
-  "changed": true,
-  "data": {
-    "id": "orders-export-api",
-    "method": "POST",
-    "path": "/api/orders/export",
-    "purpose": "importExport",
-    "revision": 1
-  }
+  "items": [{ "orderNo": "O-1001", "status": "paid" }],
+  "total": 1
 }
 ```
 
-这是 `apiBindings.create()` 原始 `MutationResult<ApiBinding>` 的节选；完整响应还含 scope revisions、operation/audit/cache/warnings/detailBudget。
+`filterResponse()` 会先执行接口权限检查。当前用户没有 `invoke + api:GET:/api/orders` 时，它会失败；当前用户有接口权限但只被授权部分字段时，它只返回这些字段。
 
-| 输入部分 | 本例含义 | 容易混淆的边界 |
-|---|---|---|
-| `method/path` | 唯一 endpoint 契约，method 会规范为大写 | 不是权限本身；后端仍按 authorization 执行检查 |
-| `authorization` | 调用 endpoint 需要具备 `api:POST:/api/orders/export` | 入门场景只放 `api:*` 调用权限；不要把数据权限写进这里 |
-| `owners` | binding 属于 export button，并且不可调用时应禁用按钮 | 一个 binding 可有多个 owner；一个 owner 也可有多个 bindings |
-| `canonicalOwner` | 主要管理归属 | 必须同时出现在 owners，但不会删除其他 owners |
-| [`create(input, options?)`](/zh/api/api-bindings#api-bindings-create) | 写入完整 binding | 不会自动给角色授权；返回 `data.revision` 供后续管理 |
+在 Vext 插件里，受 `permission: true` 保护的路由会自动对 `res.json()` 做响应字段投影；手写业务代码也可以显式调用 `req.auth.permission.filterResponse()`。详见[Vext 插件](/zh/guide/vext-plugin)。
 
-`authorization.mode: 'all'` 要求全部权限，`'any'` 要求至少一个。`canonicalOwner` 标识主要文档和管理归属，但不会删除其他 owner 关系。
+## 后端接口仍要鉴权
 
-## 一个按钮对应多个接口
-
-每个真实 endpoint 创建一条绑定，并让它们指向同一个按钮，从而保留接口级审计和权限语义。
+响应字段投影不是路由鉴权的替代品。业务接口仍应先保护入口：
 
 ```ts
-await scoped.apiBindings.create({
-  id: 'orders-export-start',
-  method: 'POST',
-  path: '/api/orders/exports',
-  purpose: 'operation',
-  authorization: {
-    mode: 'all',
-    permissions: [{ action: 'invoke', resource: 'api:POST:/api/orders/exports' }],
-  },
-  owners: [{ type: 'button', id: 'orders-export', required: true }],
-});
-await scoped.apiBindings.create({
-  id: 'orders-export-download',
-  method: 'GET',
-  path: '/api/orders/exports/:id',
-  purpose: 'detail',
-  authorization: {
-    mode: 'all',
-    permissions: [{ action: 'invoke', resource: 'api:GET:/api/orders/exports/:id' }],
-  },
-  owners: [{ type: 'button', id: 'orders-export', required: true }],
-});
+const subject = pc.forSubject({ userId: 'u-menu', scope });
+await subject.assert('invoke', 'api:GET:/api/orders');
+const projected = await subject.menus.filterResponse('api:GET:/api/orders', payload);
 ```
 
-两个 `create()` 各自返回一个 mutation envelope，示例故意省略变量，只突出“一条真实 endpoint 对应一条 binding”。保存后可分别用 `get('orders-export-start')` 和 `get('orders-export-download')` 验证规范化结果。
+如果使用 Vext 插件，`permission: true` 会用路由的 method/path 自动检查 `invoke + api:METHOD:/path`。如果不使用 Vext，就在自己的框架中调用 `subject.assert()`。
 
-每个未分组的 `required: true` 绑定都必须可用，否则按钮被禁用。可选关系仍出现在 `apiRisks`，但不会禁用 owner。
+## 常见误区
 
-多个 endpoint 互为替代时，可在必需 owner 关系上设置相同 `availabilityGroup` 和 `availabilityMode: 'any'`。角色授权必须通过 `apiChoices.bindingIds` 明确选择。若某条绑定自身的 authorization mode 为 `any`，则用 `apiChoices.permissionsByBinding` 至少选择一项要求。预览会返回未解决选择，而不是自行猜测。
+| 误区 | 正确理解 |
+|---|---|
+| 需要先创建接口绑定，再写菜单 | 不需要。现在以 `MenuConfigInput` 为唯一公开入口。 |
+| `load` 要写 action | 不需要。`load.resource` 自动补成 `invoke`。 |
+| 响应字段只影响前端展示 | 不对。它应该在后端返回前通过 `filterResponse()` 裁剪。 |
+| `preserve` 可以放任何字段 | 不建议。`preserve` 是总数/游标这类外层结构字段，不是业务字段授权。 |
 
-## 读取与更新绑定
-
-使用 `get`、游标式 `list`，并按 `method`、`path`、`status`、`purpose` 或 `ownerId` 过滤。只修改描述或 purpose 时使用 `expectedRevision`：
-
-```ts
-const current = await scoped.apiBindings.get('orders-export-api');
-const updated = await scoped.apiBindings.update(
-  'orders-export-api',
-  { description: 'Starts an order export' },
-  { expectedRevision: current.data.revision },
-);
-```
-
-| 方法 | 参数 | 原始返回/状态 |
-|---|---|---|
-| [`get(bindingId)`](/zh/api/api-bindings#api-bindings-get) | binding ID | `VersionedResult<ApiBinding>`；`current.data.revision` 是并发基线 |
-| [`list(query?)`](/zh/api/api-bindings#api-bindings-list) | 可按 method/path/status/purpose/ownerId + first/after 过滤 | `PageResult<ApiBinding>`，只读 |
-| [`update(bindingId, patch, options)`](/zh/api/api-bindings#api-bindings-update) | patch 仅 purpose/description；expectedRevision 必填 | `MutationResult<ApiBinding>`；本例的新状态在 `updated.data` |
-| [`previewUpdate/executeUpdate`](/zh/api/api-bindings#api-bindings-preview-update) | 用于 method/path/authorization/owners/canonicalOwner | 先返回影响计划，再凭 token 写入并处理角色来源 |
-
-修改 method、path、authorization、owners 或 canonical owner 可能让角色生成来源失效，必须带明确来源重写决定调用 `previewUpdate` 和 `executeUpdate`。状态变更、移除和完整替换也都有影响预览。
-
-## 运行时可用性
-
-subject 菜单投影会用同一用户评估每个已启用绑定的 authorization 要求，并给 owner 返回有界风险项：
-
-```ts
-const subject = pc.forSubject({
-  userId: 'u-1',
-  scope: { tenantId: 'acme', appId: 'admin' },
-});
-const buttonMap = await subject.menus.getButtonMap('orders');
-const exportButton = buttonMap.data['orders.export'];
-```
-
-```json
-{
-  "orders.export": {
-    "visible": true,
-    "enabled": false,
-    "reason": "api-unavailable",
-    "apiRisks": {
-      "items": [
-        { "bindingId": "orders-export-api", "required": true, "allowed": false }
-      ]
-    }
-  }
-}
-```
-
-展示的 JSON 是 `buttonMap.data` 的节选，不是 `getButtonMap()` 最外层原始结构；原始结构还包含 `detailBudget`。参数 `orders` 是 owner page/menu 的节点 ID，返回对象键 `orders.export` 才是 button code。精确响应见[`subject.menus.getButtonMap()`](/zh/api/menus#subject-menus-get-button-map)。
-
-该状态只是体验投影。后端接口仍必须通过 `subject.assert` 或 Vext 路由守卫独立检查相同 `api:` 权限。
-
-下一步通过[角色菜单授权](/zh/guide/role-menu-authorization)按菜单选择给角色分配绑定，精确方法见[接口绑定 API](/zh/api/api-bindings)。
+精确字段约束见[配置接口与响应字段 API](/zh/api/api-bindings)，完整流程见[管理菜单](/zh/guide/menu-management)。

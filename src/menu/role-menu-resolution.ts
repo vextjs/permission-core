@@ -243,9 +243,13 @@ export function resolveRoleMenuRole(input: {
 
     for (const grant of [...input.grants].sort((left, right) => compareUtf8(left.grantId, right.grantId))) {
         const contributions = Object.freeze(contributionsByGrant.get(grant.grantId) ?? []);
-        const planned = currentGrantPlan(input.role, grant, input.inventory);
+        const planned = grant.snapshot.business === undefined
+            ? currentGrantPlan(input.role, grant, input.inventory)
+            : null;
         const plannedContributions = planned?.contributions ?? [];
-        const grantDrift = planned !== null
+        const grantDrift = grant.snapshot.business !== undefined
+            ? "current" as const
+            : planned !== null
             && canonicalString(planned.snapshot.contributionContractDigest)
                 !== canonicalString(grant.snapshot.contributionContractDigest)
             ? "refresh-available" as const

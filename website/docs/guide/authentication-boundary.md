@@ -5,7 +5,7 @@ The host authenticates the request first; permission-core answers authorization 
 
 ## Responsibility Model
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```mermaid
 flowchart TD
@@ -20,7 +20,7 @@ flowchart TD
 <p className="pc-diagram-text" id="pc-diagram-authentication-boundary-en-text" data-diagram-id="authentication-boundary"><strong>Text equivalent.</strong>Credentials or sessions are authenticated by the host first. The host supplies trusted user identity, scope, and claims to build a PermissionSubject. Only then does permission-core authorize the route, menu projection, or data operation; credential checks and account state remain host responsibilities.</p>
 ## Accepted Vext Shapes
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 req.auth = {
@@ -42,7 +42,7 @@ req.auth = {
 ```
 ## Custom Subject Resolution
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 permissionPlugin({
@@ -56,7 +56,7 @@ permissionPlugin({
 ```
 ## Protected and Public Routes
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 ```ts
 const allowed = await req.auth.permission.can('read', 'db:orders');
@@ -64,6 +64,6 @@ await req.auth.permission.assert('invoke', 'api:POST:/api/orders/export');
 ```
 ## Failure Boundary and Next Step
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+This section explains the operation in plain terms, including when to use it, which values must come from trusted server state, and which return fields are safe to read.
 
 Continue with [Production Operations](/guide/production-operations).

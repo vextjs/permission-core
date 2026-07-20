@@ -239,9 +239,9 @@ const overviewByPath = {
     "guide/troubleshooting.md": "Start from structured error `code` and `details.kind`, then narrow the problem to initialization, subject identity, rule state, data guard, menu state, cache, or Vext route integration.",
     "guide/check-permission.md": "Use a subject context for request-time decisions and a scoped context for management reads. Both facades read the same tenant-scoped authorization state.",
     "guide/data-permissions.md": "The supported data boundary is `AuthorizedCollection`. It combines the caller's Mongo-style `filter`, exact scope fields, persisted policy `where`, and field permissions before touching MongoDB.",
-    "guide/menu-management.md": "Menu management stores the backend-owned navigation inventory. A node is not a permission by itself; role-menu authorization decides which roles receive the generated rules.",
-    "guide/api-bindings.md": "API bindings connect real backend endpoints to the menu, page, or button that owns them. They describe both the permission required by the endpoint and whether an unavailable endpoint should disable the UI owner.",
-    "guide/role-menu-authorization.md": "Role-menu authorization converts an administrator's structural selection into durable, provenance-tracked rules. It does not bind users automatically.",
+    "guide/menu-management.md": "Menu management starts from a high-level config: menus, views, load APIs, actions, and response fields. permission-core compiles that config into internal menu nodes and API bindings.",
+    "guide/api-bindings.md": "API integration is declared inside menu config through `load`, `actions`, and `response`. Users no longer manage a separate public API-binding surface.",
+    "guide/role-menu-authorization.md": "Role-menu authorization grants a role the selected config views, actions, load APIs, and response fields. It does not bind users automatically.",
     "guide/permission-lifecycle.md": "Authorization is a lifecycle: the host owns identity and database connections, administrators commit versioned state, requests evaluate stable snapshots, and shutdown drains permission work before the database closes.",
     "guide/resources-and-rules.md": "A permission rule contains an effect, an action pattern, a resource pattern, and optionally a serialized row condition. Requests are allowed only when an active allow matches and no applicable deny wins.",
     "guide/role-inheritance.md": "Each role has at most one direct parent. Child roles inherit the active parent chain while preserving readable provenance for own rules and menu-generated rules.",
@@ -256,15 +256,15 @@ const apiPurposeByPath = {
     "api/core-and-contexts.md": "`PermissionCore` owns initialization, health, scope facades, subject facades, runtime decisions, diagnostics, and shutdown. The host still owns authentication and the MonSQLize connection.",
     "api/roles.md": "`scoped.roles` manages roles, hierarchy, manual rules, high-impact previews, replacement flows, and effective rule reads inside one complete scope.",
     "api/user-roles.md": "`scoped.userRoles` stores direct role assignments for host user IDs. It distinguishes incremental assignment from full replacement and can read direct or effective role sets.",
-    "api/menus.md": "`scoped.menus` manages backend menu inventory, structural changes, stale-reference repair, subject menu projection, and frontend manifest import/export.",
-    "api/api-bindings.md": "`scoped.apiBindings` manages endpoint contracts and their owners. Bindings affect UI availability and backend authorization, but they do not grant roles by themselves.",
-    "api/role-menu-permissions.md": "`scoped.roles.menuPermissions` expands menu selections into provenance-tracked role rules and reads direct, inherited, or stale menu grants.",
+    "api/menus.md": "`scoped.menus.config` saves high-level menu configs, compiles them into internal menu/API assets, and exposes subject menu runtime projection.",
+    "api/api-bindings.md": "`MenuConfigInput.load`, `actions`, and `response` define which backend APIs a view uses and which response fields can be granted to roles. Users no longer manage a separate public API-binding manager.",
+    "api/role-menu-permissions.md": "`scoped.roles.menuPermissions` grants, denies, revokes, replaces, and reads business menu permissions for views, actions, load APIs, and response fields.",
     "api/authorized-collection.md": "`subject.data.collection()` creates the guarded data facade that combines caller filters, scope fields, policy `where`, field permissions, and MonSQLize operations.",
     "api/audit-and-health.md": "`init()` and `health()` expose the readiness evidence that operators need before accepting permission traffic or diagnosing degraded state.",
     "api/errors.md": "`PermissionCoreError` is the structured failure surface. Callers should branch on `code` and `details.kind`, not on localized message text.",
     "api/resource-schemes.md": "Resource schemes validate and match resource strings. Built-ins cover HTTP, API, database, field, UI, and global patterns; custom schemes are trusted configuration.",
     "api/match-resource.md": "`matchResource` exposes the same resource matcher outside a `PermissionCore` instance for tests, diagnostics, or custom integration checks.",
-    "api/vext-plugin.md": "The Vext plugin exports the runtime integration, request context helpers, route manifest conversion, and `app.permission` extension surface.",
+    "api/vext-plugin.md": "The Vext plugin exports the runtime integration, request context helpers, route permission guards, response projection, and `app.permission` extension surface.",
 };
 
 const apiGroupText = {
@@ -331,7 +331,7 @@ function home() {
         "pageType: home",
         "",
         "hero:",
-        "  badge: v2.0.0 preview",
+        "  badge: v3.0.0 preview",
         "  name: permission-core",
         "  text: Authorization that reaches the data layer",
         "  tagline: Use one tenant-aware RBAC model to control Node.js APIs, menus, data rows, and fields.",
@@ -476,8 +476,8 @@ function quickStart(zh) {
         "",
         "This is the **raw example output** printed by the program:",
         "",
-        "- `allowed: true`: the role has the `invoke + GET:/api/orders` allow rule.",
-        "- `deleteAllowed: false`: no rule allows `DELETE:/api/orders`, so the system denies it by default.",
+        "- `allowed: true`: the role has the `invoke + api:GET:/api/orders` allow rule.",
+        "- `deleteAllowed: false`: no rule allows `api:DELETE:/api/orders`, so the system denies it by default.",
         "",
         "The example does not assign a DELETE permission to the user, and it does not create a separate deny rule. `false` is simply the normal result of calling `can()` for an unauthorized operation.",
         "",
@@ -699,7 +699,7 @@ function sectionIntro(heading, options) {
     if (options.sectionKind === "api") {
         return apiGroupText[heading] ?? "This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.";
     }
-    const base = genericGuideText[heading] ?? "Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state.";
+    const base = genericGuideText[heading] ?? "This section explains the next operation, the arguments it expects, and the return shape you should read before wiring it into an admin page or request handler.";
     return `${base} The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.`;
 }
 
@@ -782,6 +782,7 @@ function diagramFallbackText(id) {
         "authentication-boundary": "Credentials or sessions are authenticated by the host first. The host supplies trusted user identity, scope, and claims to build a PermissionSubject. Only then does permission-core authorize the route, menu projection, or data operation; credential checks and account state remain host responsibilities.",
         "tenant-relationship": "A tenant contains one or more complete scopes. Each scope independently owns roles, user-role sets, menu nodes, and API bindings. Users bind to roles through a scoped assignment set, and roles hold allow or deny rules plus menu grants. Reusing the same userId or roleId in another scope does not share authorization state.",
         "role-menu-relationship": "An administrator selects menu nodes plus optional descendants, buttons, API bindings, and data templates. Preview resolves that structure into traceable role-rule sources. After grant, deny, or set commits, the role owns those generated sources and users receive visible menu, button, and backend permissions only through normal role bindings.",
+        "menu-config-lifecycle": "The backend writes a MenuConfigInput, previews its impact, and saves it as the source inventory for an admin console. A role-menu grant assigns the relevant views, load APIs, actions, and response fields. After a user receives that role, subject menu runtime projects the visible navigation, action state, view state, and filtered API response.",
     }[id] ?? "The diagram describes how trusted host state moves through permission-core and becomes bounded authorization evidence for the documented workflow.";
 }
 
@@ -886,7 +887,7 @@ function exampleScenario(relativePath) {
         "examples/basic.md": "This is the first complete RBAC path: create a role and rule, assign the role to a user, check allow/default-deny behavior, compare additive `assign` with replacing `set`, and read own/effective authorization state.",
         "examples/multi-tenant.md": "This example creates the same `userId` and `roleId` in two scopes. Each subject can read only the resource granted inside its own complete tenant/application scope, proving that IDs are not global authorization identities.",
         "examples/data-guard.md": "This example uses a real MonSQLize collection and composes caller Mongo filters, exact tenant isolation, role `where` conditions, field projection, insert/update ownership checks, and denied field/write probes.",
-        "examples/menu-admin.md": "This example creates a directory, page, button, and API binding; grants the page workflow to a role; updates presentation state; projects user menu/button/route state; and exports a frontend manifest with audit evidence.",
+        "examples/menu-admin.md": "This example saves a high-level menu config, grants one role the page workflow and selected response fields, then projects the user's view tree, actions, view state, and filtered API response.",
         "examples/vext.md": "This example loads the native Vext plugin, protects a route template, exercises public/unauthenticated/denied/allowed requests, proves that route reload requires restart, and verifies that plugin shutdown does not close the host database.",
     }[relativePath];
 }
@@ -906,7 +907,7 @@ function exampleQuickResult(relativePath) {
         "examples/basic.md": "A successful run first confirms `ok` is `true`, `permissionChecks.allowed` is `true`, `permissionChecks.cannotDelete` is `true`, and `userRoles.afterSet` finally contains only `order-reader`.",
         "examples/multi-tenant.md": "A successful run confirms `ok: true`, both own-resource checks are `true`, and both `crossTenantResource` checks are `false`.",
         "examples/data-guard.md": "A successful run confirms `matchedCount: 1`, `deniedFieldCode: 'FIELD_PERMISSION_DENIED'`, `writeGuard.deniedWriteCode: 'PERMISSION_DENIED'`, and `persistedRows: 5`.",
-        "examples/menu-admin.md": "A successful run confirms `roleGrant.generatedSources: 4`, `roleGrant.auditRecorded: true`, `subjectRuntime.exportButton.enabled: true`, and `manifest.apiBindingCount: 1`.",
+        "examples/menu-admin.md": "A successful run confirms `roleGrant.generatedSources`, `roleGrant.auditRecorded`, `subjectRuntime.exportEnabled`, and `subjectRuntime.projectedResponse`.",
         "examples/vext.md": "A successful run confirms status codes `200`, `401`, `403`, `200`, and `503`, plus `permissionCoreClosedByPlugin` and `hostDatabaseStillConnected` both being `true`.",
     }[relativePath];
 }
@@ -916,8 +917,8 @@ function exampleSourceNote(relativePath) {
         "examples/basic.md": "`cannotDelete: true` means the matching `can()` result is false because there is no delete allow. It does not grant delete access and it does not create a separate deny rule.",
         "examples/multi-tenant.md": "Each scope owns its own `manager` definition and binding set. A cross-tenant check reads the current subject scope, so it returns false by default.",
         "examples/data-guard.md": "The caller `filter` is combined with `tenantId`, the persisted `merchantId = claims.merchantId` condition, and field projection permissions before MongoDB is called.",
-        "examples/menu-admin.md": "The selection includes descendants, buttons, required APIs, and data templates. The grant creates provenance-bearing rule sources, and UI projection evaluates those sources for the user.",
-        "examples/vext.md": "`permission: true` derives the `invoke` check for `GET:/orders/:id`. The header middleware is a fixture-only authentication source; production uses the real authentication plugin.",
+        "examples/menu-admin.md": "The selection grants the saved config's view, load API, action, and response fields. Runtime projection evaluates those grants before returning menu state or filtered response data.",
+        "examples/vext.md": "`permission: true` derives the `invoke` check for `api:GET:/orders/:id`. The header middleware is a fixture-only authentication source; production uses the real authentication plugin.",
     }[relativePath];
 }
 

@@ -15,7 +15,7 @@ const directRoles = await scoped.userRoles.getDirect('u-1');
 const subject = pc.forSubject({
   userId: 'u-1', scope: { tenantId: 'acme' },
 });
-const explanation = await subject.explain('invoke', 'GET:/api/orders');
+const explanation = await subject.explain('invoke', 'api:GET:/api/orders');
 ```
 
 | 变量 | 原始结构 | 首先查看 |
@@ -32,8 +32,8 @@ const explanation = await subject.explain('invoke', 'GET:/api/orders');
 |---|---|---|
 | `can()` 返回 `false`，但以为已经授权 | `subject.explain()` 的 `reason/evaluations` | Scope、身份与决策 |
 | `assert()` 抛 `PERMISSION_DENIED` | 同一 action/resource 的 `explain()` | Scope、身份与决策 |
-| 菜单能看到，但按钮 disabled | `subject.menus.getButtonMap()` 的 `reason/apiRisks` | 数据、菜单与并发 |
-| API binding 创建了但角色没权限 | 角色菜单授权 preview 是否包含 `apis` | 数据、菜单与并发 |
+| 菜单能看到，但操作 disabled | `subject.menus.getActionMap()` 的 `reason`，以及 `getViewState()` 的 `load` 状态 | 数据、菜单与并发 |
+| 菜单配置保存了但角色没权限 | 角色菜单授权 preview 是否包含对应 `views/actions/responseFields` | 数据、菜单与并发 |
 | 授权集合查不到数据 | scope、`scopeFields`、行级 `where` 和字段权限 | 数据、菜单与并发 |
 | preview/cursor 过期 | 是否更换 input、scope、filter/sort 或状态已变更 | 数据、菜单与并发 |
 | Vext 路由持续 503 | 认证上下文、manifest 是否热变更 | 缓存与 Vext 恢复 |
@@ -71,7 +71,7 @@ const explanation = await subject.explain('invoke', 'GET:/api/orders');
 | `DATA_BULK_SCOPE_MUTATION_UNSAFE` | 批量写可能把数据移出授权条件 | 拆分操作，或使用不会改变租户与策略字段的更新 |
 | `REVISION_CONFLICT` | 另一个管理员已经修改实体 | 重新加载当前数据与修订，展示冲突，再让用户决定是否重试 |
 | preview 不可执行 | 选择项、来源重写或容量确认尚未解决 | 展示 `conflicts` 和 `choiceRequirements`，只使用返回的 preview token 执行 |
-| 菜单可见但按钮不可用 | 按钮权限或必需接口绑定不可用 | 查看 `getButtonMap()` 和绑定的 `apiRisks` |
+| 菜单可见但操作不可用 | 操作权限、目标 view 权限或必需加载接口不可用 | 查看 `getActionMap()`、`getViewState()` 和返回的 disabled reason |
 
 管理写入采用乐观并发并记录审计。不能用任意当前数字替换 `expectedRevision` 来“自动重试”，必须先重新加载表单状态。
 

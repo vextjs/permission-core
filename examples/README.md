@@ -30,7 +30,7 @@ npm run example:vext
 | `basic.mjs` | 角色、规则、`assign`/`set`、`can`/`cannot`、角色与权限读取 |
 | `multi-tenant.mjs` | 同一用户和角色 ID 在不同租户内真实隔离 |
 | `data-guard.mjs` | Mongo 风格业务 filter、租户条件、规则 where、字段权限合并执行 |
-| `menu-admin.mjs` | 菜单/按钮/API 绑定创建、角色菜单授权、用户端可见树与按钮状态 |
+| `menu-admin.mjs` | 菜单配置保存、角色菜单授权、响应字段投影、用户端视图树与操作状态 |
 | `vext/index.mjs` | Vext 插件路由守卫、401/403/200、路由重载保护与宿主数据库所有权 |
 
 ## 夹具边界

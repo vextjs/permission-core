@@ -4,107 +4,114 @@ function collectIds(nodes) {
     return nodes.flatMap((node) => [node.id, ...collectIds(node.children)]);
 }
 
+const menuConfig = {
+    configId: "admin",
+    title: "Admin console",
+    menus: [{
+        id: "orders",
+        title: "Orders",
+        icon: "shopping-cart",
+        views: [{
+            id: "orders-list",
+            type: "page",
+            title: "Orders",
+            path: "/orders",
+            component: "OrdersPage",
+            load: [{
+                resource: "api:GET:/api/orders",
+                response: {
+                    target: "items",
+                    preserve: ["total"],
+                    fields: [
+                        { field: "orderNo", title: "Order number" },
+                        { field: "status", title: "Status" },
+                        { field: "amount", title: "Amount" },
+                    ],
+                },
+            }],
+            actions: [{
+                id: "export",
+                title: "Export orders",
+                resource: "api:POST:/api/orders/export",
+                response: [{ field: "downloadUrl", title: "Download URL" }],
+            }],
+        }],
+    }],
+};
+
 // docs:menu-admin:start
 const runtime = await startExampleCore("menu-admin");
 const scope = { tenantId: "acme", appId: "admin" };
 const scoped = runtime.core.scope(scope);
 
 try {
-    const root = await scoped.menus.create({
-        id: "operations",
-        type: "directory",
-        title: "Operations",
-    }, { actorId: "admin" });
-    const page = await scoped.menus.create({
-        id: "orders",
-        parentId: "operations",
-        type: "page",
-        title: "Orders",
-        path: "/orders",
-        name: "orders",
-        component: "OrdersPage",
-        permission: { action: "read", resource: "ui:page:orders" },
-        dataPermissions: [{ action: "read", resource: "db:orders", label: "Read orders" }],
-    }, { actorId: "admin" });
-    const button = await scoped.menus.create({
-        id: "orders-export",
-        parentId: "orders",
-        type: "button",
-        title: "Export orders",
-        code: "orders.export",
-        permission: { action: "invoke", resource: "ui:button:orders.export" },
-    }, { actorId: "admin" });
-    const binding = await scoped.apiBindings.create({
-        id: "orders-export-api",
-        method: "POST",
-        path: "/api/orders/export",
-        purpose: "importExport",
-        authorization: {
-            mode: "all",
-            permissions: [{ action: "invoke", resource: "api:POST:/api/orders/export" }],
-        },
-        owners: [{ type: "button", id: "orders-export", required: true }],
-        canonicalOwner: { type: "button", id: "orders-export" },
-    }, { actorId: "admin" });
+    const configPreview = await scoped.menus.config.preview(menuConfig, { actorId: "admin" });
+    if (!configPreview.executable) {
+        throw new Error(`menu config is not executable: ${configPreview.conflicts.items.map((item) => item.code).join(",")}`);
+    }
+    const savedConfig = await scoped.menus.config.save(menuConfig, {
+        ...configPreview.expected,
+        previewToken: configPreview.previewToken,
+        actorId: "admin",
+        idempotencyKey: "example-menu-config-save",
+    });
 
     await scoped.roles.create({ id: "order-operator", label: "Order operator" });
-    await scoped.userRoles.assign("u-menu", "order-operator");
     const selection = {
-        nodeIds: ["orders"],
-        include: { descendants: true, buttons: true, apis: "required", dataPermissions: true },
-        apiChoices: { bindingIds: [], permissionsByBinding: {} },
+        configId: "admin",
+        views: ["orders-list"],
+        responseFields: [{
+            apiResource: "api:GET:/api/orders",
+            fields: ["orderNo", "status"],
+        }],
+        include: { loads: true, actions: true, responseFields: "none" },
     };
-    const preview = await scoped.roles.menuPermissions.preview(
+    const grantPreview = await scoped.roles.menuPermissions.preview(
         "order-operator",
         { operation: "grant", selection },
         { actorId: "admin" },
     );
-    if (!preview.executable) {
-        throw new Error(`menu grant is not executable: ${preview.conflicts.items.map((item) => item.code).join(",")}`);
+    if (!grantPreview.executable) {
+        throw new Error(`menu grant is not executable: ${grantPreview.conflicts.items.map((item) => item.code).join(",")}`);
     }
     const granted = await scoped.roles.menuPermissions.grant("order-operator", selection, {
-        ...preview.expected,
-        previewToken: preview.previewToken,
+        ...grantPreview.expected,
+        previewToken: grantPreview.previewToken,
         actorId: "admin",
+        idempotencyKey: "example-menu-role-grant",
     });
+    await scoped.userRoles.assign("u-menu", "order-operator");
 
-    const updated = await scoped.menus.update("orders", { title: "Order management" }, {
-        expectedRevision: page.data.revision,
-        actorId: "admin",
-    });
     const subjectMenus = runtime.core.forSubject({ userId: "u-menu", scope }).menus;
-    const visible = await subjectMenus.getVisibleTree();
-    const buttons = await subjectMenus.getButtonMap("orders");
-    const route = await subjectMenus.getRouteState("/orders");
-    const manifest = await scoped.menus.manifest.export();
+    const tree = await subjectMenus.getViewTree({ configId: "admin" });
+    const viewState = await subjectMenus.getViewState({ configId: "admin", viewId: "orders-list" });
+    const actions = await subjectMenus.getActionMap({ configId: "admin", viewId: "orders-list" });
+    const rawOrders = {
+        items: [{ orderNo: "O-1001", status: "paid", amount: 88, internalCost: 51 }],
+        total: 1,
+        debug: true,
+    };
+    const projected = await subjectMenus.filterResponse("api:GET:/api/orders", rawOrders);
     const directGrant = await scoped.roles.menuPermissions.getDirect("order-operator");
 
     printExample("menu-admin", {
-        created: {
-            nodes: [root.data.id, page.data.id, button.data.id],
-            apiBinding: binding.data.id,
+        config: {
+            id: savedConfig.data.config.configId,
+            menuCount: savedConfig.data.config.menus.length,
+            manifestChanged: savedConfig.data.manifestOperations.total > 0,
         },
-        update: { title: updated.data.title, revision: updated.data.revision },
         roleGrant: {
             generatedSources: granted.data.generatedSources,
+            generatedResponseFields: granted.data.generatedResponseFields,
             grantCount: directGrant.data.grants.length,
-            sourceStatus: directGrant.data.grants[0]?.sourceStatus,
-            auditRecorded: [root, page, button, binding, granted, updated]
-                .every((result) => typeof result.auditId === "string" && result.auditId.length > 0),
+            responseFieldCount: directGrant.data.grants[0]?.responseFields.total,
+            auditRecorded: Boolean(savedConfig.auditId && granted.auditId),
         },
         subjectRuntime: {
-            visibleNodeIds: collectIds(visible.data),
-            exportButton: buttons.data["orders.export"],
-            route: {
-                allowed: route.data.allowed,
-                reason: route.data.reason,
-                navigationReachable: route.data.navigationReachable,
-            },
-        },
-        manifest: {
-            schemaVersion: manifest.data.schemaVersion,
-            nodeCount: manifest.data.nodes.length,
-            apiBindingCount: manifest.data.apiBindings.length,
+            viewTreeIds: collectIds(tree.data),
+            viewAllowed: viewState.data.allowed,
+            exportEnabled: actions.data.export.enabled,
+            projectedResponse: projected.data,
         },
     });
 } finally {

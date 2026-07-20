@@ -3,9 +3,14 @@ import { PermissionCore } from "../../src";
 import { ResourceSchemeRegistry } from "../../src/check/resource-schemes";
 import { CANONICAL_CONTRACT_VERSION, digestCanonical } from "../../src/internal/canonical";
 import { SignedTokenCodec } from "../../src/internal/signed-token";
-import { MenuManifestService } from "../../src/menu";
+import {
+    MenuManifestService,
+    RoleMenuPermissionMutationService,
+} from "../../src/menu";
 import type { MenuManifestInput, MenuPermissionSelection } from "../../src/types";
 import { PermissionRepository } from "../../src/persistence/repository";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
+import { legacyMenuScope } from "../helpers/legacy-menu-api";
 import { startRealMongo, type RealMongoContext } from "./helpers/real-mongo";
 
 const TEST_TIMEOUT = 120_000;
@@ -31,6 +36,7 @@ describe("B3.3 public RBAC runtime and previews on MonSQLize 3.1", () => {
     let core: PermissionCore;
     let repository: PermissionRepository;
     let manifests: MenuManifestService;
+    let legacyMenuMutations: RoleMenuPermissionMutationService;
 
     beforeAll(async () => {
         context = await startRealMongo({ findMaxLimit: 97 });
@@ -46,15 +52,13 @@ describe("B3.3 public RBAC runtime and previews on MonSQLize 3.1", () => {
             schemeContractDigest: schemes.schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest: schemes.schemeContractDigest,
             }),
         });
-        manifests = new MenuManifestService(
-            repository,
-            schemes,
-            new SignedTokenCodec(Buffer.alloc(32, 73), "rbac-runtime-preview-manifest"),
-        );
+        const tokens = new SignedTokenCodec(Buffer.alloc(32, 73), "rbac-runtime-preview-manifest");
+        manifests = new MenuManifestService(repository, schemes, tokens);
+        legacyMenuMutations = new RoleMenuPermissionMutationService(repository, schemes, tokens);
     }, TEST_TIMEOUT);
 
     afterAll(async () => {
@@ -64,7 +68,7 @@ describe("B3.3 public RBAC runtime and previews on MonSQLize 3.1", () => {
 
     it("keeps a bound subject snapshot stable and applies deny-first to one-off checks", async () => {
         const scope = nextScope("runtime");
-        const scoped = core.scope(scope);
+        const scoped = legacyMenuScope(core.scope(scope));
         await scoped.roles.create({ id: "orders-base", label: "Orders base" });
         await scoped.roles.allow("orders-base", { action: "read", resource: "db:orders" });
         await scoped.roles.create({ id: "orders-reader", label: "Orders reader", parentId: "orders-base" });
@@ -126,7 +130,7 @@ describe("B3.3 public RBAC runtime and previews on MonSQLize 3.1", () => {
 
     it("evaluates write as create-and-update and keeps condition failures distinct", async () => {
         const scope = nextScope("runtime-policy");
-        const scoped = core.scope(scope);
+        const scoped = legacyMenuScope(core.scope(scope));
         const subject = { userId: "u-policy", scope };
         await scoped.roles.create({ id: "policy-role", label: "Policy role" });
         await scoped.userRoles.assign(subject.userId, "policy-role");
@@ -265,7 +269,7 @@ describe("B3.3 public RBAC runtime and previews on MonSQLize 3.1", () => {
 
     it("executes an actor-bound access preview and replays before revalidating an old token", async () => {
         const scope = nextScope("access-preview");
-        const scoped = core.scope(scope);
+        const scoped = legacyMenuScope(core.scope(scope));
         await scoped.roles.create({ id: "reader", label: "Reader" });
         await scoped.roles.allow("reader", { action: "read", resource: "db:orders" });
         await scoped.userRoles.assign("u-access", "reader");
@@ -361,7 +365,7 @@ describe("B3.3 public RBAC runtime and previews on MonSQLize 3.1", () => {
 
     it("executes rule previews, enforces exact replace input, and preserves menu-owned sources", async () => {
         const scope = nextScope("rule-preview");
-        const scoped = core.scope(scope);
+        const scoped = legacyMenuScope(core.scope(scope));
         await scoped.roles.create({ id: "operator", label: "Operator" });
         await scoped.userRoles.assign("u-rule", "operator");
 
@@ -410,14 +414,10 @@ describe("B3.3 public RBAC runtime and previews on MonSQLize 3.1", () => {
             include: { descendants: false, buttons: false, apis: "none", dataPermissions: false },
             apiChoices: { bindingIds: [], permissionsByBinding: {} },
         };
-        const menuPreview = await scoped.roles.menuPermissions.preview(
-            "operator",
-            { operation: "grant", selection },
-            { actorId: "admin" },
-        );
+        const menuPreview = await legacyMenuMutations.preview(scope, "operator", { operation: "grant", selection }, { actorId: "admin" });
         expect(menuPreview.executable).toBe(true);
         if (!menuPreview.executable) throw new Error("Expected an executable role-menu preview");
-        await scoped.roles.menuPermissions.grant("operator", selection, {
+        await legacyMenuMutations.grant(scope, "operator", selection, {
             ...menuPreview.expected,
             previewToken: menuPreview.previewToken,
             actorId: "admin",

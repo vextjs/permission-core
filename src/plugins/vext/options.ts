@@ -16,7 +16,6 @@ const OPTION_KEYS = [
     "authPlugin",
     "core",
     "resolveSubject",
-    "validateRouteManifest",
 ] as const;
 const CORE_OPTION_KEYS = [
     "collectionPrefix",
@@ -43,7 +42,6 @@ export interface ResolvedPermissionVextPluginOptions {
     readonly dependencies: readonly string[];
     readonly core: Omit<PermissionCoreOptions, "monsqlize">;
     readonly resolveSubject?: NonNullable<PermissionVextPluginOptions["resolveSubject"]>;
-    readonly validateRouteManifest?: NonNullable<PermissionVextPluginOptions["validateRouteManifest"]>;
 }
 
 function configurationError(field: string, reason: string, cause?: unknown) {
@@ -173,7 +171,7 @@ export function resolvePermissionVextPluginOptions(
     if (Object.hasOwn(input, "monsqlize") && utilTypes.isProxy(input.monsqlize)) {
         throw configurationError("options.monsqlize", "cannot be a Proxy");
     }
-    for (const key of ["resolveMonSQLize", "resolveSubject", "validateRouteManifest"] as const) {
+    for (const key of ["resolveMonSQLize", "resolveSubject"] as const) {
         if (Object.hasOwn(input, key) && typeof input[key] !== "function") {
             throw configurationError(`options.${key}`, "must be a function");
         }
@@ -199,9 +197,6 @@ export function resolvePermissionVextPluginOptions(
         core: Object.hasOwn(input, "core") ? snapshotCoreOptions(input.core) : Object.freeze({}),
         ...(Object.hasOwn(input, "resolveSubject")
             ? { resolveSubject: input.resolveSubject as NonNullable<PermissionVextPluginOptions["resolveSubject"]> }
-            : {}),
-        ...(Object.hasOwn(input, "validateRouteManifest")
-            ? { validateRouteManifest: input.validateRouteManifest as NonNullable<PermissionVextPluginOptions["validateRouteManifest"]> }
             : {}),
     });
 }

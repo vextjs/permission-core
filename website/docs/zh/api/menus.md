@@ -2,412 +2,282 @@
 
 ## 用途与前置条件
 
-`scoped.menus` 管理租户 scope 内的菜单树及其前端 manifest。节点描述导航/UI 资产，不替代后端授权。结构或权限承载字段发生变化、且可能影响已有角色生成来源时，应使用影响预览。
+`scoped.menus.config` 管理一套后台菜单配置，公开入口是 `MenuConfigInput`。它把菜单、页面、加载接口、按钮接口和响应字段保存为可授权的配置快照。`subject.menus` 是用户运行时入口，用同一套配置投影当前用户可见视图、按钮状态、页面状态和接口响应字段。
+
+使用前需要完成：
+
+- `pc.init()` 已成功。
+- 已通过 `pc.scope(scope)` 获取可信 scope 下的管理上下文。
+- 需要运行时投影时，已通过 `pc.forSubject({ userId, scope })` 获取当前用户上下文。
 
 ## 我想做什么
 
-| 目标 | 从这里开始 |
-|---|---|
-| 创建或读取节点 | [`create()`](#menus-create)、[`get()`](#menus-get)、[`list()`](#menus-list)、[`getTree()`](#menus-get-tree) |
-| 修改展示字段 | [`update()`](#menus-update) |
-| 修改结构 | [`previewUpdate()`](#menus-preview-update)、[`previewMove()`](#menus-preview-move)、[`previewReorder()`](#menus-preview-reorder) |
-| 改变状态 | [`previewSetStatus()`](#menus-preview-set-status) 后 [`setStatus()`](#menus-set-status) |
-| 安全删除 | [`getRemovalImpact()`](#menus-get-removal-impact) 与 [`previewRemove()`](#menus-preview-remove) |
-| 修复失效引用 | [`findStaleReferences()`](#menus-find-stale-references) 后预览并修复 |
-| 投影用户菜单 | [`getVisibleTree()`](#subject-menus-get-visible-tree)、[`getButtonMap()`](#subject-menus-get-button-map)、[`getRouteState()`](#subject-menus-get-route-state) |
-| 导入或导出 | [`manifest.preview/import/export`](#menus-manifest-preview) |
+| 目标 | 首选 API | 说明 |
+|---|---|---|
+| 预览菜单配置 | `menus.config.preview(config, options?)` | 保存前校验菜单、页面、接口、响应字段、容量和冲突。 |
+| 保存菜单配置 | `menus.config.save(config, options)` | 用预览返回的 `expected` 和 `previewToken` 提交配置。 |
+| 读取配置 | `menus.config.get(configId)` / `menus.config.list(query?)` | 管理后台详情页和列表页使用。 |
+| 删除配置 | `menus.config.previewRemove(configId)` / `menus.config.remove(configId, options)` | 先预览删除影响，再安全撤销已删除来源。 |
+| 批量变更 | `menus.config.previewChanges(changes)` / `menus.config.applyChanges(changes, options)` | 多个配置共享同一 endpoint 且必须原子调整时使用。 |
+| 投影用户菜单 | `subject.menus.getViewTree()`、`getActionMap()`、`getViewState()`、`filterResponse()` | 请求期读取有效授权，返回 UI 状态或响应字段投影。 |
 
 ## 签名
 
 ```ts
-create(input: MenuNodeCreateInput, options?: MutationOptions): Promise<MutationResult<MenuNode>>
-get(nodeId: string): Promise<VersionedResult<MenuNode>>
-list(query?: CursorQuery & MenuNodeFilter): Promise<PageResult<MenuNode>>
-getTree(options?: { rootId?: string; includeHidden?: boolean }): Promise<VersionedResult<MenuTreeNode[]>>
-update(nodeId: string, patch: MenuNodeUpdateInput, options: RequiredRevisionOptions): Promise<MutationResult<MenuNode>>
-previewUpdate(nodeId: string, request: MenuNodeImpactUpdateRequest, options?: PreviewOptions): Promise<ImpactPreview<MenuNodeUpdatePlan>>
-executeUpdate(nodeId: string, request: MenuNodeImpactUpdateRequest, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<MenuNode>>
-previewMove(input: MenuMoveInput, options?: PreviewOptions): Promise<ImpactPreview<MenuMovePlan>>
-move(input: MenuMoveInput, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<MenuNode>>
-previewReorder(input: MenuReorderInput, options?: PreviewOptions): Promise<ImpactPreview<MenuReorderPlan>>
-reorder(input: MenuReorderInput, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
-previewSetStatus(nodeId: string, status: EntityStatus, options?: PreviewOptions): Promise<ImpactPreview<MenuStatusPlan>>
-setStatus(nodeId: string, status: EntityStatus, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<MenuNode>>
-getRemovalImpact(nodeId: string): Promise<VersionedResult<MenuRemovalImpact>>
-previewRemove(nodeId: string, input: MenuRemoveInput, options?: PreviewOptions): Promise<ImpactPreview<MenuRemovalPlan>>
-remove(nodeId: string, input: MenuRemoveInput, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
-findStaleReferences(query?: CursorQuery): Promise<PageResult<StaleReference>>
-previewRepairStaleReferences(input: StaleRepairInput, options?: PreviewOptions): Promise<ImpactPreview<StaleRepairPlan>>
-repairStaleReferences(input: StaleRepairInput, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
+menus.config.preview(config: MenuConfigInput, options?: MenuConfigPreviewOptions): Promise<ImpactPreview<MenuConfigPlan>>
+menus.config.save(config: MenuConfigInput, options: MenuConfigSaveOptions): Promise<MutationResult<MenuConfigSaveResult>>
+menus.config.get(configId: string): Promise<VersionedResult<MenuConfigSnapshot>>
+menus.config.list(query?: MenuConfigListQuery): Promise<PageResult<MenuConfigSummary>>
+menus.config.previewRemove(configId: string, options?: MenuConfigPreviewOptions): Promise<ImpactPreview<MenuConfigRemovePlan>>
+menus.config.remove(configId: string, options: MenuConfigRemoveOptions): Promise<MutationResult<MenuConfigRemoveResult>>
+menus.config.previewChanges(changes: NonEmptyMenuConfigChangeArray, options?: MenuConfigPreviewOptions): Promise<ImpactPreview<MenuConfigChangeSetPlan>>
+menus.config.applyChanges(changes: NonEmptyMenuConfigChangeArray, options: MenuConfigChangeSetOptions): Promise<MutationResult<MenuConfigChangeSetResult>>
 
-subject.menus.getVisibleTree(options?: { rootId?: string }): Promise<SubjectRuntimeResult<VisibleMenuTreeNode[]>>
-subject.menus.getButtonMap(ownerNodeId: string): Promise<SubjectRuntimeResult<Readonly<Record<string, ButtonPermissionState>>>>
-subject.menus.getRouteState(path: string): Promise<SubjectRuntimeResult<RoutePermissionState>>
-
-scoped.menus.manifest.preview(input: MenuManifestInput, options?: PreviewOptions): Promise<ImpactPreview<MenuManifestPlan>>
-scoped.menus.manifest.import(input: MenuManifestInput, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
-scoped.menus.manifest.export(): Promise<VersionedResult<FrontendMenuManifest>>
-scoped.menus.manifest.exportPage(query?: CursorQuery & { kind?: MenuManifestExportRecord['kind'] }): Promise<PageResult<MenuManifestExportRecord>>
+subject.menus.getViewTree(options: { configId: string }): Promise<SubjectRuntimeResult<readonly ViewTreeNode[]>>
+subject.menus.getActionMap(input: { configId: string; viewId: string }): Promise<SubjectRuntimeResult<Readonly<Record<string, ActionPermissionState>>>>
+subject.menus.getViewState(input: { configId: string; viewId: string } | { path: string }): Promise<SubjectRuntimeResult<ViewPermissionState>>
+subject.menus.filterResponse(apiResource: ApiResource, payload: unknown): Promise<SubjectRuntimeResult<unknown>>
 ```
 
-`update` 只覆盖展示字段。path/name/code/url/permission/data-permission 变更使用 `previewUpdate`。移动、排序、状态、移除、修复和 manifest import 同样要求 preview execution。
+关键参数标记：`config: MenuConfigInput`，`options: MenuConfigSaveOptions`，`changes: NonEmptyMenuConfigChangeArray`。
 
 ## 参数对象
 
-<!-- docs:params owner=MenuNodeCreateInput locale=zh -->
+<!-- docs:params owner=MenuConfigInput locale=zh -->
 
-### `MenuNodeCreateInput`
+### `MenuConfigInput`
 
-| 字段 | 类型 | 必填/默认 | 作用与约束 |
+| 字段 | 类型 | 必填/默认 | 说明 |
 |---|---|---|---|
-| `id` | `string` | 必填 | 当前 scope 内稳定且唯一的节点 ID，创建后不可修改。 |
-| `parentId` | `string \| null` | 默认 `null` | 父节点 ID；必须位于同一 scope，且不能形成循环或超过深度上限。 |
-| `type` | `directory \| menu \| page \| button \| external \| iframe` | 必填 | 决定下表所需字段及节点在运行时树中的行为。 |
-| `title` | `string` | 必填 | 管理端展示名称；多语言项目可同时提供 `i18nKey`。 |
-| `path` | `string` | 按类型 | `menu/page/iframe` 必填；前端路由路径。 |
-| `name` | `string` | 按类型 | `menu/page/iframe` 必填；稳定路由名。 |
-| `component` | `string` | 按类型 | `page` 必填；页面组件标识。 |
-| `code` | `string` | 按类型 | `button` 必填；按钮/操作代码。 |
-| `url` | `string` | 按类型 | `external/iframe` 必填；目标 URL。 |
-| `permission` | `{ action, resource }` | 除 `directory` 外按类型必填 | 节点自身的 UI 权限要求，不代替后端接口检查。 |
-| `dataPermissions` | `MenuDataPermissionTemplate[]` | 默认 `[]` | 节点被角色选择时可贡献的数据规则模板。每项含 `action/resource`，可选 `where/label`。 |
-| `status` | `enabled \| disabled \| deprecated` | 默认 `enabled` | 影响资产及其生成来源的可用状态。后续修改应走 `previewSetStatus/setStatus`。 |
-| `hidden` | `boolean` | 默认 `false` | 只影响前端展示；隐藏不等于禁用或拒绝访问。 |
-| `icon/i18nKey/meta` | 可选展示元数据 | 可选 | 供前端消费；`meta` 必须是可序列化策略值。 |
+| `configId` | `string` | 必填 | 一套菜单配置的稳定 ID，后续授权和运行时读取都用它。 |
+| `title` | `string` | 可选 | 管理端展示名。 |
+| `menus` | `MenuConfigMenuInput[]` | 必填，至少 1 项 | 顶层菜单分组或菜单项。 |
+| `meta` | `Record<string, PolicyValue>` | 可选 | 透传给管理端或前端的可序列化元数据。 |
 
-节点类型组合：`directory` 不允许 path/code/component/url；`menu` 需要 path/name/permission；`page` 还需要 component；`button` 需要 code/permission；`external` 需要 url/permission；`iframe` 需要 url/path/name/permission。
+### `MenuConfigMenuInput`
 
-<!-- docs:params owner=MenuMutationInputs locale=zh -->
+| 字段 | 类型 | 必填/默认 | 说明 |
+|---|---|---|---|
+| `id` | `string` | 必填 | 当前配置内稳定唯一的菜单 ID。 |
+| `title` | `string` | 必填 | 菜单标题。 |
+| `children` | `MenuConfigMenuInput[]` | 可选 | 子菜单。 |
+| `views` | `MenuViewInput[]` | 可选 | 该菜单下可进入的页面、抽屉、弹窗或 tab。 |
+| `navigation` | `boolean` | 默认 `true` | 是否出现在导航树。 |
+| `enabled` | `boolean` | 默认 `true` | 是否启用。 |
+| `icon/i18nKey/meta` | 展示元数据 | 可选 | 供前端消费，不参与授权判断。 |
 
-| 参数对象 | 字段 | 语义 |
-|---|---|---|
-| `MenuNodeFilter` | `parentId/type/status/hidden/search` 加 `first/after` | `list()` 的服务端过滤和游标分页；不传时读取首批全部类型。 |
-| `MenuMoveInput` | `nodeId/parentId`，可选 `beforeId/afterId` | 移动节点并确定相对位置；`beforeId` 与 `afterId` 不能同时提供。 |
-| `MenuReorderInput` | `parentId/orderedNodeIds` | 提交该父节点下**完整且无重复**的子节点顺序。 |
-| `MenuNodeImpactUpdateRequest` | `patch`，可选 `sourceRewrite` | 修改会影响授权来源的字段；默认 `sourceRewrite.mode='reject'`，存在受影响来源时拒绝执行。 |
-| `MenuRemoveInput` | `cascade/sourceRewrite?` | `cascade=false` 要求没有后代；`true` 才连同后代处理。来源重写仍需显式决策。 |
-| `StaleRepairInput` | `referenceIds/resolutions` | 每个陈旧引用必须给出 `remove` 或 `rebind + replacementId`，两个键集合必须完全一致。 |
-| `MenuManifestInput` | `schemaVersion: 2`、`mode`、`nodes`、`apiBindings`、可选 `sourceRewrite` | `merge` 只合并声明项；`replace` 把输入视为完整目标清单并预览缺失项删除。 |
+### `MenuViewInput`
 
-所有 `preview*` 返回 preview token 与 revision vector；执行时必须原样传入对应 `expected` 和 `previewToken`。通用 envelope 字段见[核心与上下文 API 的响应契约](/zh/api/core-and-contexts#common-response-contracts)。
+| 字段 | 类型 | 必填/默认 | 说明 |
+|---|---|---|---|
+| `id` | `string` | 必填 | 当前配置内稳定唯一的视图 ID。 |
+| `type` | `page/dialog/drawer/tab/...` | 必填 | 视图类型。 |
+| `title` | `string` | 必填 | 视图标题。 |
+| `path` | `string` | 页面常用 | 前端路由路径；也可用 `{ path }` 调用 `getViewState()`。 |
+| `component/url` | `string` | 按类型 | 前端组件或外部地址。 |
+| `load` | `MenuLoadInput[]` | 默认 `[]` | 页面进入时需要调用的接口。 |
+| `actions` | `MenuActionInput[]` | 默认 `[]` | 页面按钮或操作。 |
+| `navigation/enabled/i18nKey/meta` | 视图元数据 | 可选 | 控制导航展示和前端附加信息。 |
 
-## 方法详解：创建与读取节点
+`load.resource: ApiResource` 必须形如 `api:GET:/api/orders`。`actions[].resource: ApiResource | UiResource` 可指向后端接口或前端 UI 能力。`response?: ResponseProjectionConfigInput` 可写在 `load` 或 `actions` 上，详见[配置接口与响应字段 API](/zh/api/api-bindings)。
 
-<span id="menus-create"></span>
-### `create(input, options?)`
+## 方法详解：配置管理
 
-<!-- docs:method name=menus.create locale=zh -->
+<span id="menus-config-preview"></span>
+### `menus.config.preview(config, options?)`
 
-- **用途**：在当前 scope 新建一个菜单资产，并按父节点现有顺序追加。
-- **参数**：`input` 字段见上表；`options` 可携带操作者、原因、请求键和幂等键。
-- **状态影响**：写入节点并推进 scope revision；创建时校验父节点、类型字段组合和权限资源。
-- **原始返回**：`MutationResult<MenuNode>`；节点在 `data`，审计证据在 `operationId/auditId`。
-- **常见失败**：ID 重复、父节点不存在、层级非法、字段组合无效或容量超限。
+<!-- docs:method name=menus.config.preview locale=zh -->
 
-<span id="menus-get"></span>
-### `get(nodeId)`
+- **用途**：在保存前校验菜单配置，并预览内部菜单、接口、响应字段和已有角色授权的影响。
+- **参数**：`config` 是完整 `MenuConfigInput`；`options` 可带 `actorId/reason/detailBudget`。
+- **状态影响**：只读，不写入配置。
+- **原始返回**：`ImpactPreview<MenuConfigPlan>`；重点读取 `executable`、`conflicts`、`plan.after`、`expected` 和 `previewToken`。
 
-<!-- docs:method name=menus.get locale=zh -->
+<span id="menus-config-save"></span>
+### `menus.config.save(config, options)`
 
-- **用途**：按 ID 读取单个节点的持久化状态。
-- **参数**：`nodeId` 为当前 scope 内节点 ID。
+<!-- docs:method name=menus.config.save locale=zh -->
+
+- **用途**：提交已预览的菜单配置。
+- **参数**：`config` 必须与预览一致；`options` 必须包含 `expected`、`previewToken`，可选 `actorId/idempotencyKey`。
+- **状态影响**：写入 `_menu_configs`，同步内部菜单节点、接口契约和响应字段索引，并处理受影响角色来源。
+- **原始返回**：`MutationResult<MenuConfigSaveResult>`；配置快照在 `data.config`，内部写入摘要在 `data.manifestOperations`。
+
+<span id="menus-config-get"></span>
+### `menus.config.get(configId)`
+
+<!-- docs:method name=menus.config.get locale=zh -->
+
+- **用途**：读取指定配置的最新快照。
+- **参数**：`configId` 为配置 ID。
 - **状态影响**：只读。
-- **原始返回**：`VersionedResult<MenuNode>`；更新前使用 `data.revision`，不要把它当树结构。
+- **原始返回**：`VersionedResult<MenuConfigSnapshot>`；`data.revision` 可作为管理端展示的版本信息。
 
-<span id="menus-list"></span>
-### `list(query?)`
+<span id="menus-config-list"></span>
+### `menus.config.list(query?)`
 
-<!-- docs:method name=menus.list locale=zh -->
+<!-- docs:method name=menus.config.list locale=zh -->
 
-- **用途**：为管理列表按父节点、类型、状态、隐藏标记或搜索词分页查询节点。
-- **参数**：`query` 组合 `MenuNodeFilter` 与 `first/after`；`first` 默认 `50`、最大 `200`。
+- **用途**：分页读取当前 scope 下的菜单配置摘要。
+- **参数**：`query` 可带 `configId/first/after`。
 - **状态影响**：只读。
-- **原始返回**：`PageResult<MenuNode>`；从 `items` 渲染，`hasNext` 为真时把 `endCursor` 传给下一次 `after`。
+- **原始返回**：`PageResult<MenuConfigSummary>`；摘要包含 `menuCount/viewCount/actionCount/responseFieldCount`。
 
-<span id="menus-get-tree"></span>
-### `getTree(options?)`
+<span id="menus-config-preview-remove"></span>
+### `menus.config.previewRemove(configId, options?)`
 
-<!-- docs:method name=menus.getTree locale=zh -->
+<!-- docs:method name=menus.config.previewRemove locale=zh -->
 
-- **用途**：一次读取用于管理展示的嵌套菜单树。
-- **参数**：`rootId` 只返回指定节点及后代；`includeHidden` 决定是否包含 hidden 节点，默认不包含。
+- **用途**：预览删除一套菜单配置会移除哪些资产和角色授权。
+- **参数**：`configId` 和可选预览上下文。
+- **状态影响**：只读，不删除。
+- **原始返回**：`ImpactPreview<MenuConfigRemovePlan>`；重点检查 `removedAssets`、`revokedGrants`、`affectedRoles` 和 `affectedUsers`。
+
+<span id="menus-config-remove"></span>
+### `menus.config.remove(configId, options)`
+
+<!-- docs:method name=menus.config.remove locale=zh -->
+
+- **用途**：执行已预览的配置删除。
+- **参数**：`configId` 必须与预览一致；`options` 带 `expected/previewToken`。
+- **状态影响**：删除配置快照、同步移除内部资产，并撤销依赖该配置的菜单授权。
+- **原始返回**：`MutationResult<MenuConfigRemoveResult>`。
+
+<span id="menus-config-preview-changes"></span>
+### `menus.config.previewChanges(changes, options?)`
+
+<!-- docs:method name=menus.config.previewChanges locale=zh -->
+
+- **用途**：一次预览多套配置的保存或删除。
+- **参数**：`changes: NonEmptyMenuConfigChangeArray`，每项是 `{ operation: 'save', config }` 或 `{ operation: 'remove', configId }`。
 - **状态影响**：只读。
-- **原始返回**：`VersionedResult<MenuTreeNode[]>`，子节点位于各项 `children`；它不是某个用户的可见菜单投影。
+- **原始返回**：`ImpactPreview<MenuConfigChangeSetPlan>`；用于插件安装、模块升级或批量导入前审查。
 
-<span id="menus-update"></span>
-## 方法详解：修改字段与结构
+<span id="menus-config-apply-changes"></span>
+### `menus.config.applyChanges(changes, options)`
 
-### `update(nodeId, patch, options)`
+<!-- docs:method name=menus.config.applyChanges locale=zh -->
 
-<!-- docs:method name=menus.update locale=zh -->
+- **用途**：原子提交已预览的批量配置变更。
+- **参数**：原始 `changes` 加预览返回的 `expected/previewToken`。
+- **状态影响**：批量保存/删除配置，并同步所有内部菜单与接口资产。
+- **原始返回**：`MutationResult<MenuConfigChangeSetResult>`。
 
-- **用途**：修改不改变授权贡献的展示字段：`title/component/icon/hidden/i18nKey/meta`。
-- **参数**：`nodeId`、非空 `patch` 和必填 `options.expectedRevision`。
-- **状态影响**：更新单节点并推进 revision；不会移动节点，也不会修改 permission/dataPermissions。
-- **原始返回**：`MutationResult<MenuNode>`；revision 冲突时不写入，应重新读取后决定是否重试。
+## 方法详解：用户运行时
 
-<span id="menus-preview-update"></span>
-### `previewUpdate(nodeId, request, options?)`
+<span id="subject-menus-get-view-tree"></span>
+### `subject.menus.getViewTree(options)`
 
-<!-- docs:method name=menus.previewUpdate locale=zh -->
+<!-- docs:method name=subject.menus.getViewTree locale=zh -->
 
-- **用途**：预览 path/name/code/url/permission/dataPermissions 等影响型字段变化。
-- **参数**：`request.patch` 至少一个字段；受影响的角色来源通过 `sourceRewrite` 选择拒绝、替换或撤销。
-- **状态影响**：不写数据库。
-- **原始返回**：`ImpactPreview<MenuNodeUpdatePlan>`，重点检查 `plan.before/after`、`sourceImpacts`、`executable`、`expected` 与 `previewToken`。
+- **用途**：返回当前用户在指定配置下可见的导航树。
+- **参数**：`options.configId` 指定菜单配置。
+- **状态影响**：只读；按当前用户有效角色和菜单授权投影。
+- **原始返回**：`SubjectRuntimeResult<readonly ViewTreeNode[]>`；按钮不会作为树节点返回。
 
-<span id="menus-execute-update"></span>
-### `executeUpdate(nodeId, request, options)`
+<span id="subject-menus-get-action-map"></span>
+### `subject.menus.getActionMap(input)`
 
-<!-- docs:method name=menus.executeUpdate locale=zh -->
+<!-- docs:method name=subject.menus.getActionMap locale=zh -->
 
-- **用途**：执行已确认的影响型字段更新。
-- **参数**：`nodeId/request` 必须与预览一致；`options` 必须带预览返回的 revision vector 与 token。
-- **状态影响**：更新节点，并按已确认方案替换或撤销受影响来源。
-- **原始返回**：`MutationResult<MenuNode>`；预览过期或输入改变时返回 `PREVIEW_STALE`，必须重新预览。
-
-<span id="menus-preview-move"></span>
-### `previewMove(input, options?)`
-
-<!-- docs:method name=menus.previewMove locale=zh -->
-
-- **用途**：在写入前检查跨父节点移动、相对位置、后代数量与层级约束。
-- **参数**：`nodeId/parentId` 必填，可选且互斥的 `beforeId/afterId` 必须属于目标兄弟集合。
-- **状态影响**：只生成计划。
-- **原始返回**：`ImpactPreview<MenuMovePlan>`，包含原/目标父节点和移动前后兄弟摘要。
-
-<span id="menus-move"></span>
-### `move(input, options)`
-
-<!-- docs:method name=menus.move locale=zh -->
-
-- **用途**：执行已预览的节点移动。
-- **参数**：原始 `input` 加预览 `expected/previewToken`。
-- **状态影响**：修改 parentId 和相关兄弟 order；会推进受影响 revision。
-- **原始返回**：`MutationResult<MenuNode>`，`data` 是移动后的节点；并发树变化会使预览失效。
-
-<span id="menus-preview-reorder"></span>
-### `previewReorder(input, options?)`
-
-<!-- docs:method name=menus.previewReorder locale=zh -->
-
-- **用途**：验证同一父节点下的完整排序清单。
-- **参数**：`parentId` 可为 `null`；`orderedNodeIds` 必须完整、无重复且都属于该父节点。
-- **状态影响**：只读计划。
-- **原始返回**：`ImpactPreview<MenuReorderPlan>`，`before/after` 是有界顺序摘要。
-
-<span id="menus-reorder"></span>
-### `reorder(input, options)`
-
-<!-- docs:method name=menus.reorder locale=zh -->
-
-- **用途**：提交已预览的兄弟节点完整顺序。
-- **参数**：预览时的 `input`、revision vector 与 token。
-- **状态影响**：批量更新 order。
-- **原始返回**：`MutationResult<BatchMutationSummary>`，查看 changed/unchanged 等批量摘要，而不是期待返回整棵树。
-
-<span id="menus-preview-set-status"></span>
-## 方法详解：改变状态与安全删除
-
-### `previewSetStatus(nodeId, status, options?)`
-
-<!-- docs:method name=menus.previewSetStatus locale=zh -->
-
-- **用途**：预览启用、禁用或废弃节点对来源、角色和用户的影响。
-- **参数**：节点 ID 与目标 `enabled/disabled/deprecated` 状态。
-- **状态影响**：不写入。
-- **原始返回**：`ImpactPreview<MenuStatusPlan>`；重点检查 `affectedSources/affectedRoles/affectedUsers`。
-
-<span id="menus-set-status"></span>
-### `setStatus(nodeId, status, options)`
-
-<!-- docs:method name=menus.setStatus locale=zh -->
-
-- **用途**：执行已确认的状态切换。
-- **参数**：与预览相同的 ID/status，加 `expected/previewToken`。
-- **状态影响**：修改节点状态；禁用/废弃会令相关贡献变为非活动状态，但不会删除授权历史。
-- **原始返回**：`MutationResult<MenuNode>`。
-
-<span id="menus-get-removal-impact"></span>
-### `getRemovalImpact(nodeId)`
-
-<!-- docs:method name=menus.getRemovalImpact locale=zh -->
-
-- **用途**：快速判断删除前有多少后代、API 绑定和角色来源依赖。
-- **参数**：待删除根节点 ID。
-- **状态影响**：只读，也不生成可执行 token。
-- **原始返回**：`VersionedResult<MenuRemovalImpact>`；真正删除仍必须调用 `previewRemove`。
-
-<span id="menus-preview-remove"></span>
-### `previewRemove(nodeId, input, options?)`
-
-<!-- docs:method name=menus.previewRemove locale=zh -->
-
-- **用途**：把级联删除、binding 脱离与来源重写展开为可审查计划。
-- **参数**：`input.cascade` 必填；有来源影响时在 `sourceRewrite` 中逐项决策。
-- **状态影响**：不删除数据。
-- **原始返回**：`ImpactPreview<MenuRemovalPlan>`，检查 `nodes/detachedApiBindings/sourceImpacts` 是否符合预期。
-
-<span id="menus-remove"></span>
-### `remove(nodeId, input, options)`
-
-<!-- docs:method name=menus.remove locale=zh -->
-
-- **用途**：执行已预览的节点删除。
-- **参数**：ID/input 必须与预览一致；options 带 revision vector 与 token。
-- **状态影响**：删除目标及允许级联的后代，处理 owner 关系和来源决策。
-- **原始返回**：`MutationResult<BatchMutationSummary>`；默认不会静默级联或猜测来源替换。
-
-<span id="menus-find-stale-references"></span>
-## 方法详解：修复失效引用
-
-### `findStaleReferences(query?)`
-
-<!-- docs:method name=menus.findStaleReferences locale=zh -->
-
-- **用途**：分页发现指向缺失 parent 或 API owner 资产的结构陈旧引用。
-- **参数**：可选 `first/after`。
+- **用途**：返回某个视图下每个按钮或操作是否可见、是否可用以及原因。
+- **参数**：`input.configId` 和 `input.viewId`。
 - **状态影响**：只读。
-- **原始返回**：`PageResult<StaleReference>`；每项给出引用类型、ID、相关资产和原因。
+- **原始返回**：`SubjectRuntimeResult<Record<string, ActionPermissionState>>`；对象键是 action ID。
 
-<span id="menus-preview-repair-stale-references"></span>
-### `previewRepairStaleReferences(input, options?)`
+<span id="subject-menus-get-view-state"></span>
+### `subject.menus.getViewState(input)`
 
-<!-- docs:method name=menus.previewRepairStaleReferences locale=zh -->
+<!-- docs:method name=subject.menus.getViewState locale=zh -->
 
-- **用途**：预览删除或重新绑定指定陈旧引用的结果。
-- **参数**：`referenceIds` 与 `resolutions` 键必须一一对应；rebind 还需 `replacementId`。
-- **状态影响**：不写入。
-- **原始返回**：`ImpactPreview<StaleRepairPlan>`，同时展示可能牵连的来源影响。
-
-<span id="menus-repair-stale-references"></span>
-### `repairStaleReferences(input, options)`
-
-<!-- docs:method name=menus.repairStaleReferences locale=zh -->
-
-- **用途**：执行已预览的结构引用修复。
-- **参数**：原始 repair input、revision vector 与 preview token。
-- **状态影响**：按计划移除/重绑引用，并处理已确认的来源影响。
-- **原始返回**：`MutationResult<BatchMutationSummary>`。
-
-<span id="subject-menus-get-visible-tree"></span>
-## 方法详解：投影用户菜单
-
-### `subject.menus.getVisibleTree(options?)`
-
-<!-- docs:method name=subject.menus.getVisibleTree locale=zh -->
-
-- **用途**：按当前 subject 的有效权限生成可见导航树，并计算必需 API 的可用性。
-- **参数**：可选 `rootId` 只投影指定子树；subject 已绑定 user/scope/claims。
-- **状态影响**：只读；不会修改菜单或角色 grant。
-- **原始返回**：`SubjectRuntimeResult<VisibleMenuTreeNode[]>`；每个节点含 `visible=true`、`enabled/reason/apiRisks/children`，button 不在此树中。
-- **边界**：管理端完整树使用 `scoped.menus.getTree()`，不要把可见树用于编辑库存。
-
-<span id="subject-menus-get-button-map"></span>
-### `subject.menus.getButtonMap(ownerNodeId)`
-
-<!-- docs:method name=subject.menus.getButtonMap locale=zh -->
-
-- **用途**：读取某个 page/menu 下每个 button code 的可见、可用及 API 风险状态。
-- **参数**：owner 节点 ID，不是 button ID。
+- **用途**：判断当前用户是否允许进入某个视图。
+- **参数**：可传 `{ configId, viewId }`，也可传 `{ path }`。
 - **状态影响**：只读。
-- **原始返回**：`SubjectRuntimeResult<Record<string, ButtonPermissionState>>`；对象键是 button `code`，值含 `visible/enabled/reason/action/resource/apiRisks`。
+- **原始返回**：`SubjectRuntimeResult<ViewPermissionState>`；`allowed` 表示权限允许，`navigationReachable` 表示导航链路可达。
 
-<span id="subject-menus-get-route-state"></span>
-### `subject.menus.getRouteState(path)`
+<span id="subject-menus-filter-response"></span>
+### `subject.menus.filterResponse(apiResource, payload)`
 
-<!-- docs:method name=subject.menus.getRouteState locale=zh -->
+<!-- docs:method name=subject.menus.filterResponse locale=zh -->
 
-- **用途**：同时回答当前 subject 是否允许进入某路由，以及该路由在导航树中是否可达。
-- **参数**：规范前端路由 path，例如 `/orders`。
-- **状态影响**：只读。
-- **原始返回**：`SubjectRuntimeResult<RoutePermissionState>`；业务守卫看 `data.allowed`，导航提示还要看 `data.navigationReachable/navigationReason`。
-
-<span id="menus-manifest-preview"></span>
-## 方法详解：导入与导出 manifest
-
-### `manifest.preview(input, options?)`
-
-<!-- docs:method name=menus.manifest.preview locale=zh -->
-
-- **用途**：预览一份 schema v2 菜单+API manifest 将对当前 scope 做出的全部差异。
-- **参数**：`mode='merge'` 或 `'replace'`；replace 应提交完整目标清单。
-- **状态影响**：不导入。
-- **原始返回**：`ImpactPreview<MenuManifestPlan>`，分别列出 node/binding insert、update、delete、unchanged 和来源影响。
-
-<span id="menus-manifest-import"></span>
-### `manifest.import(input, options)`
-
-<!-- docs:method name=menus.manifest.import locale=zh -->
-
-- **用途**：原子执行已经预览确认的 manifest 计划。
-- **参数**：与预览完全一致的 manifest、revision vector 与 token。
-- **状态影响**：批量写节点和 bindings；replace 还会删除未声明项。
-- **原始返回**：`MutationResult<BatchMutationSummary>`；输入或库存变化会触发 `PREVIEW_STALE`。
-
-<span id="menus-manifest-export"></span>
-### `manifest.export()`
-
-<!-- docs:method name=menus.manifest.export locale=zh -->
-
-- **用途**：导出当前 scope 的完整可移植前端 manifest。
-- **参数**：无。
-- **状态影响**：只读。
-- **原始返回**：`VersionedResult<FrontendMenuManifest>`，`data` 含 `schemaVersion: 2`、有序 `nodes/apiBindings`；大清单应使用分页方法。
-
-<span id="menus-manifest-export-page"></span>
-### `manifest.exportPage(query?)`
-
-<!-- docs:method name=menus.manifest.exportPage locale=zh -->
-
-- **用途**：对大 manifest 进行有界流式导出。
-- **参数**：`first/after`，可用 `kind='node' | 'api-binding'` 过滤记录类型。
-- **状态影响**：只读。
-- **原始返回**：`PageResult<MenuManifestExportRecord>`；每项使用 `kind/value` 区分节点与 binding。
+- **用途**：按当前用户的响应字段授权裁剪接口响应。
+- **参数**：`apiResource` 是 `api:METHOD:/path`；`payload` 是准备返回给前端的数据。
+- **状态影响**：只读，但会先检查当前用户是否能 `invoke` 该 `apiResource`。
+- **原始返回**：`SubjectRuntimeResult<unknown>`；裁剪后的响应在 `data`。
 
 ## 响应与副作用
 
-写入返回结果节点或 batch summary，并包含 revision/audit/cache 证据。Manifest export 返回 `schemaVersion: 2`、有序 `nodes` 和 `apiBindings`；它是可移植前端/管理快照，不是授权判断。
+保存配置会产生 mutation envelope、审计 ID、revision、缓存失效结果和内部同步摘要。运行时方法不写入数据库，返回 `SubjectRuntimeResult<T>`，其中 `data` 是前端真正使用的数据，`detailBudget` 是诊断信息。
 
 ```json
 {
+  "changed": true,
   "data": {
-    "id": "orders",
-    "parentId": null,
-    "type": "page",
-    "title": "Orders",
-    "path": "/orders",
-    "name": "orders",
-    "component": "OrdersPage",
-    "permission": { "action": "read", "resource": "ui:page:orders" },
-    "status": "enabled",
-    "hidden": false,
-    "revision": 1
+    "config": { "configId": "admin", "revision": 1 },
+    "manifestOperations": { "total": 3 },
+    "retainedGrantCount": 0,
+    "revokedGrantCount": 0
   },
-  "operationId": "operation_...",
   "auditId": "audit_..."
 }
 ```
 
 ## 失败与限制
 
-重要错误包括 `MENU_NOT_FOUND`、`MENU_ALREADY_EXISTS`、`MENU_HIERARCHY_INVALID`、`DEPENDENCY_EXISTS`、`STALE_REFERENCE`、`REVISION_CONFLICT`、`PREVIEW_STALE`。一个 scope 最多支持 `10000` 个节点，树深度 `64`，运行时投影 `5000` 个节点。级联和来源重写保持有界，并且必须显式声明。
+常见失败包括配置 ID 重复或缺失、资源格式无效、响应字段路径非法、预览 token 过期、revision 冲突和容量超限。`load.resource` 必须是 `api:` 资源；响应字段只能引用配置里声明过的字段。保存配置不会自动给任何角色或用户授权。
 
 ## 示例
 
 ```ts
-const created = await scoped.menus.create({
-  id: 'orders', type: 'page', title: 'Orders', path: '/orders',
-  name: 'orders', component: 'OrdersPage',
-  permission: { action: 'read', resource: 'ui:page:orders' },
+const menuConfig = {
+  configId: 'admin',
+  menus: [{
+    id: 'orders',
+    title: 'Orders',
+    views: [{
+      id: 'orders-list',
+      type: 'page',
+      title: 'Orders',
+      path: '/orders',
+      component: 'OrdersPage',
+      load: [{
+        resource: 'api:GET:/api/orders',
+        response: {
+          target: 'items',
+          preserve: ['total'],
+          fields: [{ field: 'orderNo', title: '订单号' }],
+        },
+      }],
+    }],
+  }],
+};
+
+const preview = await scoped.menus.config.preview(menuConfig, { actorId: 'admin' });
+if (!preview.executable) throw new Error('resolve menu config conflicts first');
+
+const saved = await scoped.menus.config.save(menuConfig, {
+  ...preview.expected,
+  previewToken: preview.previewToken,
+  actorId: 'admin',
 });
-const tree = await scoped.menus.getTree();
+
+const menus = pc.forSubject({ userId: 'u-menu', scope }).menus;
+const tree = await menus.getViewTree({ configId: 'admin' });
+const view = await menus.getViewState({ configId: 'admin', viewId: 'orders-list' });
+const projected = await menus.filterResponse('api:GET:/api/orders', payload);
 ```
 
 ```json
-{ "created": "orders", "treeRoots": ["orders"] }
+{
+  "tree": [{ "id": "orders", "enabled": true }],
+  "view": { "allowed": true, "view": { "id": "orders-list" } },
+  "projected": {
+    "items": [{ "orderNo": "O-1001", "status": "paid" }],
+    "total": 1
+  }
+}
 ```
 
 ## 相关内容
 
-参见[管理菜单](/zh/guide/menu-management)、[接口绑定 API](/zh/api/api-bindings)和[角色菜单权限 API](/zh/api/role-menu-permissions)。
+参见[管理菜单](/zh/guide/menu-management)、[配置接口与响应字段](/zh/guide/api-bindings)和[角色菜单权限 API](/zh/api/role-menu-permissions)。

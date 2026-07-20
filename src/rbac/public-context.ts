@@ -1,6 +1,4 @@
 import type {
-    ApiBindingManager,
-    MenuManager,
     PermissionAction,
     PermissionScope,
     PermissionSubject,
@@ -12,6 +10,7 @@ import type {
     SubjectDataRuntime,
     SubjectPermissionContext,
     UserRoleManager,
+    ApiResource,
 } from "../types";
 import type { PermissionSemanticCache, CachedAuthorizationState } from "../cache";
 import { ResourceSchemeRegistry } from "../check/resource-schemes";
@@ -29,6 +28,8 @@ import type { UserRoleMutationService } from "./user-role-mutations";
 import type {
     ApiBindingImpactMutationService,
     ApiBindingMutationService,
+    BusinessRoleMenuPermissionMutationService,
+    MenuConfigService,
     MenuManifestService,
     MenuNodeImpactMutationService,
     MenuNodeMutationService,
@@ -49,6 +50,7 @@ export interface ScopedRbacServices {
     readonly previews: RbacPreviewService;
     readonly userRoles: UserRoleMutationService;
     readonly roleMenu: {
+        readonly businessMutations: BusinessRoleMenuPermissionMutationService;
         readonly mutations: RoleMenuPermissionMutationService;
         readonly queries: RoleMenuPermissionQueryService;
         readonly repair: RoleMenuPermissionRepairService;
@@ -59,6 +61,7 @@ export interface ScopedRbacServices {
         readonly nodeImpacts: MenuNodeImpactMutationService;
         readonly bindings: ApiBindingMutationService;
         readonly bindingImpacts: ApiBindingImpactMutationService;
+        readonly config: MenuConfigService;
         readonly manifest: MenuManifestService;
         readonly stale: StructuralStaleReferenceService;
     };
@@ -154,6 +157,20 @@ function normalizedRoutePath(pathInput: string) {
     return path;
 }
 
+function menuConfigNotReady<T>(method: string): Promise<T> {
+    return Promise.reject(new PermissionCoreError(
+        "INVALID_CONFIGURATION",
+        `${method} is not available until the menu config coordinator is initialized.`,
+        {
+            details: {
+                kind: "validation",
+                field: method,
+                reason: "menu config coordinator is not implemented in this batch",
+            },
+        },
+    ));
+}
+
 export function createScopedPermissionContext(
     scope: Readonly<PermissionScope>,
     services: ScopedRbacServices,
@@ -167,18 +184,19 @@ export function createScopedPermissionContext(
         }
     });
     const menuPermissions: RoleMenuPermissionManager = {
-        preview: (roleId, change, options) => query(() => services.roleMenu.mutations.preview(scope, roleId, change, options)),
-        grant: (roleId, selection, options) => run(() => services.roleMenu.mutations.grant(scope, roleId, selection, options)),
-        revoke: (roleId, input, options) => run(() => services.roleMenu.mutations.revoke(scope, roleId, input, options)),
-        deny: (roleId, selection, options) => run(() => services.roleMenu.mutations.deny(scope, roleId, selection, options)),
-        set: (roleId, assignments, options) => run(() => services.roleMenu.mutations.set(scope, roleId, assignments, options)),
-        getDirect: (roleId) => query(() => services.roleMenu.queries.getDirect(scope, roleId)),
-        listDirect: (roleId, options) => query(() => services.roleMenu.queries.listDirect(scope, roleId, options)),
-        getEffective: (roleId) => query(() => services.roleMenu.queries.getEffective(scope, roleId)),
-        getAuthorizationTree: (roleId) => query(() => services.roleMenu.queries.getAuthorizationTree(scope, roleId)),
-        listStale: (options) => query(() => services.roleMenu.queries.listStale(scope, options)),
-        previewRepairStale: (input, options) => query(() => services.roleMenu.repair.preview(scope, input, options)),
-        repairStale: (input, options) => run(() => services.roleMenu.repair.repair(scope, input, options)),
+        preview: (roleId, change, options) => query(() =>
+            services.roleMenu.businessMutations.preview(scope, roleId, change, options)),
+        grant: (roleId, selection, options) => run(() =>
+            services.roleMenu.businessMutations.grant(scope, roleId, selection, options)),
+        revoke: (roleId, input, options) => run(() => services.roleMenu.businessMutations.revoke(scope, roleId, input, options)),
+        deny: (roleId, selection, options) => run(() =>
+            services.roleMenu.businessMutations.deny(scope, roleId, selection, options)),
+        set: (roleId, assignments, options) => run(() =>
+            services.roleMenu.businessMutations.set(scope, roleId, assignments, options)),
+        getDirect: (roleId) => query(() => services.roleMenu.queries.getBusinessDirect(scope, roleId)),
+        listDirect: (roleId, options) => query(() => services.roleMenu.queries.listBusinessDirect(scope, roleId, options)),
+        getEffective: (roleId) => query(() => services.roleMenu.queries.getBusinessEffective(scope, roleId)),
+        getAuthorizationTree: (roleId, options) => query(() => services.roleMenu.queries.getBusinessAuthorizationTree(scope, roleId, options)),
     };
     Object.freeze(menuPermissions);
     const roles: RoleManager = {
@@ -214,53 +232,19 @@ export function createScopedPermissionContext(
         listUsersByRole: (roleId, options) => query(() => services.queries.listUsersByRole(scope, roleId, options)),
     };
     Object.freeze(userRoles);
-    const manifest: MenuManager["manifest"] = {
-        preview: (input, options) => query(() => services.menuManagement.manifest.preview(scope, input, options)),
-        import: (input, options) => run(() => services.menuManagement.manifest.import(scope, input, options)),
-        export: () => query(() => services.menuManagement.manifest.export(scope)),
-        exportPage: (options) => query(() => services.menuManagement.manifest.exportPage(scope, options)),
+    const config: ScopedPermissionContext["menus"]["config"] = {
+        preview: (input, options) => query(() => services.menuManagement.config.preview(scope, input, options)),
+        save: (input, options) => run(() => services.menuManagement.config.save(scope, input, options)),
+        get: (configId) => query(() => services.menuManagement.config.get(scope, configId)),
+        list: (options) => query(() => services.menuManagement.config.list(scope, options)),
+        previewRemove: (configId, options) => query(() => services.menuManagement.config.previewRemove(scope, configId, options)),
+        remove: (configId, options) => run(() => services.menuManagement.config.remove(scope, configId, options)),
+        previewChanges: (changes, options) => query(() => services.menuManagement.config.previewChanges(scope, changes, options)),
+        applyChanges: (changes, options) => run(() => services.menuManagement.config.applyChanges(scope, changes, options)),
     };
-    Object.freeze(manifest);
-    const menus: MenuManager = {
-        manifest,
-        create: (input, options) => run(() => services.menuManagement.nodes.create(scope, input, options)),
-        get: (nodeId) => query(() => services.menuManagement.queries.getMenu(scope, nodeId)),
-        list: (options) => query(() => services.menuManagement.queries.listMenus(scope, options)),
-        getTree: (options) => query(() => services.menuManagement.queries.getTree(scope, options)),
-        update: (nodeId, patch, options) => run(() => services.menuManagement.nodes.update(scope, nodeId, patch, options)),
-        previewUpdate: (nodeId, request, options) => query(() => services.menuManagement.nodeImpacts.previewUpdate(scope, nodeId, request, options)),
-        executeUpdate: (nodeId, request, options) => run(() => services.menuManagement.nodeImpacts.executeUpdate(scope, nodeId, request, options)),
-        previewMove: (input, options) => query(() => services.menuManagement.nodeImpacts.previewMove(scope, input, options)),
-        move: (input, options) => run(() => services.menuManagement.nodeImpacts.move(scope, input, options)),
-        previewReorder: (input, options) => query(() => services.menuManagement.nodeImpacts.previewReorder(scope, input, options)),
-        reorder: (input, options) => run(() => services.menuManagement.nodeImpacts.reorder(scope, input, options)),
-        previewSetStatus: (nodeId, status, options) => query(() => services.menuManagement.nodeImpacts.previewSetStatus(scope, nodeId, status, options)),
-        setStatus: (nodeId, status, options) => run(() => services.menuManagement.nodeImpacts.setStatus(scope, nodeId, status, options)),
-        getRemovalImpact: (nodeId) => query(() => services.menuManagement.nodeImpacts.getRemovalImpact(scope, nodeId)),
-        previewRemove: (nodeId, input, options) => query(() => services.menuManagement.nodeImpacts.previewRemove(scope, nodeId, input, options)),
-        remove: (nodeId, input, options) => run(() => services.menuManagement.nodeImpacts.remove(scope, nodeId, input, options)),
-        findStaleReferences: (options) => query(() => services.menuManagement.stale.findStaleReferences(scope, options)),
-        previewRepairStaleReferences: (input, options) => query(() => services.menuManagement.stale.previewRepairStaleReferences(scope, input, options)),
-        repairStaleReferences: (input, options) => run(() => services.menuManagement.stale.repairStaleReferences(scope, input, options)),
-    };
-    Object.freeze(menus);
-    const apiBindings: ApiBindingManager = {
-        create: (input, options) => run(() => services.menuManagement.bindings.create(scope, input, options)),
-        get: (bindingId) => query(() => services.menuManagement.queries.getApiBinding(scope, bindingId)),
-        list: (options) => query(() => services.menuManagement.queries.listApiBindings(scope, options)),
-        update: (bindingId, patch, options) => run(() => services.menuManagement.bindings.update(scope, bindingId, patch, options)),
-        previewSetStatus: (bindingId, status, options) => query(() => services.menuManagement.bindingImpacts.previewSetStatus(scope, bindingId, status, options)),
-        setStatus: (bindingId, status, options) => run(() => services.menuManagement.bindingImpacts.setStatus(scope, bindingId, status, options)),
-        getRemovalImpact: (bindingId) => query(() => services.menuManagement.bindingImpacts.getRemovalImpact(scope, bindingId)),
-        previewUpdate: (bindingId, request, options) => query(() => services.menuManagement.bindingImpacts.previewUpdate(scope, bindingId, request, options)),
-        executeUpdate: (bindingId, request, options) => run(() => services.menuManagement.bindingImpacts.executeUpdate(scope, bindingId, request, options)),
-        previewRemove: (bindingId, input, options) => query(() => services.menuManagement.bindingImpacts.previewRemove(scope, bindingId, input, options)),
-        remove: (bindingId, input, options) => run(() => services.menuManagement.bindingImpacts.remove(scope, bindingId, input, options)),
-        previewReplace: (input, options) => query(() => services.menuManagement.bindingImpacts.previewReplace(scope, input, options)),
-        replace: (input, options) => run(() => services.menuManagement.bindingImpacts.replace(scope, input, options)),
-    };
-    Object.freeze(apiBindings);
-    return Object.freeze({ roles, userRoles, menus, apiBindings });
+    Object.freeze(config);
+    const menus = Object.freeze({ config });
+    return Object.freeze({ roles, userRoles, menus });
 }
 
 export function createSubjectPermissionContext(
@@ -327,53 +311,57 @@ export function createSubjectPermissionContext(
         }
         return menuRuntimePromise;
     };
-    const menus: SubjectMenuRuntime = Object.freeze({
-        getVisibleTree: (options?: { rootId?: string }) => run(async () => {
-            const rootId = normalizedTreeRootId(options);
-            const loaded = await loadAuthorization();
-            await authorization.ensurePolicyContextComplete();
-            const revisions = { rbacRevision: loaded.rbacRevision, menuRevision: loaded.menuRevision };
-            const cached = await semanticCache?.getMenuTree(subject, context, revisions, rootId);
-            if (cached !== undefined) return cached;
-            const menu = await menuRuntime();
-            const result = await menu.runtime.getVisibleTree(rootId === undefined ? {} : { rootId });
-            const filled = await semanticCache?.setMenuTree(subject, context, revisions, rootId, result);
-            if (filled && semanticCache !== undefined) {
-                await retainCacheFillOnlyWhileCurrent(semanticCache, subject, menu.reader);
-            }
-            return result;
-        }),
-        getButtonMap: (ownerNodeIdInput: string) => run(async () => {
-            const ownerNodeId = normalizeRbacId(ownerNodeIdInput, "ownerNodeId");
-            const loaded = await loadAuthorization();
-            await authorization.ensurePolicyContextComplete();
-            const revisions = { rbacRevision: loaded.rbacRevision, menuRevision: loaded.menuRevision };
-            const cached = await semanticCache?.getButtonMap(subject, context, revisions, ownerNodeId);
-            if (cached !== undefined) return cached;
-            const menu = await menuRuntime();
-            const result = await menu.runtime.getButtonMap(ownerNodeId);
-            const filled = await semanticCache?.setButtonMap(subject, context, revisions, ownerNodeId, result);
-            if (filled && semanticCache !== undefined) {
-                await retainCacheFillOnlyWhileCurrent(semanticCache, subject, menu.reader);
-            }
-            return result;
-        }),
-        getRouteState: (pathInput: string) => run(async () => {
-            const path = normalizedRoutePath(pathInput);
-            const loaded = await loadAuthorization();
-            await authorization.ensurePolicyContextComplete();
-            const revisions = { rbacRevision: loaded.rbacRevision, menuRevision: loaded.menuRevision };
-            const cached = await semanticCache?.getRouteState(subject, context, revisions, path);
-            if (cached !== undefined) return cached;
-            const menu = await menuRuntime();
-            const result = await menu.runtime.getRouteState(path);
-            const filled = await semanticCache?.setRouteState(subject, context, revisions, path, result);
-            if (filled && semanticCache !== undefined) {
-                await retainCacheFillOnlyWhileCurrent(semanticCache, subject, menu.reader);
-            }
-            return result;
-        }),
-    });
+    const getVisibleTree = async (options?: { rootId?: string }) => {
+        const rootId = normalizedTreeRootId(options);
+        const loaded = await menuRuntime();
+        const cached = semanticCache === undefined
+            ? undefined
+            : await semanticCache.getMenuTree(subject, context, loaded.reader.state, rootId);
+        if (cached !== undefined) return cached;
+        const result = await loaded.runtime.getVisibleTree(options);
+        if (semanticCache !== undefined) {
+            const filled = await semanticCache.setMenuTree(subject, context, loaded.reader.state, rootId, result);
+            if (filled) await retainCacheFillOnlyWhileCurrent(semanticCache, subject, loaded.reader);
+        }
+        return result;
+    };
+    const getButtonMap = async (ownerNodeIdInput: string) => {
+        const ownerNodeId = normalizeRbacId(ownerNodeIdInput, "ownerNodeId");
+        const loaded = await menuRuntime();
+        const cached = semanticCache === undefined
+            ? undefined
+            : await semanticCache.getButtonMap(subject, context, loaded.reader.state, ownerNodeId);
+        if (cached !== undefined) return cached;
+        const result = await loaded.runtime.getButtonMap(ownerNodeId);
+        if (semanticCache !== undefined) {
+            const filled = await semanticCache.setButtonMap(subject, context, loaded.reader.state, ownerNodeId, result);
+            if (filled) await retainCacheFillOnlyWhileCurrent(semanticCache, subject, loaded.reader);
+        }
+        return result;
+    };
+    const getRouteState = async (pathInput: string) => {
+        const path = normalizedRoutePath(pathInput);
+        const loaded = await menuRuntime();
+        const cached = semanticCache === undefined
+            ? undefined
+            : await semanticCache.getRouteState(subject, context, loaded.reader.state, path);
+        if (cached !== undefined) return cached;
+        const result = await loaded.runtime.getRouteState(path);
+        if (semanticCache !== undefined) {
+            const filled = await semanticCache.setRouteState(subject, context, loaded.reader.state, path, result);
+            if (filled) await retainCacheFillOnlyWhileCurrent(semanticCache, subject, loaded.reader);
+        }
+        return result;
+    };
+    const menus = Object.freeze({
+        getViewTree: (options: { configId: string }) => run(async () => (await menuRuntime()).runtime.getViewTree(options)),
+        getActionMap: (input: { configId: string; viewId: string }) => run(async () => (await menuRuntime()).runtime.getActionMap(input)),
+        getViewState: (input: { configId: string; viewId: string } | { path: string }) => run(async () => (await menuRuntime()).runtime.getViewState(input)),
+        filterResponse: (apiResource: ApiResource, payload: unknown) => run(async () => (await menuRuntime()).runtime.filterResponse(apiResource, payload)),
+        getVisibleTree: (options?: { rootId?: string }) => run(() => getVisibleTree(options)),
+        getButtonMap: (ownerNodeId: string) => run(() => getButtonMap(ownerNodeId)),
+        getRouteState: (path: string) => run(() => getRouteState(path)),
+    }) as SubjectMenuRuntime;
     return Object.freeze({
         data: subjectData,
         menus,

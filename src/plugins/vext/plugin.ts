@@ -20,6 +20,7 @@ import {
     type ResolvedPermissionVextPluginOptions,
 } from "./options";
 import {
+    bindPermissionResponseProjection,
     createPermissionRequestMiddleware,
     requirePermissionContext,
 } from "./request";
@@ -131,10 +132,6 @@ async function setupPermissionPlugin(
                     if (!candidateToCommit) {
                         throw invalidRouteState("routes:ready did not provide a complete initial candidate");
                     }
-                    await options.validateRouteManifest?.(Object.freeze({
-                        manifest: candidateToCommit.manifest,
-                        apiBindings: candidateToCommit.apiBindings,
-                    }));
                     if (disposed) throw restartRequired("permission runtime was disposed during route validation");
                     if (reloadRequired || candidate !== candidateToCommit) {
                         throw restartRequired("routes changed during initial route validation");
@@ -168,6 +165,16 @@ async function setupPermissionPlugin(
             }
             if (!expected.evaluation) return;
             const permission = await requirePermissionContext(req);
+            const supportsDefaultApiProjection = expected.evaluation.requirements.some((requirement) =>
+                requirement.action === "invoke" && requirement.resource === expected.apiResource);
+            const bindProjection = () => {
+                if (!supportsDefaultApiProjection) return;
+                bindPermissionResponseProjection(req, {
+                    routeKey: expected.routeKey,
+                    contractDigest: expected.contractDigest,
+                    apiResource: expected.apiResource,
+                });
+            };
             const check = async (requirement: {
                 action: PermissionAction;
                 resource: string;
@@ -177,7 +184,10 @@ async function setupPermissionPlugin(
             );
             if (expected.evaluation.mode === "any") {
                 for (const requirement of expected.evaluation.requirements) {
-                    if (await check(requirement)) return;
+                    if (await check(requirement)) {
+                        bindProjection();
+                        return;
+                    }
                 }
                 return throwVextPermissionError(req.app, permissionDenied());
             }
@@ -186,6 +196,7 @@ async function setupPermissionPlugin(
                     return throwVextPermissionError(req.app, permissionDenied());
                 }
             }
+            bindProjection();
         };
 
         for (const [name, handler] of [

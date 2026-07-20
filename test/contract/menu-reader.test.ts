@@ -6,6 +6,7 @@ import { PermissionCoreError } from "../../src";
 import { ResourceSchemeRegistry } from "../../src/check/resource-schemes";
 import { canonicalByteLength, compareUtf8, digestCanonical } from "../../src/internal/canonical";
 import { SignedTokenCodec } from "../../src/internal/signed-token";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
 import { buildMenuPreview, type PreparedMenuPlan } from "../../src/menu/mutations";
 import {
     budgetSourceImpacts,
@@ -123,15 +124,19 @@ function state(overrides: Partial<ScopeStateView> = {}): ScopeStateView {
     return Object.freeze({
         scopeKey,
         scope,
-        schemaVersion: 2,
+        schemaVersion: PERSISTED_SCHEMA_VERSION,
         schemeContractDigest: schemes.schemeContractDigest,
         schemaContractKey: digestCanonical({ schema: 2 }),
         revision: 3,
         rbacRevision: 2,
         menuRevision: 3,
         auditRevision: 3,
+        menuConfigCount: 0,
+        menuConfigBytes: 0,
         menuNodeCount: 0,
         apiBindingCount: 0,
+        responseFieldCount: 0,
+        responseFieldOwnerCount: 0,
         replaceManifestBytes: canonicalByteLength({ schemaVersion: 2, mode: "replace", nodes: [], apiBindings: [] }),
         createdAt: 100,
         updatedAt: 100,

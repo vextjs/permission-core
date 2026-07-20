@@ -3,6 +3,7 @@ import type {
     PermissionScope,
     PolicyValue,
     RowCondition,
+    MenuConfigSnapshot,
     MenuGrantIntent,
     MenuGrantSnapshotRef,
 } from "../types";
@@ -18,11 +19,12 @@ import {
 } from "../internal/bson-size";
 import { PermissionCoreError } from "../core/errors";
 
-export const PERSISTED_SCHEMA_VERSION = 2 as const;
+export const PERSISTED_SCHEMA_VERSION = 3 as const;
 export const MAX_INTERNAL_DOCUMENT_BYTES = 12 * 1024 * 1024;
 export const INTERNAL_BSON_GENERATED_ID_BYTES = 17;
 export const MAX_AUDIT_CHANGE_BYTES = 8 * 1024 * 1024;
 export const MAX_PUBLIC_AUDIT_ENTRY_BYTES = 8 * 1024 * 1024;
+export const MAX_MENU_CONFIG_BYTES = 1024 * 1024;
 export const MAX_ROLE_MENU_GRANT_BYTES = 1024 * 1024;
 
 export const INTERNAL_COLLECTION_SUFFIXES = Object.freeze({
@@ -30,6 +32,7 @@ export const INTERNAL_COLLECTION_SUFFIXES = Object.freeze({
     roleRules: "_role_rules",
     userRoleSets: "_user_role_sets",
     roleMenuGrants: "_role_menu_grants",
+    menuConfigs: "_menu_configs",
     menuNodes: "_menu_nodes",
     apiBindings: "_api_bindings",
     scopeState: "_scope_state",
@@ -122,6 +125,25 @@ export interface InternalRoleMenuGrantDocument extends InternalBaseDocument {
     grantRevision: number;
 }
 
+export interface InternalMenuConfigDocument extends InternalBaseDocument {
+    configId: string;
+    title?: string;
+    config: MenuConfigSnapshot;
+    configDigest: string;
+    aggregateDigest: string;
+    configRevision: number;
+    menuCount: number;
+    viewCount: number;
+    actionCount: number;
+    apiCount: number;
+    responseFieldCount: number;
+    responseFieldOwnerCount: number;
+    configBytes: number;
+    compiledMenuNodeCount: number;
+    compiledApiBindingCount: number;
+    compiledManifestBytes: number;
+}
+
 export interface InternalMenuPermission {
     action: PermissionAction;
     resource: string;
@@ -194,8 +216,12 @@ export interface InternalScopeStateDocument extends InternalBaseDocument {
     rbacRevision: number;
     menuRevision: number;
     auditRevision: number;
+    menuConfigCount: number;
+    menuConfigBytes: number;
     menuNodeCount: number;
     apiBindingCount: number;
+    responseFieldCount: number;
+    responseFieldOwnerCount: number;
     replaceManifestBytes: number;
 }
 
@@ -210,6 +236,7 @@ export type InternalEntityRevisionKind =
     | "role"
     | "user-role-set"
     | "role-menu-grant"
+    | "menu-config"
     | "menu-node"
     | "api-binding"
     | "scope";
@@ -265,6 +292,9 @@ export type InternalManagementAuditOperation =
     | "menus.remove"
     | "menus.repairStaleReferences"
     | "menus.manifest.import"
+    | "menus.config.save"
+    | "menus.config.remove"
+    | "menus.config.applyChanges"
     | "apiBindings.create"
     | "apiBindings.update"
     | "apiBindings.setStatus"
@@ -327,6 +357,7 @@ export interface InternalDocumentMap {
     roleRules: InternalRoleRuleDocument;
     userRoleSets: InternalUserRoleSetDocument;
     roleMenuGrants: InternalRoleMenuGrantDocument;
+    menuConfigs: InternalMenuConfigDocument;
     menuNodes: InternalMenuNodeDocument;
     apiBindings: InternalApiBindingDocument;
     scopeState: InternalScopeStateDocument;
@@ -405,6 +436,10 @@ export function assertInternalDocumentBudget(value: unknown) {
 
 export function assertAuditChangeBudget(value: unknown) {
     return assertCanonicalBudget(value, "audit-change", MAX_AUDIT_CHANGE_BYTES);
+}
+
+export function assertMenuConfigBudget(value: unknown) {
+    return assertCanonicalBudget(value, "menu-config", MAX_MENU_CONFIG_BYTES);
 }
 
 export function assertRoleMenuGrantBudget(value: unknown) {

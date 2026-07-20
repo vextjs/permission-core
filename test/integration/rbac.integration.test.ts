@@ -7,6 +7,7 @@ import type {
     InternalRoleRuleSource,
 } from "../../src/persistence/documents";
 import { PermissionRepository } from "../../src/persistence/repository";
+import { PERSISTED_SCHEMA_VERSION } from "../../src/persistence/documents";
 import {
     menuNodeDocumentFromInput,
     normalizeMenuGrantIntent,
@@ -233,7 +234,7 @@ describe("B3 RBAC transactions on MonSQLize 3.1", () => {
             schemeContractDigest: schemes.schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest: schemes.schemeContractDigest,
             }),
         });
@@ -716,7 +717,7 @@ describe("B3 RBAC transactions on MonSQLize 3.1", () => {
             schemeContractDigest: schemes.schemeContractDigest,
             schemaContractKey: digestCanonical({
                 canonicalContractVersion: CANONICAL_CONTRACT_VERSION,
-                schemaVersion: 2,
+                schemaVersion: PERSISTED_SCHEMA_VERSION,
                 schemeContractDigest: schemes.schemeContractDigest,
             }),
         });

@@ -20,7 +20,7 @@ describe("PermissionCore lifecycle foundation", () => {
         expect(stub.spies.health).not.toHaveBeenCalled();
     });
 
-    it("initializes eight private collection handles and bypasses cache by default", async () => {
+    it("initializes nine private collection handles and bypasses cache by default", async () => {
         const stub = createMonSQLizeStub();
         const core = new PermissionCore({ monsqlize: stub.instance });
 
@@ -28,6 +28,7 @@ describe("PermissionCore lifecycle foundation", () => {
         expect(health.status).toBe("up");
         expect(health.lifecycle).toBe("ready");
         expect(health.coreNamespaceHash).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+        expect(health.schema.expectedVersion).toBe(3);
         expect(health.schema.expectedSchemeContractDigest).toMatch(/^[A-Za-z0-9_-]{43}$/u);
         expect(health.schema.expectedSchemaContractKey).toMatch(/^[A-Za-z0-9_-]{43}$/u);
         expect(stub.spies.collection.mock.calls.map(([name]) => name)).toEqual([
@@ -35,6 +36,7 @@ describe("PermissionCore lifecycle foundation", () => {
             "permission_core_role_rules",
             "permission_core_user_role_sets",
             "permission_core_role_menu_grants",
+            "permission_core_menu_configs",
             "permission_core_menu_nodes",
             "permission_core_api_bindings",
             "permission_core_scope_state",

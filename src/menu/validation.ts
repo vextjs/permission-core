@@ -7,8 +7,13 @@ import type {
     ApiBindingRemoveInput,
     ApiBindingReplaceInput,
     ApiBindingUpdateInput,
+    ApiResource,
     ApiOwnerRelation,
     EntityStatus,
+    MenuBusinessPermissionAssignment,
+    MenuBusinessPermissionChange,
+    MenuBusinessPermissionSelection,
+    MenuBusinessResponseFieldRef,
     MenuDataPermissionTemplate,
     MenuGrantIntent,
     MenuGrantSnapshotRef,
@@ -50,6 +55,7 @@ const MAX_MENU_SELECTION_ITEMS = 1_000;
 const MAX_MENU_INVENTORY_ITEMS = 10_000;
 const MAX_API_INVENTORY_ITEMS = 20_000;
 const DIGEST = /^[A-Za-z0-9_-]{43}$/u;
+const SAFE_DOT_PATH = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*){0,31}$/u;
 
 export function exactMenuRecord(value: unknown, allowed: readonly string[], field: string) {
     if (value === null || typeof value !== "object" || Array.isArray(value) || utilTypes.isProxy(value)) {
@@ -267,6 +273,170 @@ export function normalizeMenuPermissionSelection(
     return deepFreeze({ nodeIds, include, apiChoices });
 }
 
+function normalizeApiResource(value: unknown, field: string): ApiResource {
+    const raw = boundedString(value, field, 1024, true);
+    const separator = raw.indexOf(":/");
+    if (!raw.startsWith("api:") || separator <= "api:".length) {
+        throw validationError("INVALID_ARGUMENT", field, "must use api:METHOD:/path");
+    }
+    const method = raw.slice("api:".length, separator).toUpperCase();
+    const path = normalizeDeclaredPath(raw.slice(separator + 1), field);
+    if (!HTTP_METHOD.test(method)) {
+        throw validationError("INVALID_ARGUMENT", field, "contains an invalid HTTP method");
+    }
+    return `api:${method}:${path}` as ApiResource;
+}
+
+function normalizeResponseFieldPath(value: unknown, field: string) {
+    const normalized = boundedString(value, field, 512, true);
+    if (!SAFE_DOT_PATH.test(normalized)) {
+        throw validationError("INVALID_ARGUMENT", field, "must be a safe dot path without indexes, wildcards, or expressions");
+    }
+    return normalized;
+}
+
+function normalizedFieldArray(value: unknown, field: string) {
+    const values = denseMenuArray(value, field, MAX_MENU_SELECTION_ITEMS)
+        .map((entry, index) => normalizeResponseFieldPath(entry, `${field}[${index}]`));
+    return Object.freeze([...new Set(values)].sort(compareUtf8));
+}
+
+function normalizeMenuBusinessResponseFieldSelection(value: unknown, field: string) {
+    const input = exactMenuRecord(value, ["apiResource", "fields"], field);
+    if (Object.keys(input).length !== 2) {
+        throw validationError("INVALID_ARGUMENT", field, "requires apiResource and fields");
+    }
+    const fields = normalizedFieldArray(input.fields, `${field}.fields`);
+    if (fields.length === 0) {
+        throw validationError("INVALID_ARGUMENT", `${field}.fields`, "must contain at least one response field");
+    }
+    return deepFreeze({
+        apiResource: normalizeApiResource(input.apiResource, `${field}.apiResource`),
+        fields,
+    });
+}
+
+function normalizeMenuBusinessInclude(value: unknown, field: string): NonNullable<MenuBusinessPermissionSelection["include"]> {
+    const input = exactMenuRecord(value ?? {}, ["descendants", "loads", "actions", "responseFields"], field);
+    if (
+        Object.hasOwn(input, "responseFields")
+        && input.responseFields !== "none"
+        && input.responseFields !== "all"
+    ) {
+        throw validationError("INVALID_ARGUMENT", `${field}.responseFields`, "must be none or all");
+    }
+    return deepFreeze({
+        ...(Object.hasOwn(input, "descendants") ? { descendants: boolean(input.descendants, `${field}.descendants`) } : {}),
+        ...(Object.hasOwn(input, "loads") ? { loads: boolean(input.loads, `${field}.loads`) } : {}),
+        ...(Object.hasOwn(input, "actions") ? { actions: boolean(input.actions, `${field}.actions`) } : {}),
+        ...(Object.hasOwn(input, "responseFields") ? { responseFields: input.responseFields as "none" | "all" } : {}),
+    });
+}
+
+export function normalizeMenuBusinessPermissionSelection(
+    value: unknown,
+    field = "selection",
+): MenuBusinessPermissionSelection {
+    const input = exactMenuRecord(value, [
+        "configId",
+        "menus",
+        "views",
+        "loads",
+        "actions",
+        "responseFields",
+        "include",
+    ], field);
+    if (!Object.hasOwn(input, "configId")) {
+        throw validationError("INVALID_ARGUMENT", `${field}.configId`, "is required");
+    }
+    const menus = Object.hasOwn(input, "menus") ? normalizedIdArray(input.menus, `${field}.menus`) : undefined;
+    const views = Object.hasOwn(input, "views") ? normalizedIdArray(input.views, `${field}.views`) : undefined;
+    const loads = Object.hasOwn(input, "loads")
+        ? Object.freeze([...new Set(denseMenuArray(input.loads, `${field}.loads`, MAX_MENU_SELECTION_ITEMS)
+            .map((entry, index) => normalizeApiResource(entry, `${field}.loads[${index}]`)))].sort(compareUtf8))
+        : undefined;
+    const actions = Object.hasOwn(input, "actions")
+        ? Object.freeze([...new Set(denseMenuArray(input.actions, `${field}.actions`, MAX_MENU_SELECTION_ITEMS)
+            .map((entry, index) => boundedString(entry, `${field}.actions[${index}]`, 1024, true)))].sort(compareUtf8))
+        : undefined;
+    const responseFields = Object.hasOwn(input, "responseFields")
+        ? Object.freeze(denseMenuArray(input.responseFields, `${field}.responseFields`, MAX_MENU_SELECTION_ITEMS)
+            .map((entry, index) => normalizeMenuBusinessResponseFieldSelection(entry, `${field}.responseFields[${index}]`))
+            .sort((left, right) => compareUtf8(left.apiResource, right.apiResource)))
+        : undefined;
+    const include = Object.hasOwn(input, "include")
+        ? normalizeMenuBusinessInclude(input.include, `${field}.include`)
+        : undefined;
+    const selectedCount = (menus?.length ?? 0)
+        + (views?.length ?? 0)
+        + (loads?.length ?? 0)
+        + (actions?.length ?? 0)
+        + (responseFields?.reduce((total, item) => total + item.fields.length, 0) ?? 0);
+    if (selectedCount === 0) {
+        throw validationError("INVALID_ARGUMENT", field, "must select at least one menu, view, load, action, or response field");
+    }
+    if (selectedCount > MAX_MENU_SELECTION_ITEMS) {
+        throw new PermissionCoreError("LIMIT_EXCEEDED", `${field} exceeds its item limit.`, {
+            details: {
+                kind: "limit-exceeded",
+                origin: "caller-input",
+                limitName: "menu-business-selection-items",
+                current: selectedCount,
+                max: MAX_MENU_SELECTION_ITEMS,
+                unit: "items",
+            },
+        });
+    }
+    return deepFreeze({
+        configId: normalizeRbacId(input.configId, `${field}.configId`),
+        ...(menus === undefined ? {} : { menus }),
+        ...(views === undefined ? {} : { views }),
+        ...(loads === undefined ? {} : { loads }),
+        ...(actions === undefined ? {} : { actions }),
+        ...(responseFields === undefined ? {} : { responseFields }),
+        ...(include === undefined ? {} : { include }),
+    });
+}
+
+function normalizeMenuBusinessPermissionAssignment(value: unknown, field: string): MenuBusinessPermissionAssignment {
+    const input = exactMenuRecord(value, ["effect", "selection"], field);
+    if (Object.keys(input).length !== 2 || (input.effect !== "allow" && input.effect !== "deny")) {
+        throw validationError("INVALID_ARGUMENT", field, "requires effect allow or deny and selection");
+    }
+    return deepFreeze({
+        effect: input.effect,
+        selection: normalizeMenuBusinessPermissionSelection(input.selection, `${field}.selection`),
+    });
+}
+
+export function normalizeMenuBusinessPermissionChange(value: unknown): MenuBusinessPermissionChange {
+    const input = exactMenuRecord(value, ["operation", "selection", "grantIds", "assignments"], "change");
+    if (input.operation === "grant" || input.operation === "deny") {
+        if (!Object.hasOwn(input, "selection") || Object.hasOwn(input, "grantIds") || Object.hasOwn(input, "assignments")) {
+            throw validationError("INVALID_ARGUMENT", "change", `${input.operation} requires selection only`);
+        }
+        return deepFreeze({ operation: input.operation, selection: normalizeMenuBusinessPermissionSelection(input.selection) });
+    }
+    if (input.operation === "revoke") {
+        if (!Object.hasOwn(input, "grantIds") || Object.hasOwn(input, "selection") || Object.hasOwn(input, "assignments")) {
+            throw validationError("INVALID_ARGUMENT", "change", "revoke requires grantIds only");
+        }
+        const grantIds = normalizedIdArray(input.grantIds, "change.grantIds");
+        if (grantIds.length === 0) throw validationError("INVALID_ARGUMENT", "change.grantIds", "must contain at least one grant");
+        return deepFreeze({ operation: "revoke" as const, grantIds });
+    }
+    if (input.operation === "set") {
+        if (!Object.hasOwn(input, "assignments") || Object.hasOwn(input, "selection") || Object.hasOwn(input, "grantIds")) {
+            throw validationError("INVALID_ARGUMENT", "change", "set requires assignments only");
+        }
+        const assignments = denseMenuArray(input.assignments, "change.assignments", MAX_MENU_SELECTION_ITEMS)
+            .map((assignment, index) => normalizeMenuBusinessPermissionAssignment(assignment, `change.assignments[${index}]`));
+        if (assignments.length === 0) throw validationError("INVALID_ARGUMENT", "change.assignments", "must contain at least one assignment");
+        return deepFreeze({ operation: "set" as const, assignments: Object.freeze(assignments) });
+    }
+    throw validationError("INVALID_ARGUMENT", "change.operation", "must be grant, deny, revoke, or set");
+}
+
 function normalizeMenuPermissionAssignment(value: unknown, field: string): MenuPermissionAssignment {
     const input = exactMenuRecord(value, ["effect", "selection"], field);
     if (Object.keys(input).length !== 2 || (input.effect !== "allow" && input.effect !== "deny")) {
@@ -341,6 +511,48 @@ export function normalizeMenuGrantIntent(value: unknown): MenuGrantIntent {
     });
 }
 
+function normalizeMenuBusinessResponseFieldRef(value: unknown, field: string): MenuBusinessResponseFieldRef {
+    const input = exactMenuRecord(value, [
+        "apiResource",
+        "targetDigest",
+        "field",
+        "fieldId",
+        "title",
+        "ownerViewIds",
+    ], field);
+    if (Object.keys(input).length !== 6) {
+        throw validationError("INVALID_ARGUMENT", field, "requires apiResource, targetDigest, field, fieldId, title, and ownerViewIds");
+    }
+    if (typeof input.targetDigest !== "string" || !DIGEST.test(input.targetDigest)) {
+        throw validationError("INVALID_ARGUMENT", `${field}.targetDigest`, "must be a canonical digest");
+    }
+    return deepFreeze({
+        apiResource: normalizeApiResource(input.apiResource, `${field}.apiResource`),
+        targetDigest: input.targetDigest,
+        field: normalizeResponseFieldPath(input.field, `${field}.field`),
+        fieldId: normalizeRbacId(input.fieldId, `${field}.fieldId`),
+        title: normalizeRoleLabel(input.title, `${field}.title`),
+        ownerViewIds: normalizedIdArray(input.ownerViewIds, `${field}.ownerViewIds`),
+    });
+}
+
+function normalizeMenuGrantBusinessSnapshot(value: unknown) {
+    const input = exactMenuRecord(value, ["configId", "selection", "responseFields"], "menuGrant.snapshot.business");
+    if (Object.keys(input).length !== 3) {
+        throw validationError("INVALID_ARGUMENT", "menuGrant.snapshot.business", "requires configId, selection, and responseFields");
+    }
+    const responseFields = denseMenuArray(input.responseFields, "menuGrant.snapshot.business.responseFields", MAX_MENU_SELECTION_ITEMS)
+        .map((field, index) => normalizeMenuBusinessResponseFieldRef(field, `menuGrant.snapshot.business.responseFields[${index}]`))
+        .sort((left, right) => compareUtf8(left.apiResource, right.apiResource)
+            || compareUtf8(left.targetDigest, right.targetDigest)
+            || compareUtf8(left.field, right.field));
+    return deepFreeze({
+        configId: normalizeRbacId(input.configId, "menuGrant.snapshot.business.configId"),
+        selection: normalizeMenuBusinessPermissionSelection(input.selection, "menuGrant.snapshot.business.selection"),
+        responseFields: Object.freeze(responseFields),
+    });
+}
+
 export function normalizePersistedMenuGrantSnapshot(value: unknown): MenuGrantSnapshotRef & {
     readonly contributingAssetIds: readonly string[];
     readonly contributingBindingIds: readonly string[];
@@ -352,8 +564,9 @@ export function normalizePersistedMenuGrantSnapshot(value: unknown): MenuGrantSn
         "contributingBindingCount",
         "contributingAssetIds",
         "contributingBindingIds",
+        "business",
     ], "menuGrant.snapshot");
-    if (Object.keys(input).length !== 6) {
+    if (Object.keys(input).length < 6 || Object.keys(input).length > 7) {
         throw validationError("INVALID_ARGUMENT", "menuGrant.snapshot", "is incomplete");
     }
     for (const key of ["contributionContractDigest", "contributionDigest"] as const) {
@@ -378,6 +591,7 @@ export function normalizePersistedMenuGrantSnapshot(value: unknown): MenuGrantSn
         contributingBindingCount: input.contributingBindingCount as number,
         contributingAssetIds,
         contributingBindingIds,
+        ...(Object.hasOwn(input, "business") ? { business: normalizeMenuGrantBusinessSnapshot(input.business) } : {}),
     });
 }
 

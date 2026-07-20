@@ -16,12 +16,22 @@ export default defineRoutes((app) => {
         res.json({ orderId: req.params.id, subject: req.auth.permission.subject });
     });
 
+    app.get("/orders-with-fields", { permission: true }, async (_req, res) => {
+        res.json({
+            items: [
+                { orderNo: "O-1", status: "paid", amount: 12, internalCost: 7 },
+            ],
+            total: 1,
+            debug: true,
+        });
+    });
+
     app.get("/permissions/any", {
         permission: {
             mode: "any",
             requirements: [
-                { action: "invoke", resource: "GET:/capabilities/one" },
-                { action: "invoke", resource: "GET:/capabilities/two" },
+                { action: "invoke", resource: "api:GET:/capabilities/one" },
+                { action: "invoke", resource: "api:GET:/capabilities/two" },
             ],
         },
     }, async (_req, res) => {
@@ -32,8 +42,8 @@ export default defineRoutes((app) => {
         permission: {
             mode: "all",
             requirements: [
-                { action: "invoke", resource: "GET:/capabilities/one" },
-                { action: "invoke", resource: "GET:/capabilities/two" },
+                { action: "invoke", resource: "api:GET:/capabilities/one" },
+                { action: "invoke", resource: "api:GET:/capabilities/two" },
             ],
         },
     }, async (_req, res) => {

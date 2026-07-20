@@ -10,6 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.0.0] - 2026-07-20
+
+### Added
+
+- Added the high-level `scoped.menus.config` API for saving menu configs with menus, views, load APIs, actions, and response-field definitions.
+- Added business role-menu grants for config views, actions, load APIs, and selected response fields, plus subject runtime projection through `getViewTree()`, `getActionMap()`, `getViewState()`, and `filterResponse()`.
+- Added persisted schema 3 menu config storage and aggregate compilation on top of the existing MonSQLize-only runtime.
+
+### Changed
+
+- Made the menu/API public contract business-first: users no longer manage public `scoped.apiBindings`, raw manifest CRUD, or Vext route-binding helpers.
+- Updated examples, README, and bilingual docs around `api:METHOD:/path` resources, response projection, and the Vext permission plugin.
+- Hardened Vext protected route handling with fail-closed route cache checks and `private, no-store` responses for user-specific authorization data.
+
+See [`changelogs/v3.0.0.md`](./changelogs/v3.0.0.md) for the complete change set.
+
+---
+
 ## [2.0.0] - 2026-07-20
 
 ### Added
@@ -29,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Type | Key Theme |
 |---------|------|------|-----------|
+| [3.0.0] | 2026-07-20 | Major | High-level menu config, response-field grants, subject menu projection, schema 3, and Vext response projection [查看](./changelogs/v3.0.0.md) |
 | [2.0.0] | 2026-07-20 | Major | MonSQLize 3.1-backed tenant RBAC, complete admin menu/API permissions, data guards, Vext integration, and task-first docs [查看](./changelogs/v2.0.0.md) |
 | [1.0.10] | 2026-06-11 | Patch | Shared cache invalidation safety, release gate hardening, bilingual docs, and verified MonSQLize/cache-hub line [查看](./changelogs/v1.0.10.md) |
 | [1.0.9] | 2026-06-09 | Patch | Refreshed package lock with npm 11 so Node 24 publish workflow can install optional native packages [查看](./changelogs/v1.0.9.md) |
@@ -46,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [GitHub Repository](https://github.com/vextjs/permission-core)
 - [Detailed Changelogs](./changelogs/)
 
+[3.0.0]: https://github.com/vextjs/permission-core/compare/v2.0.0...v3.0.0
 [1.0.10]: https://github.com/vextjs/permission-core/compare/v1.0.9...v1.0.10
 [2.0.0]: https://github.com/vextjs/permission-core/compare/v1.0.10...v2.0.0
 [1.0.6]: https://github.com/vextjs/permission-core/compare/v1.0.5...v1.0.6

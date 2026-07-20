@@ -1,269 +1,215 @@
-# 接口绑定 API
+# 配置接口与响应字段 API
 
 ## 用途与前置条件
 
-`scoped.apiBindings` 描述后端 API 契约、授权要求及其所属菜单/页面/按钮。绑定参与菜单可用性和角色菜单授权；每个 endpoint 仍必须在后端执行授权。
+本页说明 `MenuConfigInput` 中的接口和响应字段配置。公开 API 不再要求业务方直接创建接口绑定；你在菜单配置里声明 `load`、`actions` 和 `response`，`menus.config.save()` 会自动编译出内部接口契约。
+
+前置条件：
+
+- 已有一份 `MenuConfigInput`。
+- 接口资源统一使用 `ApiResource`，格式是 `api:METHOD:/path`。
+- 需要裁剪响应字段时，先在配置里声明字段，再通过角色菜单授权分配字段。
 
 ## 我想做什么
 
-| 目标 | 从这里开始 |
-|---|---|
-| 创建或读取绑定 | [`create()`](#api-bindings-create)、[`get()`](#api-bindings-get)、[`list()`](#api-bindings-list) |
-| 修改展示字段 | [`update()`](#api-bindings-update) |
-| 改变状态 | [`previewSetStatus()`](#api-bindings-preview-set-status) 后 [`setStatus()`](#api-bindings-set-status) |
-| 修改结构 | [`previewUpdate()`](#api-bindings-preview-update) 后 [`executeUpdate()`](#api-bindings-execute-update) |
-| 安全删除 | [`getRemovalImpact()`](#api-bindings-get-removal-impact) 与 [`previewRemove()`](#api-bindings-preview-remove) |
-| 全量替换 | [`previewReplace()`](#api-bindings-preview-replace) 后 [`replace()`](#api-bindings-replace) |
+| 目标 | 字段或 API | 说明 |
+|---|---|---|
+| 声明加载接口 | `MenuConfigInput.load` | 使用 `load.resource`；系统自动按 `invoke` 处理。 |
+| 声明操作接口 | `MenuConfigInput.actions` | 使用 `actions[].resource`；`api:*` 操作也可以声明 `response`。 |
+| 声明响应字段 | `response` / `ResponseProjectionConfigInput` | 对象或数组直接用数组形式；分页响应用 `{ target, preserve, fields }`。 |
+| 运行时校验 | `subject.assert()` / `subject.menus.filterResponse()` | 先守住接口调用，再按已授权字段裁剪响应。 |
+| 常见错误 | 校验错误和权限错误 | 检查资源格式、字段路径冲突、缺少字段授权和默认拒绝。 |
 
 ## 签名
 
 ```ts
-create(input: ApiBindingCreateInput, options?: MutationOptions): Promise<MutationResult<ApiBinding>>
-get(bindingId: string): Promise<VersionedResult<ApiBinding>>
-list(query?: CursorQuery & ApiBindingFilter): Promise<PageResult<ApiBinding>>
-update(bindingId: string, patch: ApiBindingUpdateInput, options: RequiredRevisionOptions): Promise<MutationResult<ApiBinding>>
-previewSetStatus(bindingId: string, status: EntityStatus, options?: PreviewOptions): Promise<ImpactPreview<ApiBindingStatusPlan>>
-setStatus(bindingId: string, status: EntityStatus, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<ApiBinding>>
-getRemovalImpact(bindingId: string): Promise<VersionedResult<ApiBindingImpact>>
-previewUpdate(bindingId: string, request: ApiBindingImpactUpdateRequest, options?: PreviewOptions): Promise<ImpactPreview<ApiBindingRewritePlan>>
-executeUpdate(bindingId: string, request: ApiBindingImpactUpdateRequest, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<ApiBinding>>
-previewRemove(bindingId: string, input: ApiBindingRemoveInput, options?: PreviewOptions): Promise<ImpactPreview<ApiBindingRemovalPlan>>
-remove(bindingId: string, input: ApiBindingRemoveInput, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
-previewReplace(input: ApiBindingReplaceInput, options?: PreviewOptions): Promise<ImpactPreview<ApiBindingReplacePlan>>
-replace(input: ApiBindingReplaceInput, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
+MenuConfigInput.load: readonly MenuLoadInput[]
+load.resource: ApiResource
+load.response?: ResponseProjectionInput
+
+MenuConfigInput.actions: readonly MenuActionInput[]
+actions[].resource: ApiResource | UiResource
+actions[].response?: ResponseProjectionInput
+
+MenuConfigInput.response?: ResponseProjectionConfigInput
+response?: ResponseProjectionConfigInput
 ```
 
-`update` 只修改 purpose/description。method/path/authorization/owners/canonical owner 使用影响型 `previewUpdate` 加 `executeUpdate`，因为角色生成来源可能需要显式替换或撤销。
+关键参数标记：`load.resource: ApiResource`，`actions[].resource: ApiResource | UiResource`，`response?: ResponseProjectionConfigInput`。
 
 ## 参数对象
 
-<!-- docs:params owner=ApiBindingCreateInput locale=zh -->
+<!-- docs:params owner=MenuConfigInput locale=zh -->
 
-### `ApiBindingCreateInput`
+### `MenuLoadInput`
 
-| 字段 | 类型 | 必填/默认 | 作用与约束 |
+| 字段 | 类型 | 必填/默认 | 说明 |
 |---|---|---|---|
-| `id` | `string` | 必填 | 当前 scope 内稳定且唯一的 binding ID。 |
-| `method` | `string` | 必填 | HTTP 方法；会去空格并规范为大写，例如 `post` 保存为 `POST`。 |
-| `path` | `string` | 必填 | 后端声明路径，例如 `/api/orders/:id`；它与 method 一起描述 endpoint。 |
-| `purpose` | `entry \| lookup \| detail \| operation \| importExport \| background` | 必填 | 标记接口在页面流程中的用途，供管理端和审计使用，不改变授权算法。 |
-| `authorization.mode` | `all \| any` | 必填 | `all` 要求 permissions 全部满足；`any` 要求至少一项满足。 |
-| `authorization.permissions` | `{ action, resource }[]` | 至少 1 项 | endpoint 真正要求的后端权限。每个接口处理器仍需执行对应 `can/assert`。 |
-| `owners` | `ApiOwnerRelation[]` | 默认 `[]` | 把接口关联到 menu/page/button 资产，用于菜单可用性与菜单授权展开。 |
-| `canonicalOwner` | `{ type, id }` | 可选 | binding 的主要归属；必须同时存在于 `owners`。 |
-| `status` | `enabled \| disabled \| deprecated` | 默认 `enabled` | 非 enabled binding 不应作为活动接口贡献。后续修改走状态预览。 |
-| `description` | `string` | 可选 | 管理说明，不参与判定。 |
+| `resource` | `ApiResource` | 必填 | 页面加载接口，例如 `api:GET:/api/orders`。系统自动按 `invoke` 处理，不需要额外写 action。 |
+| `response` | `ResponseProjectionInput` | 可选 | 该接口允许配置的响应字段。 |
+| `meta` | `Record<string, PolicyValue>` | 可选 | 管理端自定义元数据。 |
 
-<!-- docs:params owner=ApiOwnerRelation locale=zh -->
+### `MenuActionInput`
 
-### `ApiOwnerRelation`
+| 字段 | 类型 | 必填/默认 | 说明 |
+|---|---|---|---|
+| `id` | `string` | 可选 | 按钮/操作 ID；不填时由编译器生成稳定 ID，但建议显式填写。 |
+| `title` | `string` | 必填 | 操作展示名。 |
+| `resource` | `ApiResource \| UiResource` | 必填 | 后端接口使用 `api:`，纯前端按钮使用 `ui:`。 |
+| `opens` | `string` | 可选 | 点击后打开的 view ID。 |
+| `response` | `ResponseProjectionInput` | 可选 | 操作接口返回值的字段配置。 |
+| `enabled` | `boolean` | 默认 `true` | 是否启用该操作。 |
+| `i18nKey/meta` | 展示元数据 | 可选 | 给前端或管理端使用。 |
 
-| 字段 | 必填 | 含义 |
-|---|---|---|
-| `type` / `id` | 是 | 被关联资产的类型和 ID；类型只能是 `menu/page/button`，资产必须位于同一 scope。 |
-| `required` | 是 | `true` 表示接口会影响该资产可用性；`false` 只记录关系。 |
-| `availabilityGroup` / `availabilityMode` | 成对可选 | 仅 `required=true` 可用。相同 group 的接口按 `all` 全满足或 `any` 至少一个满足来决定资产可用性。 |
+### `ResponseProjectionConfigInput`
 
-`authorization.mode` 回答“一个接口需要哪些权限”；owner 的 `availabilityMode` 回答“一个菜单资产依赖哪些接口可用”。两者层级不同，不能互换。`canonicalOwner` 只标记主归属，也不会替代 `owners`。
+| 字段 | 类型 | 必填/默认 | 说明 |
+|---|---|---|---|
+| `fields` | `ResponseFieldDefinition[]` | 必填 | 可授权字段清单。 |
+| `target` | `string` | 可选 | 要裁剪的对象或数组路径，例如 `items`、`data.items`。 |
+| `preserve` | `string[]` | 默认 `[]` | 保留但不参与字段授权的外层字段，例如 `total`、`cursor`。 |
 
-<!-- docs:params owner=ApiBindingMutationInputs locale=zh -->
+`ResponseProjectionInput` 可以直接写成字段数组，也可以写成 `{ target, preserve, fields }` 对象。
 
-| 参数对象 | 字段 | 语义 |
-|---|---|---|
-| `ApiBindingFilter` | `method/path/status/purpose/ownerId` 加 `first/after` | `list()` 的精确过滤和游标分页。 |
-| `ApiBindingImpactUpdateRequest` | `patch`、可选 `sourceRewrite` | patch 可改 method/path/authorization/owners/canonicalOwner 等影响字段。默认拒绝未解决的来源影响。 |
-| `ApiBindingRemoveInput` | 可选 `sourceRewrite` | 删除本体前必须处理由该 binding 生成的角色来源。 |
-| `ApiBindingReplaceInput` | `bindings`、可选 `sourceRewrite` | 把 `bindings` 当作 scope 的**完整目标 binding 清单**；未声明的现有 binding 会进入删除计划。 |
+## 方法详解：页面加载接口
 
-预览/执行 options 和原始 envelope 见[核心与上下文 API](/zh/api/core-and-contexts#common-response-contracts)。
+<span id="menu-config-input-load"></span>
+### `MenuConfigInput.load`
 
-## 方法详解：创建与读取绑定
+<!-- docs:method name=MenuConfigInput.load locale=zh -->
 
-<span id="api-bindings-create"></span>
-### `create(input, options?)`
+- **用途**：声明视图进入时必须调用的后端接口。
+- **参数**：`load.resource` 是 `ApiResource`；`load.response` 是该接口可被授权的响应字段。
+- **状态影响**：保存配置时会生成内部接口契约；角色选择 `include.loads: true` 时会生成接口调用权限来源。
+- **原始返回**：字段本身没有独立返回；结果体现在 `menus.config.preview/save` 的计划和配置快照中。
 
-<!-- docs:method name=apiBindings.create locale=zh -->
+示例：
 
-- **用途**：登记一个后端 endpoint、授权要求及菜单资产归属。
-- **参数**：完整 `ApiBindingCreateInput`；owner 引用在写入前校验。
-- **状态影响**：新增 binding 并推进 revision；不自动给任何角色授予权限。
-- **原始返回**：`MutationResult<ApiBinding>`，规范化后的 method/path 和完整关系位于 `data`。
-- **常见失败**：ID 重复、owner 不存在、权限资源无效、authorization 为空或容量超限。
+```ts
+load: [{
+  resource: 'api:GET:/api/orders',
+  response: {
+    target: 'items',
+    preserve: ['total'],
+    fields: [
+      { field: 'orderNo', title: '订单号' },
+      { field: 'status', title: '状态' },
+    ],
+  },
+}]
+```
 
-<span id="api-bindings-get"></span>
-### `get(bindingId)`
+## 方法详解：页面操作接口
 
-<!-- docs:method name=apiBindings.get locale=zh -->
+<span id="menu-config-input-actions"></span>
+### `MenuConfigInput.actions`
 
-- **用途**：读取单个 binding 的完整持久化契约。
-- **参数**：当前 scope 内 binding ID。
-- **状态影响**：只读。
-- **原始返回**：`VersionedResult<ApiBinding>`；影响型更新前用 `data.revision` 作为当前状态依据。
+<!-- docs:method name=MenuConfigInput.actions locale=zh -->
 
-<span id="api-bindings-list"></span>
-### `list(query?)`
+- **用途**：声明视图下的按钮、工具栏动作或行操作。
+- **参数**：`actions[].resource` 是 `ApiResource | UiResource`；有后端接口时建议使用 `api:`。
+- **状态影响**：保存配置时会生成可授权操作；角色选择 `include.actions: true` 时会生成按钮或接口权限来源。
+- **原始返回**：字段本身没有独立返回；用户侧通过 `subject.menus.getActionMap()` 读取操作状态。
 
-<!-- docs:method name=apiBindings.list locale=zh -->
+示例：
 
-- **用途**：为接口管理列表按 endpoint、状态、用途或 owner 分页查询。
-- **参数**：过滤字段加 `first/after`；`first` 默认 `50`、最大 `200`。
-- **状态影响**：只读。
-- **原始返回**：`PageResult<ApiBinding>`；下一页使用 `endCursor`。
+```ts
+actions: [{
+  id: 'export',
+  title: '导出订单',
+  resource: 'api:POST:/api/orders/export',
+  response: [{ field: 'downloadUrl', title: '下载地址' }],
+}]
+```
 
-<span id="api-bindings-update"></span>
-## 方法详解：直接修改展示字段
+## 方法详解：响应字段
 
-### `update(bindingId, patch, options)`
+<span id="menu-config-input-response"></span>
+### `MenuConfigInput.response`
 
-<!-- docs:method name=apiBindings.update locale=zh -->
+<!-- docs:method name=MenuConfigInput.response locale=zh -->
 
-- **用途**：只修改不改变授权贡献的 `purpose` 或 `description`。
-- **参数**：非空 patch 和必填 `expectedRevision`。
-- **状态影响**：更新 binding 并推进 revision，不改 endpoint、权限或 owner。
-- **原始返回**：`MutationResult<ApiBinding>`；revision 过期时返回 `REVISION_CONFLICT`。
+- **用途**：定义某个接口响应里哪些字段可以被分配给角色。
+- **参数**：数组形式直接声明字段；对象形式使用 `target/preserve/fields` 处理分页或嵌套响应。
+- **状态影响**：保存配置后形成字段库存；角色授权 `responseFields` 选择字段后，`filterResponse()` 才会返回这些字段。
+- **原始返回**：字段声明会出现在 `MenuConfigSnapshot` 的 load/action response 中；运行时裁剪结果在 `SubjectRuntimeResult.data`。
 
-<span id="api-bindings-preview-set-status"></span>
-## 方法详解：改变状态
+数组形式：
 
-### `previewSetStatus(bindingId, status, options?)`
+```ts
+response: [
+  { field: 'orderNo', title: '订单号' },
+  { field: 'buyer.name', title: '买家姓名' },
+]
+```
 
-<!-- docs:method name=apiBindings.previewSetStatus locale=zh -->
+分页形式：
 
-- **用途**：预览启用、禁用或废弃 binding 对生成来源、角色和用户的影响。
-- **参数**：binding ID 与目标状态。
-- **状态影响**：不写入。
-- **原始返回**：`ImpactPreview<ApiBindingStatusPlan>`，检查 before/after 以及 affectedSources/roles/users。
-
-<span id="api-bindings-set-status"></span>
-### `setStatus(bindingId, status, options)`
-
-<!-- docs:method name=apiBindings.setStatus locale=zh -->
-
-- **用途**：执行已确认的状态切换。
-- **参数**：与预览一致的 ID/status，以及预览 `expected/previewToken`。
-- **状态影响**：改变 binding 可用性；保留历史来源但可能使其 inactive。
-- **原始返回**：`MutationResult<ApiBinding>`；预览过期则不写入。
-
-<span id="api-bindings-get-removal-impact"></span>
-## 方法详解：修改结构与安全删除
-
-### `getRemovalImpact(bindingId)`
-
-<!-- docs:method name=apiBindings.getRemovalImpact locale=zh -->
-
-- **用途**：快速查看 owner 关系、角色来源及是否可直接移除。
-- **参数**：待删 binding ID。
-- **状态影响**：只读，不生成执行 token。
-- **原始返回**：`VersionedResult<ApiBindingImpact>`；删除仍必须经过 `previewRemove/remove`。
-
-<span id="api-bindings-preview-update"></span>
-### `previewUpdate(bindingId, request, options?)`
-
-<!-- docs:method name=apiBindings.previewUpdate locale=zh -->
-
-- **用途**：预览 method/path/authorization/owners/canonicalOwner 等契约变化。
-- **参数**：`request.patch` 至少一个字段；`sourceRewrite` 明确处理受影响角色来源。
-- **状态影响**：不写入。
-- **原始返回**：`ImpactPreview<ApiBindingRewritePlan>`，包含 before/after 与逐来源影响。
-
-<span id="api-bindings-execute-update"></span>
-### `executeUpdate(bindingId, request, options)`
-
-<!-- docs:method name=apiBindings.executeUpdate locale=zh -->
-
-- **用途**：执行已预览确认的 binding 契约更新。
-- **参数**：ID/request 必须与预览相同；options 带 revision vector 与 token。
-- **状态影响**：更新 binding，并按决策替换或撤销旧生成来源。
-- **原始返回**：`MutationResult<ApiBinding>`；不能用普通 `update()` 绕过来源影响检查。
-
-<span id="api-bindings-preview-remove"></span>
-### `previewRemove(bindingId, input, options?)`
-
-<!-- docs:method name=apiBindings.previewRemove locale=zh -->
-
-- **用途**：预览删除 binding、脱离 owners 和处理角色来源的完整计划。
-- **参数**：binding ID；`input.sourceRewrite` 对每个受影响来源选择 replace/revoke，或保持默认 reject。
-- **状态影响**：不删除。
-- **原始返回**：`ImpactPreview<ApiBindingRemovalPlan>`，重点检查 `detachedOwners/sourceImpacts/executable`。
-
-<span id="api-bindings-remove"></span>
-### `remove(bindingId, input, options)`
-
-<!-- docs:method name=apiBindings.remove locale=zh -->
-
-- **用途**：执行已确认的 binding 删除。
-- **参数**：与预览一致的 ID/input 和 `expected/previewToken`。
-- **状态影响**：删除 binding、解除 owner 关系并按方案处理来源。
-- **原始返回**：`MutationResult<BatchMutationSummary>`；它返回批量结果，不返回已删除 binding。
-
-<span id="api-bindings-preview-replace"></span>
-## 方法详解：全量替换
-
-### `previewReplace(input, options?)`
-
-<!-- docs:method name=apiBindings.previewReplace locale=zh -->
-
-- **用途**：把一份完整 binding 清单与当前 scope 比较，统一预览新增、更新、删除和不变项。
-- **参数**：`input.bindings` 是完整目标集合；删除/授权变化牵涉来源时还需 `sourceRewrite`。
-- **状态影响**：不写入。
-- **原始返回**：`ImpactPreview<ApiBindingReplacePlan>`，`operations` 给出 insert/update/delete，`unchanged` 单独计数。
-
-<span id="api-bindings-replace"></span>
-### `replace(input, options)`
-
-<!-- docs:method name=apiBindings.replace locale=zh -->
-
-- **用途**：原子执行已预览的完整 binding 集合替换。
-- **参数**：原始 input、revision vector 与 preview token。
-- **状态影响**：批量增删改 binding，并执行已确认的来源重写；原子 mutation 总量受 `1000` 限制。
-- **原始返回**：`MutationResult<BatchMutationSummary>`；并发变化或 input 差异会触发 `PREVIEW_STALE`。
+```ts
+response: {
+  target: 'items',
+  preserve: ['total'],
+  fields: [
+    { field: 'orderNo', title: '订单号' },
+    { field: 'status', title: '状态' },
+  ],
+}
+```
 
 ## 响应与副作用
 
-绑定会规范化 method/path，校验 `all`/`any` authorization，解析 owner 关系并返回 mutation envelope。状态与契约重写提交后，可能改变角色生成来源及主体菜单可用性。
+`load/actions/response` 本身是配置字段，不直接返回 mutation envelope。它们的校验和编译结果通过这些 API 体现：
+
+| 操作 | 结果 |
+|---|---|
+| `menus.config.preview(config)` | 预览配置是否合法、会生成哪些内部资产。 |
+| `menus.config.save(config, options)` | 保存配置并返回 `MenuConfigSaveResult`。 |
+| `roles.menuPermissions.preview/grant` | 选择 load、action、responseFields 并生成角色来源。 |
+| `subject.menus.filterResponse(apiResource, payload)` | 对当前用户执行响应字段裁剪。 |
 
 ```json
 {
-  "data": {
-    "id": "orders-export-api",
-    "method": "POST",
-    "path": "/api/orders/export",
-    "purpose": "importExport",
-    "authorization": {
-      "mode": "all",
-      "permissions": [{ "action": "invoke", "resource": "api:POST:/api/orders/export" }]
-    },
-    "owners": [{ "type": "button", "id": "orders-export", "required": true }],
-    "status": "enabled",
-    "revision": 1
+  "load": {
+    "resource": "api:GET:/api/orders",
+    "responseFieldCount": 2
+  },
+  "action": {
+    "id": "export",
+    "resource": "api:POST:/api/orders/export"
   }
 }
 ```
 
 ## 失败与限制
 
-重要错误包括 `API_BINDING_NOT_FOUND`、`API_BINDING_ALREADY_EXISTS`、`DEPENDENCY_EXISTS`、`STALE_REFERENCE`、`REVISION_CONFLICT`、`PREVIEW_STALE`。一个 scope 最多支持 `20000` 个 binding。Authorization 至少包含一个有效权限；owner 和 availability-group 关系必须引用有效菜单资产。
+`load.resource` 必须是 `api:` 资源；`actions[].resource` 只能是支持的资源 scheme；字段路径不能为空、不能包含危险段，也不能引用未声明字段。`preserve` 不参与字段授权，适合分页总数和游标，不适合业务敏感字段。
 
 ## 示例
 
-以下示例假设同一 scope 中已经存在 `orders-export` 按钮节点；创建 binding 时会校验 owner 引用。
-
 ```ts
-const binding = await scoped.apiBindings.create({
-  id: 'orders-export-api', method: 'POST', path: '/api/orders/export',
-  purpose: 'importExport',
-  authorization: {
-    mode: 'all',
-    permissions: [{ action: 'invoke', resource: 'api:POST:/api/orders/export' }],
-  },
-  owners: [{ type: 'button', id: 'orders-export', required: true }],
+const selection = {
+  configId: 'admin',
+  views: ['orders-list'],
+  responseFields: [{
+    apiResource: 'api:GET:/api/orders',
+    fields: ['orderNo', 'status'],
+  }],
+  include: { loads: true, actions: true, responseFields: 'none' },
+};
+
+const projected = await subject.menus.filterResponse('api:GET:/api/orders', {
+  items: [{ orderNo: 'O-1001', status: 'paid', amount: 88 }],
+  total: 1,
 });
 ```
 
 ```json
-{ "bindingId": "orders-export-api", "changed": true }
+{
+  "items": [{ "orderNo": "O-1001", "status": "paid" }],
+  "total": 1
+}
 ```
 
 ## 相关内容
 
-参见[绑定接口](/zh/guide/api-bindings)、[菜单 API](/zh/api/menus)和[角色菜单权限 API](/zh/api/role-menu-permissions)。
+参见[管理菜单](/zh/guide/menu-management)、[角色菜单授权](/zh/guide/role-menu-authorization)和[菜单 API](/zh/api/menus)。

@@ -84,8 +84,8 @@ try {
 
     const scoped = runtime.app.permission.scope({ tenantId: "vext-host" });
     await scoped.roles.create({ id: "route-reader", label: "Route reader" });
-    await scoped.roles.allow("route-reader", { action: "invoke", resource: "GET:/orders/:id" });
-    await scoped.roles.allow("route-reader", { action: "invoke", resource: "GET:/capabilities/one" });
+    await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders/:id" });
+    await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/capabilities/one" });
     await scoped.userRoles.assign("u-vext", "route-reader");
     await scoped.roles.create({ id: "duplicate-role", label: "Duplicate role" });
 

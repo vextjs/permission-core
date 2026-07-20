@@ -1,211 +1,238 @@
-# Role Menu Permissions
-<!-- docs:inline-parity `scoped.roles.menuPermissions` `preview()` `grant/deny/revoke/set` `getDirect()` `listDirect()` `getEffective()` `getAuthorizationTree()` `listStale()` `MenuPermissionChange` `operation` `'grant' | 'deny' | 'revoke' | 'set'` `any` `apiChoices` `choiceRequirements` `permission` `nodeIds` `contributions` `MenuPermissionSelection` `include.descendants` `include.buttons` `descendants=true` `include.apis` `none` `required` `required=true` `all` `include.dataPermissions` `dataPermissions` `apiChoices.bindingIds` `availabilityMode='any'` `apiChoices.permissionsByBinding` `authorization.mode='any'` `executable=false` `plan.choiceRequirements.items` `kind='availability-any'` `candidates.items[].bindingId` `kind='authorization-any'` `candidates.items[].semanticKey` `permissionsByBinding[bindingId]` `grant` `{ operation: 'grant', selection }` `grant(roleId, selection, options)` `deny` `{ operation: 'deny', selection }` `deny(roleId, selection, options)` `revoke` `{ operation: 'revoke', grantIds }` `revoke(roleId, { grantIds }, options)` `set` `{ operation: 'set', assignments }` `set(roleId, assignments, options)` `roles.allow/deny` `preview(roleId, change, options?)` `ImpactPreview<MenuPermissionPlan>` `executable` `conflicts` `grants/removals` `expected` `previewToken` `{ operation:'grant', selection }` `MutationResult<MenuPermissionGrantResult>` `grantIds` `generatedSources/generatedSemanticRules` `{ operation:'deny', selection }` `MenuPermissionGrantResult` `revoke(roleId, input, options)` `input.grantIds` `getDirect/listDirect` `MutationResult<BatchMutationSummary>` `effect: allow|deny` `{ operation:'set', assignments }` `getDirect(roleId)` `VersionedResult<DirectMenuPermissionSnapshot>` `listDirect(roleId, query?)` `first/after` `effect='allow'|'deny'` `PageResult<DirectMenuGrantSnapshot>` `getDirect` `getEffective(roleId)` `VersionedResult<EffectiveMenuPermissionSnapshot>` `sourceRoleId/inherited/depth` `getAuthorizationTree(roleId)` `VersionedResult<AuthorizationTreeNode[]>` `selection` `state` `listStale(query?)` `PageResult<StaleMenuPermissionSource>` `previewRepairStale(input, options?)` `sourceIds` `listStale` `sourceRewrite` `ImpactPreview<StaleMenuPermissionRepairPlan>` `sourceImpacts` `repairStale(input, options)` `STALE_REFERENCE` `1000` `20000` -->
-
-`scoped.roles.menuPermissions` expands menu selections into provenance-tracked role rules and reads direct, inherited, or stale menu grants.
+# Role Menu Permissions API
 
 ## Purpose and preconditions
 
-This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+`scoped.roles.menuPermissions` turns an administrator's menu selection into traceable role grant sources. It uses assets saved from `MenuConfigInput` and supports menu, view, load API, action, and response-field grants.
+
+Before using it:
+
+- The role exists.
+- The menu config has been saved with `scoped.menus.config.save()`.
+- Every write is previewed first, and execution receives the same input, `expected`, and `previewToken`.
 
 ## What Do You Want to Do?
 
-Use this table as the shortest route from a task to the first method. Methods that can change broad state use a preview/execute pair so the admin UI can show impact before writing.
+| Goal | First API | Notes |
+|---|---|---|
+| Preview and commit grants | `preview()` then `grant()` / `deny()` / `revoke()` / `set()` | All writes use preview evidence and revision protection. |
+| Read direct grants | `getDirect(roleId)` | Shows the role's own menu grants and selected response fields. |
+| Page direct grants | `listDirect(roleId, { first, after })` | Use `first/after` for management tables. |
+| Read effective grants | `getEffective(roleId)` | Includes inherited grants and deny-first resolution. |
+| Generate authorization tree | `getAuthorizationTree(roleId, { configId })` | Powers a role editor tree with checked, denied, inherited, and disabled states. |
 
 ## Signatures
 
-The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.
+```ts
+roles.menuPermissions.preview(roleId: string, change: MenuBusinessPermissionChange, options?: PreviewOptions): Promise<ImpactPreview<MenuBusinessPermissionPlan>>
+roles.menuPermissions.grant(roleId: string, selection: MenuBusinessPermissionSelection, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<MenuBusinessPermissionGrantResult>>
+roles.menuPermissions.deny(roleId: string, selection: MenuBusinessPermissionSelection, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<MenuBusinessPermissionGrantResult>>
+roles.menuPermissions.revoke(roleId: string, input: { grantIds: readonly string[] }, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
+roles.menuPermissions.set(roleId: string, assignments: readonly MenuBusinessPermissionAssignment[], options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
+roles.menuPermissions.getDirect(roleId: string): Promise<VersionedResult<MenuBusinessDirectPermissionSnapshot>>
+roles.menuPermissions.listDirect(roleId: string, query?: CursorQuery & { effect?: 'allow' | 'deny'; configId?: string }): Promise<PageResult<MenuBusinessGrantSnapshot>>
+roles.menuPermissions.getEffective(roleId: string): Promise<VersionedResult<MenuBusinessEffectivePermissionSnapshot>>
+roles.menuPermissions.getAuthorizationTree(roleId: string, options: { configId: string }): Promise<VersionedResult<MenuBusinessAuthorizationTree>>
+```
+
+Signature markers: `change: MenuBusinessPermissionChange`, `selection: MenuBusinessPermissionSelection`, `assignments: readonly MenuBusinessPermissionAssignment[]`.
+
+## Parameters
+
+<!-- docs:params owner=MenuBusinessPermissionSelection locale=en -->
+
+### `MenuBusinessPermissionSelection`
+
+| Field | Type | Required/default | Meaning |
+|---|---|---|---|
+| `configId` | `string` | Required | Target menu config ID. |
+| `menus` | `string[]` | Optional | Selected menu group or menu IDs. |
+| `views` | `string[]` | Optional | Selected view IDs, for example `orders-list`. |
+| `loads` | `ApiResource[]` | Optional | Exact selected load API resources. |
+| `actions` | `string[]` | Optional | Exact selected action IDs. |
+| `responseFields` | `MenuBusinessResponseFieldSelection[]` | Optional | Selected response fields for an API. |
+| `include.descendants` | `boolean` | Default `false` | Include child menus and views when selecting menus. |
+| `include.loads` | `boolean` | Default `false` | Include load APIs from selected views. |
+| `include.actions` | `boolean` | Default `false` | Include actions from selected views. |
+| `include.responseFields` | `'none' \| 'all'` | Default `'none'` | Whether to auto-include all response fields from selected APIs. |
+
+Each `responseFields` item looks like:
 
 ```ts
-preview(roleId: string, change: MenuPermissionChange, options?: PreviewOptions): Promise<ImpactPreview<MenuPermissionPlan>>
-grant(roleId: string, selection: MenuPermissionSelection, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<MenuPermissionGrantResult>>
-deny(roleId: string, selection: MenuPermissionSelection, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<MenuPermissionGrantResult>>
-revoke(roleId: string, input: { grantIds: readonly string[] }, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
-set(roleId: string, assignments: readonly MenuPermissionAssignment[], options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
-getDirect(roleId: string): Promise<VersionedResult<DirectMenuPermissionSnapshot>>
-listDirect(roleId: string, query?: CursorQuery & { effect?: 'allow' | 'deny' }): Promise<PageResult<DirectMenuGrantSnapshot>>
-getEffective(roleId: string): Promise<VersionedResult<EffectiveMenuPermissionSnapshot>>
-getAuthorizationTree(roleId: string): Promise<VersionedResult<AuthorizationTreeNode[]>>
-listStale(query?: CursorQuery): Promise<PageResult<StaleMenuPermissionSource>>
-previewRepairStale(input: StaleMenuPermissionRepairInput, options?: PreviewOptions): Promise<ImpactPreview<StaleMenuPermissionRepairPlan>>
-repairStale(input: StaleMenuPermissionRepairInput, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>
+{
+  apiResource: 'api:GET:/api/orders',
+  fields: ['orderNo', 'status'],
+}
 ```
-## Understand the Three Layers First
 
-Menu nodes, API bindings, and generated role-menu sources are separate records. Keeping them separate makes admin previews auditable and prevents UI state from becoming the only security boundary.
+`fields` must come from fields declared for that API in the menu config. Use `include.responseFields: 'all'` to grant every field, or `'none'` plus explicit `responseFields` for precise control.
 
-## Parameter Objects
+<!-- docs:params owner=MenuBusinessPermissionChange locale=en -->
 
-The table explains object fields that are easy to confuse at call sites. Required fields are validated before the method mutates persistent authorization state.
+### `MenuBusinessPermissionChange`
 
-<!-- docs:params owner=MenuPermissionSelection locale=en -->
-<span id="role-menu-selection"></span>
-### `MenuPermissionSelection`
-<!-- docs:params owner=MenuPermissionChange locale=en -->
-## Method Details: Preview and Commit Grants
+| operation | Preview input | Execution method | Meaning |
+|---|---|---|---|
+| `grant` | `{ operation: 'grant', selection }` | `grant(roleId, selection, options)` | Append allow menu grants. |
+| `deny` | `{ operation: 'deny', selection }` | `deny(roleId, selection, options)` | Append deny menu grants. |
+| `revoke` | `{ operation: 'revoke', grantIds }` | `revoke(roleId, { grantIds }, options)` | Remove specific grants. |
+| `set` | `{ operation: 'set', assignments }` | `set(roleId, assignments, options)` | Replace all direct menu grants for the role. |
 
-This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+### `MenuBusinessPermissionAssignment`
+
+| Field | Type | Meaning |
+|---|---|---|
+| `effect` | `'allow' \| 'deny'` | Effect for this assignment. |
+| `selection` | `MenuBusinessPermissionSelection` | Menu selection to allow or deny. |
+
+## Preview and write methods
 
 <span id="role-menu-preview"></span>
-### `preview(roleId, change, options?)`
+### `roles.menuPermissions.preview(roleId, change, options?)`
+
 <!-- docs:method name=roles.menuPermissions.preview locale=en -->
 
-- **Purpose**: Use `roles.menuPermissions.preview` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `ImpactPreview<Plan>` with `executable`, `expected`, and `previewToken` when applicable. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Expand a grant, deny, revoke, or set operation into a plan before writing, showing conflicts, affected users, and generated sources.
+- **Parameters**: `roleId` and `change: MenuBusinessPermissionChange`.
+- **State impact**: Read-only; no grant is written.
+- **Raw return**: `ImpactPreview<MenuBusinessPermissionPlan>`; inspect `executable`, `conflicts`, `grants.items[].selectedAssets`, `grants.items[].selectedResponseFields`, `expected`, and `previewToken`.
 
 <span id="role-menu-grant"></span>
-### `grant(roleId, selection, options)`
+### `roles.menuPermissions.grant(roleId, selection, options)`
+
 <!-- docs:method name=roles.menuPermissions.grant locale=en -->
 
-- **Purpose**: Use `roles.menuPermissions.grant` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Append allow menu grants.
+- **Parameters**: `selection: MenuBusinessPermissionSelection` must match the grant preview; `options` must carry `expected/previewToken`.
+- **State impact**: Saves the grant and generates rule sources for views, APIs, actions, and response fields.
+- **Raw return**: `MutationResult<MenuBusinessPermissionGrantResult>`; `generatedSources` and `generatedResponseFields` are generated counts for this write.
 
 <span id="role-menu-deny"></span>
-### `deny(roleId, selection, options)`
+### `roles.menuPermissions.deny(roleId, selection, options)`
+
 <!-- docs:method name=roles.menuPermissions.deny locale=en -->
 
-- **Purpose**: Use `roles.menuPermissions.deny` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Append deny menu grants to explicitly forbid selected menu capabilities.
+- **Parameters**: Preview with `{ operation: 'deny', selection }` first.
+- **State impact**: Saves a deny grant without deleting existing allow grants.
+- **Raw return**: Same shape as `grant()`, with deny effect.
 
 <span id="role-menu-revoke"></span>
-### `revoke(roleId, input, options)`
+### `roles.menuPermissions.revoke(roleId, input, options)`
+
 <!-- docs:method name=roles.menuPermissions.revoke locale=en -->
 
-- **Purpose**: Use `roles.menuPermissions.revoke` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Remove direct menu grants by grant ID.
+- **Parameters**: `input.grantIds` comes from `grant()`, `getDirect()`, or `listDirect()`; preview revoke before executing.
+- **State impact**: Removes the selected grants and their generated sources.
+- **Raw return**: `MutationResult<BatchMutationSummary>`.
 
 <span id="role-menu-set"></span>
-### `set(roleId, assignments, options)`
+### `roles.menuPermissions.set(roleId, assignments, options)`
+
 <!-- docs:method name=roles.menuPermissions.set locale=en -->
 
-- **Purpose**: Use `roles.menuPermissions.set` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Save a complete role-menu authorization form.
+- **Parameters**: `assignments: readonly MenuBusinessPermissionAssignment[]`, each with `effect` and `selection`.
+- **State impact**: Replaces all direct menu grants on the role; manual role rules and user-role bindings are unchanged.
+- **Raw return**: `MutationResult<BatchMutationSummary>`.
+
+## Read methods
 
 <span id="role-menu-get-direct"></span>
-## Method Details: Read Direct and Effective Grants
+### `roles.menuPermissions.getDirect(roleId)`
 
-This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
-
-### `getDirect(roleId)`
 <!-- docs:method name=roles.menuPermissions.getDirect locale=en -->
 
-- **Purpose**: Use `roles.menuPermissions.getDirect` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Read menu grants owned directly by the role.
+- **Parameters**: Role ID.
+- **State impact**: Read-only.
+- **Raw return**: `VersionedResult<MenuBusinessDirectPermissionSnapshot>`; each grant includes `selection`, `responseFields`, and `sourceStatus`.
 
 <span id="role-menu-list-direct"></span>
-### `listDirect(roleId, query?)`
+### `roles.menuPermissions.listDirect(roleId, query?)`
+
 <!-- docs:method name=roles.menuPermissions.listDirect locale=en -->
 
-- **Purpose**: Use `roles.menuPermissions.listDirect` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `PageResult<T>` or the documented paged business result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Page through a role's direct menu grants.
+- **Parameters**: Optional `effect`, `configId`, `first`, and `after`.
+- **State impact**: Read-only.
+- **Raw return**: `PageResult<MenuBusinessGrantSnapshot>`.
 
 <span id="role-menu-get-effective"></span>
-### `getEffective(roleId)`
+### `roles.menuPermissions.getEffective(roleId)`
+
 <!-- docs:method name=roles.menuPermissions.getEffective locale=en -->
 
-- **Purpose**: Use `roles.menuPermissions.getEffective` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Read menu grants from this role plus inherited grants from parent roles.
+- **Parameters**: Role ID.
+- **State impact**: Read-only.
+- **Raw return**: `VersionedResult<MenuBusinessEffectivePermissionSnapshot>`; entries include `sourceRoleId/inherited/depth` and conflicts.
 
 <span id="role-menu-get-authorization-tree"></span>
-### `getAuthorizationTree(roleId)`
+### `roles.menuPermissions.getAuthorizationTree(roleId, options)`
+
 <!-- docs:method name=roles.menuPermissions.getAuthorizationTree locale=en -->
 
-- **Purpose**: Use `roles.menuPermissions.getAuthorizationTree` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
-
-<span id="role-menu-list-stale"></span>
-## Method Details: Repair Stale Sources
-
-This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
-
-### `listStale(query?)`
-<!-- docs:method name=roles.menuPermissions.listStale locale=en -->
-
-- **Purpose**: Use `roles.menuPermissions.listStale` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `PageResult<T>` or the documented paged business result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
-
-<span id="role-menu-preview-repair-stale"></span>
-### `previewRepairStale(input, options?)`
-<!-- docs:method name=roles.menuPermissions.previewRepairStale locale=en -->
-
-- **Purpose**: Use `roles.menuPermissions.previewRepairStale` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: `ImpactPreview<Plan>` with `executable`, `expected`, and `previewToken` when applicable. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
-
-<span id="role-menu-repair-stale"></span>
-### `repairStale(input, options)`
-<!-- docs:method name=roles.menuPermissions.repairStale locale=en -->
-
-- **Purpose**: Use `roles.menuPermissions.repairStale` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
-- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Purpose**: Build an admin authorization tree showing direct, inherited, conflict, and partial states for menus, views, load APIs, actions, and response fields.
+- **Parameters**: `options.configId` selects the config.
+- **State impact**: Read-only.
+- **Raw return**: `VersionedResult<MenuBusinessAuthorizationTree>`; each node has `state`, `selection`, and `children`.
 
 ## Responses and side effects
 
-Side effects are scoped and revisioned. Writes record audit evidence and invalidate affected semantic cache keys; reads preserve bounded detail metadata so callers can tell whether diagnostics were complete.
+Grant and deny operations save the administrator's selection and generate traceable sources. Response-field sources do not change responses by themselves; projection happens when the current user calls `subject.menus.filterResponse()` or when Vext automatically projects a protected response.
 
 ```json
 {
   "data": {
     "roleId": "order-operator",
-    "grantIds": { "total": 1, "items": ["grant_..."], "truncated": false, "digest": "..." },
-    "refreshedGrantIds": { "total": 0, "items": [], "truncated": false, "digest": "..." },
-    "generatedSources": 4,
-    "removedSources": 0,
-    "generatedSemanticRules": 4
+    "grantIds": { "total": 1, "items": ["grant_..."] },
+    "generatedSources": 3,
+    "generatedResponseFields": 2,
+    "removedSources": 0
   },
-  "operationId": "operation_...",
   "auditId": "audit_..."
 }
 ```
+
 ## Failures and limits
 
-Failures close authorization instead of widening it. Important limits are enforced before state is committed, and stale previews or revisions must be refreshed rather than guessed.
+Common failures include missing roles, missing configs, selected views/actions/fields that do not exist, invalid resource format, stale preview tokens, revision conflicts, and capacity limits. `set()` can receive an empty array to clear direct menu grants, but it does not delete manual rules or user-role bindings.
 
 ## Example
 
-The example keeps one narrow path per page. It shows the raw method family and a compact response shape, while the full runnable scenarios live in the examples section.
-
 ```ts
 const selection = {
-  nodeIds: ['orders'],
-  include: { descendants: true, buttons: true, apis: 'required', dataPermissions: true },
-  apiChoices: { bindingIds: [], permissionsByBinding: {} },
+  configId: 'admin',
+  views: ['orders-list'],
+  responseFields: [{
+    apiResource: 'api:GET:/api/orders',
+    fields: ['orderNo', 'status'],
+  }],
+  include: { loads: true, actions: true, responseFields: 'none' },
 };
+
 const preview = await scoped.roles.menuPermissions.preview(
-  'order-operator', { operation: 'grant', selection },
+  'order-operator',
+  { operation: 'grant', selection },
 );
-if (!preview.executable) throw new Error('Resolve preview choices or conflicts');
-const result = await scoped.roles.menuPermissions.grant('order-operator', selection, {
-  ...preview.expected, previewToken: preview.previewToken,
-});
+if (!preview.executable) throw new Error('resolve conflicts first');
+
+const result = await scoped.roles.menuPermissions.grant(
+  'order-operator',
+  selection,
+  { ...preview.expected, previewToken: preview.previewToken },
+);
 ```
+
 ```json
-{ "executable": true, "generatedSources": 4 }
+{
+  "roleId": "order-operator",
+  "generatedSources": 3,
+  "generatedResponseFields": 2
+}
 ```
+
 ## Related
 
-Continue with the linked guide or neighboring API page when you need workflow context rather than only signatures.
-
-Continue with [Authorized Collection](/api/authorized-collection).
+See [Authorize Role Menus](/guide/role-menu-authorization), [Manage Menus](/guide/menu-management), and [Menus API](/api/menus).

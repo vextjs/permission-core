@@ -10,6 +10,8 @@ export {
     normalizeDeclaredPath,
     normalizeHttpUrl,
     normalizeMenuGrantIntent,
+    normalizeMenuBusinessPermissionChange,
+    normalizeMenuBusinessPermissionSelection,
     normalizeMenuPermissionChange,
     normalizeMenuPermissionSelection,
     normalizeMenuManifestInput,
@@ -48,11 +50,40 @@ export {
 } from "./store";
 export { MenuQueryService, validateMenuGraph } from "./queries";
 export { planMenuAggregate } from "./aggregate";
+export {
+    MENU_CONFIG_CODEC_VERSION,
+    compileMenuConfigInput,
+    compileMenuConfigSnapshot,
+    normalizeMenuConfigInput,
+    type CompiledActionRef,
+    type CompiledApiOwner,
+    type CompiledConfigIndex,
+    type CompiledMenuRef,
+    type CompiledMenuConfig,
+    type CompiledResponseDefinition,
+    type CompiledResponseOwner,
+    type CompiledViewRef,
+    type MenuConfigSnapshotOptions,
+} from "./config-compiler";
+export {
+    aggregateCompiledMenuConfigs,
+    type CompiledApiBindingRef,
+    type CompiledScopeMenuTarget,
+} from "./config-aggregate";
+export {
+    MenuConfigService,
+    materializeMenuConfigDocument,
+    readScopedMenuConfigDocument,
+    readScopedMenuConfigDocuments,
+} from "./config-service";
 export { MenuNodeImpactMutationService, MenuNodeMutationService } from "./menu-mutations";
 export { ApiBindingMutationService } from "./api-mutations";
 export { ApiBindingImpactMutationService } from "./api-impact-mutations";
 export { MenuManifestService } from "./manifest-service";
-export { RoleMenuPermissionMutationService } from "./role-menu-mutations";
+export {
+    BusinessRoleMenuPermissionMutationService,
+    RoleMenuPermissionMutationService,
+} from "./role-menu-mutations";
 export { RoleMenuPermissionQueryService } from "./role-menu-queries";
 export { RoleMenuPermissionRepairService } from "./role-menu-repair";
 export { RoleMenuAuthorizationResolver } from "./role-menu-resolution";

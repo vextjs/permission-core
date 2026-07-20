@@ -29,6 +29,312 @@ import type {
 } from "./foundation";
 import type { RowCondition } from "./policy";
 
+export type NonEmptyMenuConfigChangeArray = readonly [MenuConfigChange, ...MenuConfigChange[]];
+
+export type MenuViewType = "page" | "tab" | "dialog" | "drawer" | "external" | "iframe";
+export type MenuActionResource = `api:${string}` | `ui:button:${string}`;
+export type ApiResource = `api:${string}`;
+
+export interface ResponseFieldDefinition {
+    field: string;
+    title: string;
+    i18nKey?: string;
+    meta?: Readonly<Record<string, PolicyValue>>;
+}
+
+export interface ResponseProjectionConfigInput {
+    target?: string;
+    preserve?: readonly string[];
+    fields: readonly ResponseFieldDefinition[];
+}
+
+export type ResponseProjectionInput =
+    | readonly ResponseFieldDefinition[]
+    | ResponseProjectionConfigInput;
+
+export interface MenuLoadInput {
+    resource: ApiResource;
+    response?: ResponseProjectionInput;
+    meta?: Readonly<Record<string, PolicyValue>>;
+}
+
+export interface MenuActionInput {
+    id?: string;
+    title: string;
+    resource: MenuActionResource;
+    opens?: string;
+    response?: ResponseProjectionInput;
+    enabled?: boolean;
+    i18nKey?: string;
+    meta?: Readonly<Record<string, PolicyValue>>;
+}
+
+export interface MenuViewInput {
+    id: string;
+    type: MenuViewType;
+    title: string;
+    path?: string;
+    component?: string;
+    url?: string;
+    navigation?: boolean;
+    enabled?: boolean;
+    i18nKey?: string;
+    load?: readonly MenuLoadInput[];
+    actions?: readonly MenuActionInput[];
+    meta?: Readonly<Record<string, PolicyValue>>;
+}
+
+export interface MenuConfigMenuInput {
+    id: string;
+    title: string;
+    children?: readonly MenuConfigMenuInput[];
+    views?: readonly MenuViewInput[];
+    navigation?: boolean;
+    enabled?: boolean;
+    icon?: string;
+    i18nKey?: string;
+    meta?: Readonly<Record<string, PolicyValue>>;
+}
+
+export interface MenuConfigInput {
+    configId: string;
+    title?: string;
+    menus: readonly MenuConfigMenuInput[];
+    meta?: Readonly<Record<string, PolicyValue>>;
+}
+
+export interface MenuResponseFieldSnapshot extends ResponseFieldDefinition {
+    fieldId: string;
+}
+
+export interface MenuLoadSnapshot {
+    loadId: string;
+    resource: ApiResource;
+    response?: Omit<ResponseProjectionConfigInput, "fields"> & {
+        fields: readonly MenuResponseFieldSnapshot[];
+    };
+    meta?: Readonly<Record<string, PolicyValue>>;
+}
+
+export interface MenuActionSnapshot extends Omit<MenuActionInput, "response"> {
+    actionId: string;
+    response?: Omit<ResponseProjectionConfigInput, "fields"> & {
+        fields: readonly MenuResponseFieldSnapshot[];
+    };
+}
+
+export interface MenuViewSnapshot extends Omit<MenuViewInput, "load" | "actions"> {
+    load: readonly MenuLoadSnapshot[];
+    actions: readonly MenuActionSnapshot[];
+    navigation: boolean;
+    enabled: boolean;
+}
+
+export interface MenuConfigMenuSnapshot extends Omit<MenuConfigMenuInput, "children" | "views"> {
+    children: readonly MenuConfigMenuSnapshot[];
+    views: readonly MenuViewSnapshot[];
+    navigation: boolean;
+    enabled: boolean;
+}
+
+export interface MenuConfigSnapshot {
+    configId: string;
+    title?: string;
+    menus: readonly MenuConfigMenuSnapshot[];
+    revision: number;
+    aggregateDigest: string;
+    createdAt: number;
+    updatedAt: number;
+    meta?: Readonly<Record<string, PolicyValue>>;
+}
+
+export interface MenuConfigSummary {
+    configId: string;
+    title?: string;
+    menuCount: number;
+    viewCount: number;
+    actionCount: number;
+    responseFieldCount: number;
+    revision: number;
+    updatedAt: number;
+}
+
+export type MenuConfigListQuery = CursorQuery & {
+    configId?: string;
+};
+
+export type MenuConfigPreviewOptions = PreviewOptions;
+export type MenuConfigSaveOptions = RequiredRevisionVectorOptions & PreviewExecutionOptions;
+export type MenuConfigRemoveOptions = RequiredRevisionVectorOptions & PreviewExecutionOptions;
+export type MenuConfigChangeSetOptions = RequiredRevisionVectorOptions & PreviewExecutionOptions;
+
+export interface MenuConfigPlan {
+    configId: string;
+    operation: "save";
+    before?: MenuConfigSnapshot;
+    after: MenuConfigSnapshot;
+    manifestOperations: CountSample;
+    affectedRoles: CountSample;
+    affectedUsers: CountSample;
+}
+
+export interface MenuConfigSaveResult {
+    config: MenuConfigSnapshot;
+    manifestOperations: BatchMutationSummary;
+    retainedGrantCount: number;
+    revokedGrantCount: number;
+}
+
+export interface MenuConfigRemovePlan {
+    configId: string;
+    before: MenuConfigSnapshot;
+    removedAssets: CountSample;
+    revokedGrants: CountSample;
+    affectedRoles: CountSample;
+    affectedUsers: CountSample;
+}
+
+export interface MenuConfigRemoveResult {
+    configId: string;
+    removedAssets: CountSample;
+    revokedGrantCount: number;
+}
+
+export type MenuConfigChange =
+    | { operation: "save"; config: MenuConfigInput }
+    | { operation: "remove"; configId: string };
+
+export interface MenuConfigChangeSetPlan {
+    changes: BoundedDetails<MenuConfigPlan | MenuConfigRemovePlan>;
+    manifestOperations: CountSample;
+    affectedRoles: CountSample;
+    affectedUsers: CountSample;
+}
+
+export interface MenuConfigChangeSetResult {
+    changes: BoundedDetails<MenuConfigSaveResult | MenuConfigRemoveResult>;
+    manifestOperations: BatchMutationSummary;
+}
+
+export interface MenuConfigManager {
+    preview(config: MenuConfigInput, options?: MenuConfigPreviewOptions): Promise<ImpactPreview<MenuConfigPlan>>;
+    save(config: MenuConfigInput, options: MenuConfigSaveOptions): Promise<MutationResult<MenuConfigSaveResult>>;
+    get(configId: string): Promise<VersionedResult<MenuConfigSnapshot>>;
+    list(query?: MenuConfigListQuery): Promise<PageResult<MenuConfigSummary>>;
+    previewRemove(configId: string, options?: MenuConfigPreviewOptions): Promise<ImpactPreview<MenuConfigRemovePlan>>;
+    remove(configId: string, options: MenuConfigRemoveOptions): Promise<MutationResult<MenuConfigRemoveResult>>;
+    previewChanges(changes: NonEmptyMenuConfigChangeArray, options?: MenuConfigPreviewOptions): Promise<ImpactPreview<MenuConfigChangeSetPlan>>;
+    applyChanges(changes: NonEmptyMenuConfigChangeArray, options: MenuConfigChangeSetOptions): Promise<MutationResult<MenuConfigChangeSetResult>>;
+}
+
+export interface MenuConfigRootManager {
+    readonly config: MenuConfigManager;
+}
+
+export interface MenuBusinessResponseFieldSelection {
+    apiResource: ApiResource;
+    fields: readonly string[];
+}
+
+export interface MenuBusinessResponseFieldRef {
+    apiResource: ApiResource;
+    targetDigest: string;
+    field: string;
+    fieldId: string;
+    title: string;
+    ownerViewIds: readonly string[];
+}
+
+export interface MenuBusinessPermissionSelection {
+    configId: string;
+    menus?: readonly string[];
+    views?: readonly string[];
+    loads?: readonly ApiResource[];
+    actions?: readonly string[];
+    responseFields?: readonly MenuBusinessResponseFieldSelection[];
+    include?: {
+        descendants?: boolean;
+        loads?: boolean;
+        actions?: boolean;
+        responseFields?: "none" | "all";
+    };
+}
+
+export interface MenuBusinessPermissionAssignment {
+    effect: "allow" | "deny";
+    selection: MenuBusinessPermissionSelection;
+}
+
+export type MenuBusinessPermissionChange =
+    | { operation: "grant" | "deny"; selection: MenuBusinessPermissionSelection }
+    | { operation: "revoke"; grantIds: readonly string[] }
+    | { operation: "set"; assignments: readonly MenuBusinessPermissionAssignment[] };
+
+export interface MenuBusinessPermissionPlan {
+    roleId: string;
+    operation: MenuBusinessPermissionChange["operation"];
+    grants: BoundedDetails<{
+        grantId: string;
+        effect: "allow" | "deny";
+        configId: string;
+        selectedAssets: CountSample;
+        selectedResponseFields: CountSample;
+    }>;
+    removals: BoundedDetails<{ grantId: string; sourceCount: number }>;
+    affectedUsers: CountSample;
+}
+
+export interface MenuBusinessPermissionGrantResult {
+    roleId: string;
+    grantIds: BoundedDetails<string>;
+    generatedSources: number;
+    generatedResponseFields: number;
+    removedSources: number;
+}
+
+export interface MenuBusinessGrantSnapshot {
+    grantId: string;
+    revision: number;
+    effect: "allow" | "deny";
+    configId: string;
+    selection: MenuBusinessPermissionSelection;
+    responseFields: BoundedDetails<MenuBusinessResponseFieldRef>;
+    sourceStatus: {
+        integrity: SourceIntegrity;
+        availability: "active" | "partially-active" | "inactive";
+        drift: SourceDrift;
+    };
+}
+
+export interface MenuBusinessDirectPermissionSnapshot {
+    roleId: string;
+    grants: readonly MenuBusinessGrantSnapshot[];
+}
+
+export interface MenuBusinessEffectivePermissionSnapshot {
+    roleId: string;
+    grants: BoundedDetails<MenuBusinessGrantSnapshot & {
+        sourceRoleId: string;
+        inherited: boolean;
+        depth: number;
+    }>;
+    conflicts: BoundedDetails<RuleConflict>;
+}
+
+export interface MenuBusinessAuthorizationTreeNode {
+    id: string;
+    title: string;
+    kind: "menu" | "view" | "load" | "action" | "response-field";
+    state: "direct-allow" | "direct-deny" | "inherited-allow" | "inherited-deny" | "conflict" | "none";
+    selection: "none" | "partial" | "all";
+    children: readonly MenuBusinessAuthorizationTreeNode[];
+}
+
+export interface MenuBusinessAuthorizationTree {
+    configId: string;
+    nodes: readonly MenuBusinessAuthorizationTreeNode[];
+}
+
 export type SourceRewriteResolution =
     | { action: "replace"; replacementSemanticKey: string }
     | { action: "revoke"; replacementSemanticKey?: never };
@@ -440,6 +746,11 @@ export interface MenuGrantSnapshotRef {
     contributionDigest: string;
     contributingAssetCount: number;
     contributingBindingCount: number;
+    business?: {
+        configId: string;
+        selection: MenuBusinessPermissionSelection;
+        responseFields: readonly MenuBusinessResponseFieldRef[];
+    };
 }
 
 export interface MenuGrantSnapshot extends MenuGrantSnapshotRef {
@@ -603,6 +914,18 @@ export interface ApiBindingManager {
 }
 
 export interface RoleMenuPermissionManager {
+    preview(roleId: string, change: MenuBusinessPermissionChange, options?: PreviewOptions): Promise<ImpactPreview<MenuBusinessPermissionPlan>>;
+    grant(roleId: string, selection: MenuBusinessPermissionSelection, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<MenuBusinessPermissionGrantResult>>;
+    revoke(roleId: string, input: { grantIds: readonly string[] }, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>;
+    deny(roleId: string, selection: MenuBusinessPermissionSelection, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<MenuBusinessPermissionGrantResult>>;
+    set(roleId: string, assignments: readonly MenuBusinessPermissionAssignment[], options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>;
+    getDirect(roleId: string): Promise<VersionedResult<MenuBusinessDirectPermissionSnapshot>>;
+    listDirect(roleId: string, query?: CursorQuery & { effect?: "allow" | "deny"; configId?: string }): Promise<PageResult<MenuBusinessGrantSnapshot>>;
+    getEffective(roleId: string): Promise<VersionedResult<MenuBusinessEffectivePermissionSnapshot>>;
+    getAuthorizationTree(roleId: string, options: { configId: string }): Promise<VersionedResult<MenuBusinessAuthorizationTree>>;
+}
+
+export interface LegacyRoleMenuPermissionManager {
     preview(roleId: string, change: MenuPermissionChange, options?: PreviewOptions): Promise<ImpactPreview<MenuPermissionPlan>>;
     grant(roleId: string, selection: MenuPermissionSelection, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<MenuPermissionGrantResult>>;
     revoke(roleId: string, input: { grantIds: readonly string[] }, options: RequiredRevisionVectorOptions & PreviewExecutionOptions): Promise<MutationResult<BatchMutationSummary>>;
@@ -666,7 +989,57 @@ export interface RoutePermissionState {
 }
 
 export interface SubjectMenuRuntime {
+    getViewTree(options: { configId: string }): Promise<SubjectRuntimeResult<readonly ViewTreeNode[]>>;
+    getActionMap(input: { configId: string; viewId: string }): Promise<SubjectRuntimeResult<Readonly<Record<string, ActionPermissionState>>>>;
+    getViewState(input: { configId: string; viewId: string } | { path: string }): Promise<SubjectRuntimeResult<ViewPermissionState>>;
+    filterResponse(apiResource: ApiResource, payload: unknown): Promise<SubjectRuntimeResult<unknown>>;
+}
+
+export interface LegacySubjectMenuRuntime {
     getVisibleTree(options?: { rootId?: string }): Promise<SubjectRuntimeResult<VisibleMenuTreeNode[]>>;
     getButtonMap(ownerNodeId: string): Promise<SubjectRuntimeResult<Readonly<Record<string, ButtonPermissionState>>>>;
     getRouteState(path: string): Promise<SubjectRuntimeResult<RoutePermissionState>>;
+}
+
+export interface ViewTreeNode {
+    id: string;
+    type: Exclude<MenuViewType, "dialog" | "drawer" | "tab"> | "menu";
+    title: string;
+    path?: string;
+    component?: string;
+    url?: string;
+    icon?: string;
+    i18nKey?: string;
+    meta?: Readonly<Record<string, PolicyValue>>;
+    enabled: boolean;
+    reason: "allowed" | "load-unavailable" | "disabled";
+    children: readonly ViewTreeNode[];
+}
+
+export interface ActionPermissionState {
+    visible: boolean;
+    enabled: boolean;
+    reason: "allowed" | "permission-denied" | "target-denied" | "load-unavailable" | "disabled";
+    resource: MenuActionResource;
+    opens?: string;
+}
+
+export interface ViewPermissionState {
+    allowed: boolean;
+    viewId?: string;
+    configId?: string;
+    path?: string;
+    reason:
+        | "allowed"
+        | "not-found"
+        | "permission-denied"
+        | "load-unavailable"
+        | "disabled";
+    navigationReachable: boolean;
+    navigationReason:
+        | "reachable"
+        | "navigation-disabled"
+        | "permission-denied-ancestor"
+        | "disabled-ancestor"
+        | "not-found";
 }
