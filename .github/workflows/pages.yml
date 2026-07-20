@@ -57,7 +57,10 @@ jobs:
 
       - name: Resolve preview version
         id: preview
-        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Check preview source and First Success
         run: |
