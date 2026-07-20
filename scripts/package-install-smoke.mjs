@@ -23,6 +23,7 @@ assertFile(path.join(packageRoot, "dist", "plugins", "vext.d.ts"));
 
 const packOutput = run(npmCommand(), [
     "pack",
+    "--dry-run=false",
     "--ignore-scripts",
     "--json",
     "--pack-destination",
@@ -42,6 +43,7 @@ run(npmCommand(), [
     "install",
     tarballPath,
     "@types/node@22.19.19",
+    "--dry-run=false",
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
@@ -172,6 +174,7 @@ run(npmCommand(), [
     tarballPath,
     "vextjs@0.3.26",
     "@types/node@22.19.19",
+    "--dry-run=false",
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
