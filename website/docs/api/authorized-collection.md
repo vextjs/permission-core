@@ -1,10 +1,15 @@
 # Authorized Collection
+<!-- docs:inline-parity `subject.data.collection()` `init()` `AuthorizedCollectionOptions.scopeFields` `tenantId` `filter` `where` `transaction` `AuthorizedCollectionOptions` `resource` `db:orders` `read/create/update/delete` `scopeFields.tenantId` `subject.scope.tenantId` `scopeFields.appId/moduleId/namespace` `projection` `find/findOne/findAndCount/findPage` `0/1` `sort` `count` `{ field: 1|-1 }` `limit` `find/findAndCount` `findMaxLimit` `findPage` `first/last` `maxTimeMS` `maxAffected` `updateMany/deleteMany` `1..1000` `SafeMongoFilter` `$where` `subject.data.collection(name, options)` `name` `options.resource/scopeFields` `AuthorizedCollection` `find(filter?, options?)` `AuthorizedDocument<T>[]` `T` `read` `findOne(filter?, options?)` `find` `AuthorizedDocument<T> | null` `null` `count(filter?, options?)` `maxTimeMS/transaction` `number` `findAndCount(filter?, options?)` `data` `total` `{ data: AuthorizedDocument<T>[], total: number }` `findPage(query?)` `first/after` `last/before` `totals=true` `AuthorizedPageResult<T>` `items/pageInfo` `insertOne(document, options?)` `create` `{ acknowledged: true, insertedId }` `updateOne(filter, update, options?)` `{ acknowledged: true, matchedCount, modifiedCount }` `0` `updateMany(filter, update, options)` `options.maxAffected` `AuthorizedUpdateResult` `deleteOne(filter, options?)` `{ acknowledged: true, deletedCount }` `deleteMany(filter, options)` `AuthorizedDeleteResult` `deletedCount` `PERMISSION_DENIED` `FIELD_PERMISSION_DENIED` `POLICY_CONTEXT_MISSING` `INVALID_FILTER` `DATA_VALUE_UNSUPPORTED` `DATA_OPERATION_UNSUPPORTED` `SCOPE_FIELD_MAPPING_REQUIRED` `DATA_BULK_SCOPE_MUTATION_UNSAFE` `12` `256` `32` `100` `128 KiB` `min(200, MonSQLize findMaxLimit)` `$set` `$unset` `$inc` `$mul` `$min` `$max` `$addToSet` `$push` `$pull` `128` `64 KiB` -->
+
+`subject.data.collection()` creates the guarded data facade that combines caller filters, scope fields, policy `where`, field permissions, and MonSQLize operations.
 
 ## Purpose and preconditions
 
-`subject.data.collection()` wraps one MonSQLize collection with tenant scope, row policy, field permission, bounded Mongo-style filters, and write guards. Create it from a trusted subject after `init()`. Map every scope dimension present on the subject to an immutable scalar business-data field.
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
 ## Signatures
+
+The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.
 
 ```ts
 subject.data.collection<TDocument extends object, TCreate extends object = Omit<TDocument, '_id'>>(
@@ -23,12 +28,120 @@ updateMany(filter: SafeMongoFilter, update: SafeMongoUpdate, options: Authorized
 deleteOne(filter: SafeMongoFilter, options?: { transaction?: Transaction }): Promise<AuthorizedDeleteResult>
 deleteMany(filter: SafeMongoFilter, options: AuthorizedBulkWriteOptions): Promise<AuthorizedDeleteResult>
 ```
+## Parameter Objects
 
-`AuthorizedCollectionOptions.scopeFields` maps `tenantId` and any active optional scope dimensions to business fields. `filter` is the caller's bounded Mongo query. Durable rule `where` conditions and exact scope equality are compiled and combined internally. Optional `transaction` is a MonSQLize transaction borrowed from the host.
+The table explains object fields that are easy to confuse at call sites. Required fields are validated before the method mutates persistent authorization state.
+
+<!-- docs:params owner=AuthorizedCollectionOptions locale=en -->
+### `AuthorizedCollectionOptions`
+<!-- docs:params owner=AuthorizedReadOptions locale=en -->
+### Query and Write Options
+## Method Details
+
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+
+<span id="authorized-collection-factory"></span>
+### `subject.data.collection(name, options)`
+<!-- docs:method name=subject.data.collection locale=en -->
+
+- **Purpose**: Use `subject.data.collection` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass trusted host state only: normalized scope, authenticated user ID, claims/context, and collection options that map every active scope field.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="authorized-find"></span>
+### `find(filter?, options?)`
+<!-- docs:method name=authorizedCollection.find locale=en -->
+
+- **Purpose**: Use `authorizedCollection.find` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="authorized-find-one"></span>
+### `findOne(filter?, options?)`
+<!-- docs:method name=authorizedCollection.findOne locale=en -->
+
+- **Purpose**: Use `authorizedCollection.findOne` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="authorized-count"></span>
+### `count(filter?, options?)`
+<!-- docs:method name=authorizedCollection.count locale=en -->
+
+- **Purpose**: Use `authorizedCollection.count` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="authorized-find-and-count"></span>
+### `findAndCount(filter?, options?)`
+<!-- docs:method name=authorizedCollection.findAndCount locale=en -->
+
+- **Purpose**: Use `authorizedCollection.findAndCount` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="authorized-find-page"></span>
+### `findPage(query?)`
+<!-- docs:method name=authorizedCollection.findPage locale=en -->
+
+- **Purpose**: Use `authorizedCollection.findPage` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `PageResult<T>` or the documented paged business result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="authorized-insert-one"></span>
+### `insertOne(document, options?)`
+<!-- docs:method name=authorizedCollection.insertOne locale=en -->
+
+- **Purpose**: Use `authorizedCollection.insertOne` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="authorized-update-one"></span>
+### `updateOne(filter, update, options?)`
+<!-- docs:method name=authorizedCollection.updateOne locale=en -->
+
+- **Purpose**: Use `authorizedCollection.updateOne` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="authorized-update-many"></span>
+### `updateMany(filter, update, options)`
+<!-- docs:method name=authorizedCollection.updateMany locale=en -->
+
+- **Purpose**: Use `authorizedCollection.updateMany` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="authorized-delete-one"></span>
+### `deleteOne(filter, options?)`
+<!-- docs:method name=authorizedCollection.deleteOne locale=en -->
+
+- **Purpose**: Use `authorizedCollection.deleteOne` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="authorized-delete-many"></span>
+### `deleteMany(filter, options)`
+<!-- docs:method name=authorizedCollection.deleteMany locale=en -->
+
+- **Purpose**: Use `authorizedCollection.deleteMany` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
 
 ## Responses and side effects
 
-Reads return only fields allowed by field rules, intersected with caller projection. Inserts inject trusted scope fields and reject forbidden fields. Updates validate operator/path/value shape, pre-image policy, field writes, scope immutability, and post-image invariants. Bulk methods require an explicit maximum affected count.
+Side effects are scoped and revisioned. Writes record audit evidence and invalidate affected semantic cache keys; reads preserve bounded detail metadata so callers can tell whether diagnostics were complete.
 
 ```json
 {
@@ -38,12 +151,13 @@ Reads return only fields allowed by field rules, intersected with caller project
   "delete": { "acknowledged": true, "deletedCount": 1 }
 }
 ```
-
 ## Failures and limits
 
-Important errors are `PERMISSION_DENIED`, `FIELD_PERMISSION_DENIED`, `POLICY_CONTEXT_MISSING`, `INVALID_FILTER`, `DATA_VALUE_UNSUPPORTED`, `DATA_OPERATION_UNSUPPORTED`, `SCOPE_FIELD_MAPPING_REQUIRED`, and `DATA_BULK_SCOPE_MUTATION_UNSAFE`. Filters are bounded to depth `12`, `256` nodes, `32` logical children, `100` set items, and `128 KiB`. Pages are at most `min(200, MonSQLize findMaxLimit)`. Updates allow `$set`, `$unset`, `$inc`, `$mul`, `$min`, `$max`, `$addToSet`, `$push`, and `$pull`, with `128` paths and `64 KiB` input bounds.
+Failures close authorization instead of widening it. Important limits are enforced before state is committed, and stale previews or revisions must be refreshed rather than guessed.
 
 ## Example
+
+The example keeps one narrow path per page. It shows the raw method family and a compact response shape, while the full runnable scenarios live in the examples section.
 
 ```ts
 const orders = subject.data.collection('orders', {
@@ -55,13 +169,11 @@ const result = await orders.find(
   { projection: ['orderNo', 'merchantId'], limit: 20 },
 );
 ```
-
 ```json
 [{ "orderNo": "A-100", "merchantId": "m-7" }]
 ```
-
-The caller filter, tenant equality, role `where`, and field projection all apply to this result.
-
 ## Related
 
-See [Data Permissions](/guide/data-permissions), [Multi-Tenant Model](/guide/multi-tenant), and [Errors](/api/errors).
+Continue with the linked guide or neighboring API page when you need workflow context rather than only signatures.
+
+Continue with [Audit and Health](/api/audit-and-health).

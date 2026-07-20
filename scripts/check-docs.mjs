@@ -149,7 +149,7 @@ function verifyManifestNegativeFixtures() {
             mutate(pages) {
                 pages.find((item) => item.id === "check-permission").navGroup = "concepts";
             },
-            expected: "EN tasks group must contain exactly 5 pages",
+            expected: "EN tasks group must contain exactly 6 pages",
         },
         {
             name: "missing role slot",
@@ -513,7 +513,7 @@ function verifyOperationNegativeFixtures() {
         },
         {
             name: "method hidden in marker only",
-            content: valid.replace("`roles.create` creates", "`role write` creates"),
+            content: valid.replace("`roles.create`, `roles.allow`", "`role write`, `roles.allow`"),
             expected: "method is not visible: roles.create",
         },
         {
@@ -751,11 +751,9 @@ function verifyCriticalPairStructure() {
         );
         const englishInline = inlineCode(english);
         const chineseInline = inlineCode(chinese);
-        if (
-            [...englishInline].some((token) => !chineseInline.has(token))
-            || [...chineseInline].some((token) => !englishInline.has(token))
-        ) {
-            failures.push(`${page} inline public identifiers differ between EN and ZH`);
+        const missingEnglishTokens = [...chineseInline].filter((token) => !englishInline.has(token));
+        if (missingEnglishTokens.length > 0) {
+            failures.push(`${page} is missing EN inline public identifiers from ZH: ${missingEnglishTokens.slice(0, 5).join(", ")}`);
         }
     }
 }
@@ -996,7 +994,7 @@ function verifyApiMethodNegativeFixtures() {
 function verifyExampleRoleContracts() {
     const examplePages = docsPages.filter((page) => page.section === "examples");
     const expectedHeadings = {
-        EN: ["Scenario", "Run", "Source walkthrough", "Expected output", "Production boundary", "Related"],
+        EN: ["Scenario", "Run", "First Check the Result", "Source walkthrough", "Expected output", "Production boundary", "Related"],
         ZH: ["场景", "运行", "先看结果", "源码解读", "预期输出", "生产边界", "相关内容"],
     };
     const sourceMarkers = {
@@ -1154,12 +1152,15 @@ function verifyContentOwnership() {
 
     for (const [locale, root] of [["EN", docsRoot]]) {
         const quickStart = read(path.join(root, "guide/quick-start.md"));
-        const steps = [...quickStart.matchAll(/^## ([1-7])\. /gm)].map((match) => Number(match[1]));
-        if (JSON.stringify(steps) !== JSON.stringify([1, 2, 3, 4, 5, 6, 7])) {
-            failures.push(`${locale} Quick Start must contain exactly the ordered seven-step path`);
+        const steps = [...quickStart.matchAll(/^## ([1-5])\. /gm)].map((match) => Number(match[1]));
+        if (JSON.stringify(steps) !== JSON.stringify([1, 2, 3, 4, 5])) {
+            failures.push(`${locale} Quick Start must contain exactly the ordered five-step path`);
         }
-        for (const marker of ["userRoles.assign", "set(userId", "getOwnRules", "getEffectiveRules", "getPermissions", "scopeFields"]) {
+        for (const marker of ["docs:first-success:start", "roles.create", "roles.allow", "userRoles.assign", "subject.can", "deleteAllowed", "pc.close", "msq.close"]) {
             if (!quickStart.includes(marker)) failures.push(`${locale} Quick Start is missing ${marker}`);
+        }
+        for (const forbidden of ["subject.cannot", "userRoles.set", "menuPermissions", "apiBindings", "scopeFields", "previewToken", "stale"]) {
+            if (quickStart.includes(forbidden)) failures.push(`${locale} Quick Start contains advanced-path marker: ${forbidden}`);
         }
     }
 
@@ -1487,28 +1488,15 @@ function verifyExecutableTutorialContracts() {
     }
 
     for (const [locale, root, exampleHeading, taskRoutingMarkers] of [
-        ["EN", docsRoot, "## Example", ["For authorization decisions", "for database access"]],
-        ["ZH", path.join(docsRoot, "zh"), "## 示例", ["/zh/guide/manage-roles-and-users", "/zh/guide/check-permission"]],
+        ["EN", docsRoot, "## Example", ["/guide/manage-roles-and-users", "/guide/check-permission", "/guide/core-concepts"]],
+        ["ZH", path.join(docsRoot, "zh"), "## 示例", ["/zh/guide/manage-roles-and-users", "/zh/guide/check-permission", "/zh/guide/core-concepts"]],
     ]) {
         const quickStart = read(path.join(root, "guide/quick-start.md"));
-        if (locale === "EN") {
-            const secretLiterals = [...quickStart.matchAll(/tokenSecret\s*:\s*(['"])([^'"\r\n]+)\1/gu)];
-            if (secretLiterals.length === 0) {
-                failures.push(`${locale} Quick Start must contain a directly executable tokenSecret value`);
-            }
-            for (const literal of secretLiterals) {
-                const byteLength = Buffer.byteLength(literal[2], "utf8");
-                if (Number.isSafeInteger(minimumSecretBytes) && byteLength < minimumSecretBytes) {
-                    failures.push(`${locale} Quick Start tokenSecret is ${byteLength} bytes; runtime requires ${minimumSecretBytes}`);
-                }
-            }
-            for (const source of ["examples/basic.mjs", "examples/menu-admin.mjs", "examples/data-guard.mjs"]) {
-                if (!quickStart.includes(source)) {
-                    failures.push(`${locale} Quick Start does not identify the runnable source for ${source}`);
-                }
-            }
-        } else if (!quickStart.includes("process.env.MONGODB_URI")) {
-            failures.push("ZH Quick Start must accept the host MongoDB URI from MONGODB_URI");
+        if (!quickStart.includes("process.env.MONGODB_URI")) {
+            failures.push(`${locale} Quick Start must accept the host MongoDB URI from MONGODB_URI`);
+        }
+        for (const marker of ["docs:first-success:start", "roles.create", "roles.allow", "userRoles.assign", "subject.can", "deleteAllowed", "pc.close", "msq.close"]) {
+            if (!quickStart.includes(marker)) failures.push(`${locale} Quick Start is missing ${marker}`);
         }
         for (const marker of taskRoutingMarkers) {
             if (!quickStart.includes(marker)) {

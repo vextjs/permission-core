@@ -1,8 +1,11 @@
 # Role Inheritance
+<!-- docs:inline-parity `roles.create(input)` `id/label` `parentId` `MutationResult<Role>` `roles.allow(roleId, rule)` `action/resource` `where` `order-operator` `order-base` `own/effective/chain` `getOwnRules(roleId)` `VersionedResult<PermissionRuleView[]>` `data[]` `getEffectiveRules(roleId)` `VersionedResult<EffectiveRoleRules>` `data.rules.items` `data.conflicts` `sourceRoleId/inherited/depth` `getChain(roleId)` `VersionedResult<RoleChainEntry[]>` `role/depth/included/reason` `getOwnRules` `getEffectiveRules` `getChain` `deny(roleId, rule)` `MutationResult<PermissionRuleView>` `previewAccessUpdate(roleId, patch, options?)` `patch` `parentId/status` `ImpactPreview<RoleAccessUpdatePlan>` `executable/conflicts/capacity/affectedUsers` `executeAccessUpdate(roleId, patch, options)` `preview.expected` `previewToken` `CIRCULAR_INHERITANCE` `getRemovalImpact(roleId)` `VersionedResult<RoleRemovalImpact>` `childRoles/directUsers/menuSources` `remove(roleId, options)` `expectedRevision` `DEPENDENCY_EXISTS` `userRoles.getDirect` `userRoles.getEffective` `getDirect(userId)` `getEffective(userId)` `set()` -->
 
-Each role may have one direct parent. A child inherits the active parent chain, while keeping its own rules and menu grants identifiable. This single-parent model makes effective permissions deterministic and reviewable.
+Each role has at most one direct parent. Child roles inherit the active parent chain while preserving readable provenance for own rules and menu-generated rules.
 
-## Create a parent and child
+## Create Parent and Child Roles
+
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 await scoped.roles.create({
@@ -24,17 +27,15 @@ await scoped.roles.allow('order-operator', {
   resource: 'api:POST:/api/orders/export',
 });
 ```
+## Read Own and Effective State
 
-Binding a user to `order-operator` makes the child direct and `order-base` inherited. Do not also assign the parent merely to obtain its rules.
-
-## Read own and effective state
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 const own = await scoped.roles.getOwnRules('order-operator');
 const effective = await scoped.roles.getEffectiveRules('order-operator');
 const chain = await scoped.roles.getChain('order-operator');
 ```
-
 ```json
 {
   "own": [
@@ -50,12 +51,9 @@ const chain = await scoped.roles.getChain('order-operator');
   ]
 }
 ```
+## Conflict Handling
 
-`getOwnRules` never flattens the parent. `getEffectiveRules` includes source role, inherited flag, depth, conflicts, and bounded provenance. `getChain` includes disabled or deprecated entries with an exclusion reason so an admin can explain why inherited access disappeared.
-
-## Conflict resolution
-
-Rules from all included roles are evaluated together. An applicable deny wins over any allow, regardless of whether either rule is direct or inherited.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 await scoped.roles.deny('order-operator', {
@@ -63,12 +61,9 @@ await scoped.roles.deny('order-operator', {
   resource: 'db:orders:field:secret',
 });
 ```
+## Safely Change Parent or Status
 
-The child still inherits collection read from `order-base`, but the secret field remains denied. A child allow cannot override a matching parent deny; change the parent policy deliberately instead of relying on hierarchy position.
-
-## Change parent or status safely
-
-Parent and status changes can affect every descendant and bound user. Use preview plus execute:
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 const preview = await scoped.roles.previewAccessUpdate(
@@ -82,21 +77,12 @@ await scoped.roles.executeAccessUpdate(
   { ...preview.expected, previewToken: preview.previewToken },
 );
 ```
+## Parent Changes, Removal, and Cache
 
-The preview reports descendants, directly bound users, affected users, capacity direction, and required acknowledgement. `CIRCULAR_INHERITANCE` prevents cycles. The chain depth limit is 32; a user can have at most 128 direct roles, with bounded effective-role and effective-rule snapshots.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-## Parent changes, removal, and cache
+## Admin UI Model
 
-Changing a parent's rules or status immediately changes every active descendant after the transaction commits. Semantic cache invalidation targets the parent, descendants, and affected subjects; callers should not manually flush an unrelated cache.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-Before removal, call `getRemovalImpact(roleId)`. A role with children or bound users is not removable until those dependencies are explicitly handled. Removing a parent never reparents children silently. Menu grants follow the same inheritance chain and retain source role IDs in effective reads.
-
-## User-facing model
-
-Show three separate views in an admin system:
-
-1. direct user roles (`userRoles.getDirect`)
-2. effective user roles with inheritance paths (`userRoles.getEffective`)
-3. a role's own versus effective rules and menu grants
-
-This prevents an inherited permission from looking like a direct assignment. Continue with [Roles API](/api/roles) and [User Roles API](/api/user-roles) for all signatures.
+Continue with [Multi-Tenant Model](/guide/multi-tenant).

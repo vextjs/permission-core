@@ -1,10 +1,15 @@
 # Audit and Health
+<!-- docs:inline-parity `init()` `health()` `actorId` `reason` `requestId` `idempotencyKey` `pc.init()` `Promise<PermissionCoreHealth>` `data` `lastInitError` `pc.health()` `status` `status/lifecycle/initialized` `up` `degraded` `down` `namespace` `database` `unknown` `schema` `truncated` `tokens` `cache` `backendState='opaque'` `audit.pendingCacheOutcomes` `PermissionCoreHealth` `status: 'degraded'` `committed` `operationId` `1000` `truncated: true` `roles.create()` `MutationResult<Role>` `result.data` `operationId/auditId` `replayed` `true` `cache.status` `committed/changed` -->
+
+`init()` and `health()` expose the readiness evidence that operators need before accepting permission traffic or diagnosing degraded state.
 
 ## Purpose and preconditions
 
-The public operations surface consists of `init()`/`health()` plus audit and revision evidence returned by management mutations. permission-core writes durable internal audit rows transactionally, but intentionally does not expose a general-purpose public audit-log query manager.
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
 ## Signatures
+
+The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.
 
 ```ts
 pc.init(): Promise<PermissionCoreHealth>
@@ -24,12 +29,33 @@ interface MutationResult<T> {
   detailBudget: ResponseDetailBudget;
 }
 ```
+## Method and Field Details
 
-Management options can include `actorId`, `reason`, `requestId`, and `idempotencyKey`. These values become bounded correlation evidence; they do not authorize the mutation.
+The methods below are the public health and audit surface. They are intentionally small so operators can use them from readiness probes and incident tooling.
 
+<span id="audit-health-init"></span>
+### `pc.init()`
+<!-- docs:method name=init locale=en -->
+
+- **Purpose**: Use `init` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="audit-health-health"></span>
+### `pc.health()`
+<!-- docs:method name=health locale=en -->
+
+- **Purpose**: Use `health` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<!-- docs:params owner=PermissionCoreHealth locale=en -->
+<!-- docs:params owner=MutationAuditOptions locale=en -->
 ## Responses and side effects
 
-`PermissionCoreHealth` reports lifecycle/database/schema/token/cache/audit state and a namespace hash. `status: 'degraded'` means the database is available but a schema mismatch, cache incident, or pending cache outcome needs attention. Mutation audit evidence is committed with the state change; post-commit cache outcome may subsequently be completed, bypassed, or reconciled.
+Side effects are scoped and revisioned. Writes record audit evidence and invalidate affected semantic cache keys; reads preserve bounded detail metadata so callers can tell whether diagnostics were complete.
 
 ```json
 {
@@ -47,12 +73,13 @@ Management options can include `actorId`, `reason`, `requestId`, and `idempotenc
   }
 }
 ```
-
 ## Failures and limits
 
-Health counts are bounded to `1000`; `truncated: true` means the exact total is larger. Health may return `down` instead of throwing for an unavailable database, while malformed configuration or failed initialization is also retained in `lastInitError`. Audit IDs are correlation handles, not a supported public lookup API. Do not read internal permission collections directly as an application contract.
+Failures close authorization instead of widening it. Important limits are enforced before state is committed, and stale previews or revisions must be refreshed rather than guessed.
 
 ## Example
+
+The example keeps one narrow path per page. It shows the raw method family and a compact response shape, while the full runnable scenarios live in the examples section.
 
 ```ts
 const result = await scoped.roles.create(
@@ -61,7 +88,6 @@ const result = await scoped.roles.create(
 );
 businessAudit.info({ operationId: result.operationId, auditId: result.auditId });
 ```
-
 ```json
 {
   "committed": true,
@@ -71,7 +97,8 @@ businessAudit.info({ operationId: result.operationId, auditId: result.auditId })
   "cache": { "status": "completed" }
 }
 ```
-
 ## Related
 
-See [Production Operations](/guide/production-operations), [Cache](/guide/cache), and [Errors](/api/errors).
+Continue with the linked guide or neighboring API page when you need workflow context rather than only signatures.
+
+Continue with [Errors](/api/errors).

@@ -1,23 +1,15 @@
 # Resources and Rules
+<!-- docs:inline-parity `effect` `GET:/orders/:id` `GET:/orders/*` `*:/orders/*` `api:POST:/api/orders/export` `api:POST:/api/orders/*` `db:orders` `db:*` `db:orders:field:profile.name` `profile.*` `*` `ui:page:orders` `ui:page:*` `ui:*` `:id` `invoke` `read` `create` `update` `delete` `write` `manage` `roles.allow(roleId, rule, options?)` `MutationResult<PermissionRuleView>` `action='write'` `allow()` `deny()` `action` `resource` `where` `source` `no-allow` `all` `any` `not` `valueFrom` `can` `where.all` `claims.merchantId` `filter` `PermissionCore` `ResourceSchemeDefinition` `validate` `match` `await pc.init()` `PermissionCoreHealth` `validate/match` `version` -->
 
-A permission rule has an `effect`, an action pattern, a resource pattern, and an optional durable row condition. A request is allowed only when an active allow matches and no applicable deny wins.
+A permission rule contains an effect, an action pattern, a resource pattern, and optionally a serialized row condition. Requests are allowed only when an active allow matches and no applicable deny wins.
 
-## Built-in resource schemes
+## Built-in Resource Schemes
 
-| Kind | Concrete resource | Rule patterns | Use |
-|---|---|---|---|
-| HTTP route | `GET:/orders/:id` | `GET:/orders/:id`, `GET:/orders/*`, `*:/orders/*` | Framework-neutral matched routes |
-| API | `api:POST:/api/orders/export` | `api:POST:/api/orders/*` | Backend APIs owned by menus or buttons |
-| Data collection | `db:orders` | `db:orders`, `db:*` | Collection-level data operations |
-| Data field | `db:orders:field:profile.name` | exact, `profile.*`, or `*` field pattern | Field reads and writes |
-| UI | `ui:page:orders` | `ui:page:*`, `ui:*` | Menus, pages, buttons, and custom UI categories |
-| Global | not valid as a concrete request | `*` | Deliberate rule-side global pattern |
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-HTTP and API resources use normalized route templates without query strings or fragments. A trailing `*` consumes one or more remaining path segments; it is not a substring wildcard. Parameters such as `:id` match one segment.
+## Action
 
-## Actions
-
-Built-in request actions are `invoke`, `read`, `create`, `update`, `delete`, `write`, `manage`, plus application-defined strings. Rule-side `*` matches every action. Rule-side `write` matches `create` and `update`; it is not a magic alias for read or delete.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 await scoped.roles.allow('order-writer', {
@@ -25,10 +17,9 @@ await scoped.roles.allow('order-writer', {
   resource: 'db:orders',
 });
 ```
+## Allow, Deny, and Default Deny
 
-This allows concrete `create` and `update` checks on `db:orders`. Prefer explicit actions in high-risk rules when administrators need to review them separately.
-
-## Allow, deny, and default deny
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 await scoped.roles.allow('order-reader', {
@@ -40,14 +31,9 @@ await scoped.roles.deny('order-reader', {
   resource: 'db:orders:field:secret',
 });
 ```
+## Conditional Rules
 
-Rules from direct roles and inherited roles are combined. Any applicable deny takes precedence over matching allows. If no allow matches, the result is `no-allow`; this is default deny and does not require a stored deny rule.
-
-Duplicate semantic rules share one canonical rule with bounded source provenance. Manual grants and menu-generated grants can contribute the same meaning without losing their origin.
-
-## Conditional rules
-
-`where` stores a serializable row-condition AST. `all`, `any`, and `not` compose leaf comparisons; `valueFrom` reads trusted subject, claims, or explicit context. A condition affects row authorization and can also make a general `can` result unknown when no concrete row/context is available.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 await scoped.roles.allow('merchant-reader', {
@@ -61,12 +47,9 @@ await scoped.roles.allow('merchant-reader', {
   },
 });
 ```
+## Custom Schemes
 
-See [Data Permissions](/guide/data-permissions) for why policy `where` is separate from a caller's Mongo `filter`.
-
-## Custom schemes
-
-Pass up to 32 custom `ResourceSchemeDefinition` entries when constructing `PermissionCore`. Each has a unique scheme, behavior version, deterministic `validate` and `match` callbacks, and 1-16 positive or negative probes. Initialization executes every probe twice and includes the scheme contract in the persisted schema digest.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 const pc = new PermissionCore({
@@ -85,7 +68,4 @@ const pc = new PermissionCore({
   }],
 });
 ```
-
-Custom callbacks are trusted configuration code, not persisted rule functions. Changing scheme behavior without changing `version` risks a schema contract mismatch; deploy the same definitions to every instance.
-
-For direct matching without a core instance, use the [Match Resource API](/api/match-resource). For all rule-management methods, see [Roles](/api/roles).
+Continue with [Role Inheritance](/guide/role-inheritance).

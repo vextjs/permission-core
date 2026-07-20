@@ -1,51 +1,46 @@
 # Introduction
+<!-- docs:inline-parity `action + resource` `PermissionSubject` `new PermissionCore(options)` `init()` `PermissionCoreHealth` `pc.scope(scope)` `ScopedPermissionContext` `pc.forSubject(subject, context?)` `SubjectPermissionContext` `subject.can/assert/explain` `subject.menus.*` `subject.data.collection()` `scope()` `forSubject()` `tenantId` `appId` `moduleId` `namespace` `userId` `roleId` `monsqlize@3.1.0` `permission-core/plugins/vext` `scope` `subject` -->
 
-permission-core is a fine-grained authorization library for Node.js applications that use MonSQLize 3.1. It combines durable RBAC management with runtime checks for routes, menus, APIs, rows, and fields.
+permission-core is a fine-grained authorization library for Node.js applications that already use MonSQLize 3.1. It keeps RBAC state, menus, API bindings, row filters, field permissions, audit evidence, and runtime checks in one tenant-aware model.
 
-## What it owns
+## What This Module Owns
 
-- tenant-scoped roles, one-parent inheritance, and direct user-role bindings
-- allow and deny rules over typed `action + resource` pairs
-- menu nodes, API bindings, role-menu grants, revisions, and audit records
-- subject decisions, explanations, visible menu projections, and authorized collections
-- optional semantic caching backed by the host MonSQLize cache
+permission-core owns tenant-scoped roles, rules, menu and API authorization state, runtime decisions, bounded diagnostics, and optional semantic cache use. Every management write persists through MonSQLize transactions. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-Every management mutation is persisted through MonSQLize transactions and returns revision and audit evidence. Runtime decisions fail closed when required scope, policy context, database state, or source integrity is unavailable.
+## What the Host Owns
 
-## What the host owns
+The application still owns login, credentials, sessions, MonSQLize connection lifecycle, business collections, HTTP serialization, and operational policy. permission-core does not turn untrusted request input into a trusted subject. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-The application still owns authentication, request identity, secrets, its MonSQLize connection, business collections, HTTP error serialization, and operational policy. It must construct a trusted `PermissionSubject`; arbitrary tenant or user headers are not trusted automatically.
+## Choosing the Four Capability Layers
 
-permission-core is not an identity provider, login module, ORM, API gateway, or frontend-only menu filter.
+The layers are incremental. A service can use only RBAC decisions, while an admin system can add menus, API bindings, row/field guards, and Vext integration later. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-## Runtime model
+## How the Objects Work Together
+
+`scope()` and `forSubject()` create facades without querying the database. Reads and writes happen only when the subsequent manager, subject, menu, or data methods are called. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+
+## Runtime Model
+
+The host converts authenticated identity into a `PermissionSubject`. permission-core resolves effective rules in the scope and uses the same state for API decisions, menu projection, button state, and guarded collections. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```mermaid
 flowchart LR
   accTitle: permission-core runtime model
   accDescr: An authenticated identity becomes a scoped permission subject whose effective rules drive API, menu, button, and data decisions.
   A["Authenticated identity"] --> B["PermissionSubject"]
-  B --> C["Tenant-scoped roles"]
+  B --> C["Roles in scope"]
   C --> D["Effective allow and deny rules"]
   D --> E["Route and API decisions"]
   D --> F["Visible menus and buttons"]
   D --> G["Authorized Mongo collection"]
 ```
+<p className="pc-diagram-text" id="pc-diagram-runtime-model-en-text" data-diagram-id="runtime-model"><strong>Text equivalent.</strong>The host turns authenticated identity into a complete PermissionSubject. permission-core resolves roles and effective allow or deny rules inside that scope, then uses the same authorization state for route and API checks, visible menus and buttons, and guarded Mongo collection operations.</p>
+## Support Boundary
 
-<p className="pc-diagram-text" id="pc-diagram-runtime-model-en-text" data-diagram-id="runtime-model"><strong>Text equivalent.</strong> The host turns an authenticated identity into a scoped `PermissionSubject`. permission-core resolves tenant-scoped roles and effective allow/deny rules, then uses that same authorization state for route and API decisions, visible menus and buttons, and authorized Mongo collection operations.</p>
+The current supported persistence path is a connected `monsqlize@3.1.0` MongoDB runtime. Authentication remains outside this package, and the optional Vext plugin is imported from `permission-core/plugins/vext`. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-A scope contains at least `tenantId` and can add `appId`, `moduleId`, or `namespace`. The same `userId` and `roleId` may exist in another scope without sharing bindings or rules.
+## Choose the Next Task
 
-## Supported boundary
+If the terms are new, read the core concepts page; otherwise go to the quick start, role/user management, permission checks, data permissions, or menu management based on your next job. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-| Surface | Supported contract |
-|---|---|
-| Runtime | Node.js 18 or newer |
-| Persistence | A connected `monsqlize@3.1.0` instance; MongoDB is the supported database path |
-| Framework | Framework-neutral core plus optional `permission-core/plugins/vext` |
-| Cache | Disabled by default; optional caller-attested MonSQLize cache |
-| Authentication | Supplied by the host; login is outside this package |
-
-## Choose the next task
-
-Begin with [Quick Start](/guide/quick-start). If you already have the core running, continue with [permission checks](/guide/check-permission), [data permissions](/guide/data-permissions), or [menu management](/guide/menu-management).
+Continue with [Quick Start](/guide/quick-start).

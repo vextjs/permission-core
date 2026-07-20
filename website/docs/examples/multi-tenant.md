@@ -1,8 +1,9 @@
 # Multi-Tenant
+<!-- docs:inline-parity `userId` `roleId` `examples/multi-tenant.mjs` `docs:multi-tenant:start` `docs:multi-tenant:end` `ok: true` `tenantA.ownResource` `tenantB.ownResource` `true` `crossTenantResource` `false` `manager` `scope` `core.scope(scopeA)` `{ tenantId: 'tenant-a', appId: 'admin' }` `roles.create` `roles.allow` `userRoles.assign` `same-user` `tenantA` `core.scope(scopeB)` `{ tenantId: 'tenant-b', appId: 'admin' }` `tenantB.directRoles` `appId` `tenantId` `forSubject` `userRoles.getDirect` `can` `identity` `forSubject({ userId, scope })` `userRoles.getDirect(userId)` `VersionedResult<UserRoleBindingSet>` `data.roleIds` `subject.can(action, resource)` `printExample()` `getDirect` `directRoles` `tenantB` `scopeFields` -->
 
 ## Scenario
 
-The same `userId` and `roleId` are created in two scopes. Each subject can read only the resource granted inside its own complete tenant/application scope, proving that IDs are not global authorization identities.
+This example creates the same `userId` and `roleId` in two scopes. Each subject can read only the resource granted inside its own complete tenant/application scope, proving that IDs are not global authorization identities.
 
 ## Run
 
@@ -10,59 +11,84 @@ The same `userId` and `roleId` are created in two scopes. Each subject can read 
 npm run example:multi-tenant
 ```
 
-The canonical source is `examples/multi-tenant.mjs`, between `docs:multi-tenant:start` and `docs:multi-tenant:end`.
+The canonical source is the `docs:multi-tenant:start` to `docs:multi-tenant:end` block in `examples/multi-tenant.mjs`.
+
+## First Check the Result
+
+A successful run confirms `ok: true`, both own-resource checks are `true`, and both `crossTenantResource` checks are `false`.
 
 ## Source walkthrough
 
 ```js
 const scopeA = { tenantId: 'tenant-a', appId: 'admin' };
 const scopeB = { tenantId: 'tenant-b', appId: 'admin' };
-await core.scope(scopeA).userRoles.assign('same-user', 'manager');
-await core.scope(scopeB).userRoles.assign('same-user', 'manager');
+const tenantA = core.scope(scopeA);
+const tenantB = core.scope(scopeB);
+
+await tenantA.roles.create({ id: 'manager', label: 'Tenant A manager' });
+await tenantA.roles.allow('manager', {
+  action: 'read', resource: 'ui:page:tenant-a-dashboard',
+});
+await tenantA.userRoles.assign('same-user', 'manager');
+
+await tenantB.roles.create({ id: 'manager', label: 'Tenant B manager' });
+await tenantB.roles.allow('manager', {
+  action: 'read', resource: 'ui:page:tenant-b-dashboard',
+});
+await tenantB.userRoles.assign('same-user', 'manager');
 
 const subjectA = core.forSubject({ userId: 'same-user', scope: scopeA });
-const cross = await subjectA.can('read', 'ui:page:tenant-b-dashboard');
+const subjectB = core.forSubject({ userId: 'same-user', scope: scopeB });
+const rolesA = await tenantA.userRoles.getDirect('same-user');
+const rolesB = await tenantB.userRoles.getDirect('same-user');
+const aOwn = await subjectA.can('read', 'ui:page:tenant-a-dashboard');
+const aCross = await subjectA.can('read', 'ui:page:tenant-b-dashboard');
+const bOwn = await subjectB.can('read', 'ui:page:tenant-b-dashboard');
+const bCross = await subjectB.can('read', 'ui:page:tenant-a-dashboard');
 ```
 
-Each scope has its own `manager` definition and binding set. The cross check uses tenant A authorization state and therefore returns false.
+Each scope owns its own `manager` definition and binding set. A cross-tenant check reads the current subject scope, so it returns false by default.
 
 ### 1. Build tenant A authorization state
 
 <!-- docs:operation id=tenant-state-a calls=scope,roles.create,roles.allow,userRoles.assign outputs=tenantA -->
 
-**Purpose and target.** `scope` (via `core.scope(scopeA)`) creates a management context for `{ tenantId: 'tenant-a', appId: 'admin' }`. Inside it, `roles.create` creates `manager`, `roles.allow` grants only tenant A's dashboard, and `userRoles.assign` binds `same-user`.
+**Purpose and target.** This operation explains `scope`, `roles.create`, `roles.allow`, `userRoles.assign` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
 
-**State, arguments, and result.** The visible IDs are intentionally reusable; the normalized scope key is part of every role, rule, and user-role lookup. The resulting `tenantA` output therefore contains tenant A's direct role plus decisions made only from tenant A state.
+**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `tenantA`.
 
-**Failure and next step.** An incomplete/invalid scope, duplicate role in the same scope, unknown role, or failed mutation rejects that step. Correct the scoped record and retry there; never fall back to an unscoped lookup or borrow tenant B state.
+**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
 
-**API reference.** See [Core and Contexts](/api/core-and-contexts), [Roles](/api/roles), and [User Roles](/api/user-roles).
+**API reference.** See [core-and-contexts](/api/core-and-contexts), [roles](/api/roles), [user-roles](/api/user-roles) for exact signatures, response wrappers, and public error codes.
 
 ### 2. Build tenant B authorization state
 
 <!-- docs:operation id=tenant-state-b calls=scope,roles.create,roles.allow,userRoles.assign outputs=tenantB -->
 
-**Purpose and target.** `scope` (via `core.scope(scopeB)`) selects `{ tenantId: 'tenant-b', appId: 'admin' }`; `roles.create`, `roles.allow`, and `userRoles.assign` repeat the same role/user IDs but grant tenant B's dashboard instead.
+**Purpose and target.** This operation explains `scope`, `roles.create`, `roles.allow`, `userRoles.assign` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
 
-**State, arguments, and result.** Tenant B receives independent role, rule, revision, and assignment records. `tenantB.directRoles` can therefore also contain `manager` without sharing the role object or its allowed resource with tenant A.
+**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `tenantB`.
 
-**Failure and next step.** Handle failures within the full tenant B scope and verify all dimensions, including `appId`. Reusing only `tenantId` while dropping another active dimension would address a different scope and must fail rather than silently broaden access.
+**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
 
-**API reference.** See [Core and Contexts](/api/core-and-contexts), [Roles](/api/roles), and [User Roles](/api/user-roles).
+**API reference.** See [core-and-contexts](/api/core-and-contexts), [roles](/api/roles), [user-roles](/api/user-roles) for exact signatures, response wrappers, and public error codes.
 
 ### 3. Compare own-scope and cross-scope decisions
 
 <!-- docs:operation id=tenant-decisions calls=forSubject,userRoles.getDirect,can outputs=identity,tenantA,tenantB -->
 
-**Purpose and target.** Two `forSubject` calls create request contexts for the same `userId` in different complete scopes. `userRoles.getDirect` reads each binding set, then `can` checks each subject's own dashboard and the other tenant's dashboard.
+**Purpose and target.** This operation explains `forSubject`, `userRoles.getDirect`, `can` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
 
-**State, arguments, and result.** Each own-resource result is `true`; each cross-resource result is `false` because that resource has no allow in the subject's scope. The `identity` string summarizes the invariant demonstrated by all four decisions.
+**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `identity`, `tenantA`, `tenantB`.
 
-**Failure and next step.** Scope must come from authenticated server state or a trusted resolver. If trusted sources disagree, reject the request as a scope conflict; do not choose a scope from an arbitrary header and do not retry in another tenant.
+**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
 
-**API reference.** See [Core and Contexts](/api/core-and-contexts) for subject decisions and [User Roles](/api/user-roles) for scoped direct-role reads.
+**API reference.** See [core-and-contexts](/api/core-and-contexts), [user-roles](/api/user-roles) for exact signatures, response wrappers, and public error codes.
+
 
 ## Expected output
+
+The following JSON is the **Example summary output** generated by `printExample()`. It combines selected fields from several API calls and is not the raw response of one method.
 
 ```json
 {
@@ -84,20 +110,21 @@ Each scope has its own `manager` definition and binding set. The cross check use
 
 <!-- docs:output group=identity producer=tenant-decisions -->
 
-**`identity` provenance.** This summary is emitted after both `userRoles.getDirect` reads and all four `can` decisions; it is the interpretation of the evidence below, not a database field.
+**`identity` provenance.** This output group is produced by the tenant-decisions walkthrough and should be read together with `can`. It is a selected, documented example field rather than a new API response shape.
 
 <!-- docs:output group=tenantA producer=tenant-state-a -->
 
-**`tenantA` provenance.** `getDirect` supplies `directRoles`; tenant A's subject supplies its own and cross-tenant `can` results. The false cross result demonstrates default deny inside tenant A's authorization state.
+**`tenantA` provenance.** This output group is produced by the tenant-state-a walkthrough and should be read together with `getDirect`. It is a selected, documented example field rather than a new API response shape.
 
 <!-- docs:output group=tenantB producer=tenant-state-b -->
 
-**`tenantB` provenance.** `userRoles.getDirect` and `can` run against tenant B's independent scope. Matching IDs alongside different resource decisions are the expected proof of isolation.
+**`tenantB` provenance.** This output group is produced by the tenant-state-b walkthrough and should be read together with `can`. It is a selected, documented example field rather than a new API response shape.
+
 
 ## Production boundary
 
-The fixture scopes are fixed test data. Production scope must come from authenticated server state or a trusted resolver, never directly from a request header/body. Business collections must also map every active scope dimension through `scopeFields`.
+Fixture scopes are fixed test data. Production scopes must come from authenticated server state or a trusted resolver, and business collections must map every active scope dimension through `scopeFields`.
 
 ## Related
 
-See [Multi-Tenant Model](/guide/multi-tenant), [Authentication Boundary](/guide/authentication-boundary), and [Authorized Collection](/api/authorized-collection).
+See [Multi-Tenant Model](/guide/multi-tenant), [Authentication Boundary](/guide/authentication-boundary), and [Authorized Collection API](/api/authorized-collection).

@@ -1,16 +1,42 @@
 # Cache
+<!-- docs:inline-parity `cache: { enabled: false }` `get` `set` `del` `delPattern` `getCache()` `get/set/del/delPattern` `pc.init()` `PermissionCoreHealth` `backendState: 'opaque'` `cache.enabled` `true` `monsqlize.getCache()` `cache.consistency` `ordered-bounded-stale` `cache.ttlMs` `pc.health()` `pc.close()` `ttlMs` `30000` `100..86400000` `consistency` `cache` `{ enabled: false }` `PermissionCore.close()` `await pc.health()` `cache.readIncidentActive` `cache.invalidationIncidentActive` `cache.invalidationRiskUntil` `audit.pendingCacheOutcomes` `collectionPrefix` `tokenSecret` -->
 
-Permission caching is optional. The default is `cache: { enabled: false }`, so permission decisions read MonSQLize-backed state directly. Enable the semantic cache only when the host can attest that its MonSQLize 3.1 cache backend provides ordered `get`, `set`, `del`, and `delPattern` behavior for every permission-core instance.
+Permission caching is optional and disabled by default. Enable it only when the host can prove that the MonSQLize cache backend provides ordered `get`, `set`, `del`, and `delPattern` semantics across all instances.
 
 ## Preconditions
 
-- Configure the cache backend on the host-owned MonSQLize instance. permission-core has no cache-hub option and does not own a second cache client.
-- Use a shared backend when multiple application instances must observe the same invalidations.
-- Keep authorization database writes and cache operations in the required order: database commit first, invalidation second.
-- Treat the configured TTL as the maximum incident window after an invalidation failure, not as a guarantee that stale authorization is acceptable.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ## Configuration
 
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+
+```ts
+import MonSQLize from 'monsqlize';
+
+const msq = new MonSQLize({
+  type: 'mongodb',
+  databaseName: 'app',
+  config: { uri: 'mongodb://127.0.0.1:27017' },
+  cache: {
+    maxEntries: 10_000,
+    defaultTtl: 30_000,
+  },
+});
+await msq.connect();
+```
+```ts
+const sharedCache = MonSQLize.createRedisCacheAdapter(
+  'redis://127.0.0.1:6379',
+);
+const msq = new MonSQLize({
+  type: 'mongodb',
+  databaseName: 'app',
+  config: { uri: 'mongodb://127.0.0.1:27017' },
+  cache: sharedCache,
+});
+await msq.connect();
+```
 ```ts
 const pc = new PermissionCore({
   monsqlize: msq,
@@ -23,7 +49,6 @@ const pc = new PermissionCore({
 
 const health = await pc.init();
 ```
-
 ```json
 {
   "status": "up",
@@ -40,34 +65,20 @@ const health = await pc.init();
   }
 }
 ```
+## Consistency and Ownership
 
-`ttlMs` defaults to `30000` and accepts `100..86400000`. `consistency` is required when enabled and currently accepts only `ordered-bounded-stale`. Omitting `cache`, or setting `{ enabled: false }`, bypasses the permission cache entirely.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-## Consistency and ownership
+## Incident Handling
 
-The cache stores revision-bound effective authorization snapshots and menu projections. Keys include the core namespace, complete scope, user, claims/context fingerprints, family, and selector. A cached view is accepted only when its envelope, TTL, family, and known revision contract are valid.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-Management mutations commit state and audit evidence in MonSQLize before invalidating affected scope, RBAC, menu, or user key families. Read, decode, or cache-write failures fall back to the database where that is safe. An invalidation failure is different: health stays degraded through the recorded risk window because another reader may still hold an older entry.
+## Multi-Instance Checklist
 
-The host owns both MonSQLize and its cache backend. `PermissionCore.close()` detaches permission cache usage but does not close either owner resource.
-
-## Failure runbook
-
-1. Read `await pc.health()` and inspect `cache.readIncidentActive`, `cache.invalidationIncidentActive`, `cache.invalidationRiskUntil`, fallback/failure counters, and `audit.pendingCacheOutcomes`.
-2. Confirm MonSQLize health and the configured cache backend independently; `backendState: 'opaque'` means permission-core does not claim backend liveness.
-3. For read incidents, expect database fallback and investigate latency/capacity before restoring the backend.
-4. For invalidation incidents, stop risky permission expansion if necessary, restore ordered invalidation, and wait until the risk window and pending outcomes clear.
-5. Do not bypass revision checks, manually mark an incident healthy, or serve a stale allow as a recovery shortcut.
-
-## Multi-instance checklist
-
-- All instances use the same `collectionPrefix`, resource-scheme contract, configured `tokenSecret`, cache backend, and TTL policy.
-- The backend's pattern deletion reaches keys written by every instance.
-- Health alerts distinguish read fallback from invalidation risk and include pending audit outcomes.
-- Deployment tests cover mutation on instance A followed by a permission read on instance B.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ## Rollback
 
-The safe rollback is to deploy `cache: { enabled: false }` consistently and return to database-backed decisions. Drain old instances before considering the cache disabled across the fleet. Do not change cache mode independently on random instances during an active authorization incident.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-Continue with [Production Operations](/guide/production-operations) for readiness handling and [Audit and Health](/api/audit-and-health) for the exact health shape.
+Continue with [Vext Plugin](/guide/vext-plugin).

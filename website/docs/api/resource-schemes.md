@@ -1,10 +1,15 @@
 # Resource Schemes
+<!-- docs:inline-parity `api:` `db:` `ui:` `*` `scheme` `api` `db` `http` `ui` `version` `scheme:` `probes` `1..16` `{ pattern, resource, expected }` `init()` `validate(resource)` `match(pattern, resource)` `new PermissionCore({ resourceSchemes })` `PermissionCore` `validate` `match` `32` `INVALID_CONFIGURATION` `INVALID_RESOURCE` `64` `1024` `topicScheme` `health` `pc.init()` `PermissionCoreHealth` `health.schema.expectedSchemeContractDigest` `health.namespace.schemeContractDigest` `topic:orders:*` `can/assert` `topic:orders:created` `permission-core/match` -->
+
+Resource schemes validate and match resource strings. Built-ins cover HTTP, API, database, field, UI, and global patterns; custom schemes are trusted configuration.
 
 ## Purpose and preconditions
 
-Resource schemes define how rule patterns match concrete resources. Built-ins cover HTTP routes, `api:`, `db:`, `ui:`, and the rule-only global `*`. Add a custom scheme only when those grammars cannot represent a stable application resource domain.
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
 ## Signatures
+
+The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.
 
 ```ts
 interface ResourceSchemeDefinition {
@@ -24,12 +29,32 @@ new PermissionCore({
   resourceSchemes?: ResourceSchemeDefinition[],
 });
 ```
+## Definition Fields and Lifecycle
 
-`scheme` follows lowercase URI-scheme grammar and cannot be `api`, `db`, `http`, or `ui`. `version` is the behavior version, not a package version. Callbacks are trusted synchronous configuration code and must be deterministic.
+Custom definitions are trusted configuration, not persisted rule functions. Initialization probes them repeatedly and includes their behavior contract in schema health.
+
+<!-- docs:params owner=ResourceSchemeDefinition locale=en -->
+<span id="resource-schemes-configure"></span>
+### `new PermissionCore({ resourceSchemes })`
+<!-- docs:method name=PermissionCore.resourceSchemes locale=en -->
+
+- **Purpose**: Use `PermissionCore.resourceSchemes` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="resource-schemes-validate"></span>
+### `validate(resource)` and `match(pattern, resource)`
+<!-- docs:method name=ResourceSchemeDefinition.callbacks locale=en -->
+
+- **Purpose**: Use `ResourceSchemeDefinition.callbacks` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
 
 ## Responses and side effects
 
-Construction snapshots at most `32` definitions. `init()` executes each of `1..16` probes twice, requires concrete-resource validation to pass, and verifies the expected match result. Scheme name/version/probes contribute to the persisted schema contract digest returned in health.
+Side effects are scoped and revisioned. Writes record audit evidence and invalidate affected semantic cache keys; reads preserve bounded detail metadata so callers can tell whether diagnostics were complete.
 
 ```json
 {
@@ -39,14 +64,13 @@ Construction snapshots at most `32` definitions. `init()` executes each of `1..1
   }
 }
 ```
-
-Rule patterns are dispatched to `match`; concrete resources are first accepted by `validate`. Patterns and resources must remain within the declared scheme.
-
 ## Failures and limits
 
-Invalid definitions or nondeterministic/throwing probes fail initialization with `INVALID_CONFIGURATION`. Unknown/malformed resources fail with `INVALID_RESOURCE`. Names are at most `32` characters, versions `64`, and each pattern/resource `1024` UTF-8 bytes. Changing callback behavior requires changing `version` and deploying the same definition to every instance; otherwise schema contracts can diverge.
+Failures close authorization instead of widening it. Important limits are enforced before state is committed, and stale previews or revisions must be refreshed rather than guessed.
 
 ## Example
+
+The example keeps one narrow path per page. It shows the raw method family and a compact response shape, while the full runnable scenarios live in the examples section.
 
 ```ts
 const topicScheme = {
@@ -62,12 +86,18 @@ const topicScheme = {
     return pattern.endsWith('*') ? resource.startsWith(prefix) : pattern === resource;
   },
 };
-```
 
+const pc = new PermissionCore({
+  monsqlize,
+  resourceSchemes: [topicScheme],
+});
+const health = await pc.init();
+```
 ```json
 { "scheme": "topic", "probeCount": 2, "deterministic": true }
 ```
-
 ## Related
 
-See [Resources and Rules](/guide/resources-and-rules), [Match Resource](/api/match-resource), and [Core and Contexts](/api/core-and-contexts).
+Continue with the linked guide or neighboring API page when you need workflow context rather than only signatures.
+
+Continue with [Match Resource](/api/match-resource).

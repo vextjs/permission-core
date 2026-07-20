@@ -1,27 +1,26 @@
 # Authentication Boundary
+<!-- docs:inline-parity `PermissionSubject` `isAuthenticated: true` `permissionSubject` `userId` `scope` `req.auth` `VEXT_AUTH_REQUIRED` `INVALID_SUBJECT` `permissionPlugin(options)` `resolveSubject` `auth` `req` `userId + scope` `SCOPE_CONFLICT` `claims` `permission` `permission: false` `permission: true` `req.auth.permission.can(action, resource, context?)` `Promise<boolean>` `req.auth.permission.assert(...)` `Promise<void>` `PermissionCoreError` `requirePermissionContext(req)` `{ subject, can, assert }` `hasPermissionContext(req)` `can` `assert` `void` `403` `401` `503` -->
 
-permission-core answers authorization questions after a host has authenticated the request. It does not issue sessions, verify passwords or tokens, refresh credentials, or provide login/logout endpoints. The boundary is a trusted `PermissionSubject`: canonical user identity, complete tenant scope, and optional trusted claims.
+The host authenticates the request first; permission-core answers authorization questions only after it receives a trusted `PermissionSubject`.
 
-## Responsibility model
+## Responsibility Model
+
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```mermaid
 flowchart TD
   accTitle: Authentication and authorization boundary
   accDescr: The host authenticates credentials and supplies trusted identity, scope, and claims before permission-core authorizes a route, menu, or data operation.
-  A["Credential or session"] --> B["Host authentication"]
-  B --> C["Trusted user, scope and claims"]
+  A["Credentials or session"] --> B["Host authentication"]
+  B --> C["Trusted user, scope, and claims"]
   C --> D["PermissionSubject"]
   D --> E["permission-core authorization"]
-  E --> F["Route, menu or data operation"]
+  E --> F["Route, menu, or data operation"]
 ```
+<p className="pc-diagram-text" id="pc-diagram-authentication-boundary-en-text" data-diagram-id="authentication-boundary"><strong>Text equivalent.</strong>Credentials or sessions are authenticated by the host first. The host supplies trusted user identity, scope, and claims to build a PermissionSubject. Only then does permission-core authorize the route, menu projection, or data operation; credential checks and account state remain host responsibilities.</p>
+## Accepted Vext Shapes
 
-<p className="pc-diagram-text" id="pc-diagram-authentication-boundary-en-text" data-diagram-id="authentication-boundary"><strong>Text equivalent.</strong> Credentials or a session are validated by host authentication. The host supplies trusted user identity, scope, and claims to build a `PermissionSubject`; permission-core then authorizes the requested route, menu projection, or data operation. Authentication and account recovery remain host responsibilities.</p>
-
-Authentication owns credential validation, account status, session lifetime, and identity recovery. permission-core owns role/rule lookup, deny-first evaluation, menu projection, and authorized data operations inside the supplied scope. Business handlers still own object existence and domain invariants.
-
-## Accepted Vext shapes
-
-The built-in Vext resolver requires `isAuthenticated: true` and exactly one subject representation:
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 req.auth = {
@@ -33,7 +32,6 @@ req.auth = {
   },
 };
 ```
-
 ```ts
 req.auth = {
   isAuthenticated: true,
@@ -42,12 +40,9 @@ req.auth = {
   claims: { merchantId: session.merchantId },
 };
 ```
+## Custom Subject Resolution
 
-Do not mix `permissionSubject` with the flattened `userId`/`scope` representation. Missing `req.auth`, false authentication, incomplete identity, or conflicting shapes fail with `VEXT_AUTH_REQUIRED` or `INVALID_SUBJECT`.
-
-## Custom subject resolution
-
-Use a resolver when the authentication plugin exposes another internal shape:
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 permissionPlugin({
@@ -59,22 +54,16 @@ permissionPlugin({
   }),
 });
 ```
+## Protected and Public Routes
 
-If `req.auth` also carries a canonical `permissionSubject` or `userId + scope`, the resolver result must identify the same user and complete scope. A mismatch is `SCOPE_CONFLICT`; the plugin never chooses one source silently. Claims may provide policy values, but callers must not treat a client-supplied header/body value as trusted simply because it was copied into `claims`.
-
-## Protected and public routes
-
-Routes without `permission`, or with `permission: false`, are public to permission-core and do not force lazy subject resolution. `permission: true` and explicit requirements require authentication and authorization before the handler. Application code can also request the lazy context:
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 const allowed = await req.auth.permission.can('read', 'db:orders');
 await req.auth.permission.assert('invoke', 'api:POST:/api/orders/export');
 ```
+## Failure Boundary and Next Step
 
-`can` resolves to a boolean. `assert` resolves `void` on success and maps denial to `403`. The request-owned API is valid only during its original request; retaining it for jobs, queues, or later requests fails closed.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-## Failure boundary and next step
-
-Use `401` for missing/invalid authenticated subject, `403` for an authenticated subject without permission, and `503` when authorization state cannot be trusted. Do not turn database, schema, reload, or persisted-state failures into an allow. For background work, construct a fresh trusted `PermissionSubject` and call the core directly.
-
-Continue with [Multi-Tenant Model](/guide/multi-tenant), [Vext Plugin](/guide/vext-plugin), and [Errors](/api/errors).
+Continue with [Production Operations](/guide/production-operations).

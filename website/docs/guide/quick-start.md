@@ -1,246 +1,114 @@
 # Quick Start
+<!-- docs:inline-parity `quick-start.mjs` `msq.connect()` `pc.init()` `roles.create(input)` `id` `label` `tenantId` `MutationResult<Role>` `data` `roles.allow(roleId, rule)` `action/resource` `MutationResult<PermissionRuleView>` `userRoles.assign(userId, roleId)` `u-1` `MutationResult<UserRoleBindingSet>` `pc.scope({ tenantId: 'acme' })` `acme` `pc.forSubject({ userId, scope })` `subject.can(action, resource)` `allowed: true` `invoke + GET:/api/orders` `deleteAllowed: false` `DELETE:/api/orders` `false` `can()` `MONGODB_URI` `pc.close()` `msq.close()` `finally` `scope` `subject` -->
 
-This path starts with a host-owned MonSQLize connection, reaches the first authorization decision in steps 1-4, then adds menu and data permissions. The runnable sources are [`examples/basic.mjs`](https://github.com/vextjs/permission-core/blob/main/examples/basic.mjs) for steps 1-4, [`examples/menu-admin.mjs`](https://github.com/vextjs/permission-core/blob/main/examples/menu-admin.mjs) for step 5, and [`examples/data-guard.mjs`](https://github.com/vextjs/permission-core/blob/main/examples/data-guard.mjs) for step 6.
+This page does one thing: create a role, give the user permission to read the orders API, and show one allowed result plus one default-denied result. After this first path works, continue to the role admin, menu, or data-permission guides.
 
-## 1. Install and initialize
+## 1. Install and Prepare MongoDB
 
-Use Node.js 18 or newer and an available MongoDB deployment.
+Use Node.js 18 or newer and a transaction-capable MongoDB deployment. Install permission-core with its only database dependency, MonSQLize 3.1:
 
 ```bash
 npm install permission-core monsqlize@3.1.0
 ```
 
-```ts
+Put the MongoDB URI in an environment variable. The command below is local development only; production applications should use the host application's own configuration mechanism.
+
+```bash
+MONGODB_URI=mongodb://127.0.0.1:27017 node quick-start.mjs
+```
+
+## 2. Connect and Initialize
+
+Create `quick-start.mjs` with this complete code:
+
+<!-- docs:first-success:start -->
+```js
 import MonSQLize from 'monsqlize';
 import { PermissionCore } from 'permission-core';
 
 const msq = new MonSQLize({
   type: 'mongodb',
-  databaseName: 'app',
-  config: { uri: 'mongodb://127.0.0.1:27017' },
+  databaseName: process.env.MONGODB_DATABASE ?? 'permission_core_quick_start',
+  config: {
+    uri: process.env.MONGODB_URI ?? 'mongodb://127.0.0.1:27017',
+  },
 });
+
 await msq.connect();
+const pc = new PermissionCore({ monsqlize: msq });
 
-const pc = new PermissionCore({
-  monsqlize: msq,
-  tokenSecret: 'replace-with-a-host-secret-at-least-32-bytes',
-});
-const health = await pc.init();
-```
+try {
+  await pc.init();
 
-`tokenSecret` must contain at least 32 UTF-8 bytes. Keep the same host-configured value on every instance that shares this permission namespace so preview and cursor tokens remain valid across restarts.
+  const scope = { tenantId: 'acme' };
+  const scoped = pc.scope(scope);
 
-`init()` creates and verifies permission indexes and a transaction-capable database contract. Key fields from a successful response are:
+  await scoped.roles.create({
+    id: 'order-reader',
+    label: '订单只读',
+  });
+  await scoped.roles.allow('order-reader', {
+    action: 'invoke',
+    resource: 'GET:/api/orders',
+  });
+  await scoped.userRoles.assign('u-1', 'order-reader');
 
-```json
-{
-  "status": "up",
-  "lifecycle": "ready",
-  "initialized": true,
-  "database": { "status": "up" }
+  const subject = pc.forSubject({ userId: 'u-1', scope });
+  const allowed = await subject.can('invoke', 'GET:/api/orders');
+  const deleteAllowed = await subject.can('invoke', 'DELETE:/api/orders');
+
+  console.log(JSON.stringify({ allowed, deleteAllowed }, null, 2));
+} finally {
+  await pc.close();
+  await msq.close();
 }
 ```
+<!-- docs:first-success:end -->
 
-The host owns `msq`. Closing permission-core later does not close that connection.
+`msq.connect()` creates the database connection owned by the host application. `pc.init()` creates or verifies the collections and indexes required by permission-core. permission-core uses the supplied MonSQLize runtime, but does not own it, so shutdown closes both resources explicitly.
 
-## 2. Create a role, rule, and user binding
+## 3. Create the Role and Bind the User
 
-All management APIs are scope-bound. At minimum, a scope contains `tenantId`.
+The three write methods in the middle of the code create the smallest useful authorization state:
 
-```ts
-const scope = { tenantId: 'acme' };
-const scoped = pc.scope(scope);
+| Call | What the arguments mean | What changes | Raw return |
+|---|---|---|---|
+| `roles.create(input)` | `id` is the stable role ID used by code; `label` is the display name | Creates a role under the current `tenantId` | `MutationResult<Role>`, with the role in `data` |
+| `roles.allow(roleId, rule)` | The first argument selects the role; `action/resource` describes the allowed operation | Adds one allow rule to the role | `MutationResult<PermissionRuleView>` |
+| `userRoles.assign(userId, roleId)` | `u-1` comes from the host user system; the second argument is an existing role | Adds one direct role to the user | `MutationResult<UserRoleBindingSet>` |
 
-const created = await scoped.roles.create({
-  id: 'order-reader',
-  label: 'Order reader',
-});
-const rule = await scoped.roles.allow('order-reader', {
-  action: 'invoke',
-  resource: 'GET:/api/orders',
-});
-const assigned = await scoped.userRoles.assign('u-1', 'order-reader');
-```
+`pc.scope({ tenantId: 'acme' })` keeps these management operations inside the `acme` tenant. It does not write to the database by itself. permission-core does not create or log in `u-1`; it stores only the relationship between that user ID and the role.
 
-Each mutation returns committed data, revision vectors, an audit ID, and cache outcome. The object below extracts the values used by this walkthrough from the three separate mutation responses:
+## 4. Verify Allow and Default Deny
 
-```json
-{
-  "created": { "changed": true, "role": { "id": "order-reader", "revision": 1 } },
-  "rule": { "effect": "allow", "action": "invoke", "resource": "GET:/api/orders" },
-  "assigned": { "userId": "u-1", "roleIds": ["order-reader"], "revision": 1 }
-}
-```
+`pc.forSubject({ userId, scope })` binds a trusted user and scope into a decision context. `subject.can(action, resource)` returns a boolean and does not modify authorization state.
 
-`assign(userId, roleId)` adds one direct role. `set(userId, roleIds, { expectedRevision })` replaces the user's complete direct-role set and is intended for an admin form that saves the full selection.
-
-## 3. Check allowed and blocked operations
-
-Bind a trusted user and scope once, then evaluate that subject.
-
-```ts
-const subject = pc.forSubject({ userId: 'u-1', scope });
-
-const allowed = await subject.can('invoke', 'GET:/api/orders');
-const cannotDelete = await subject.cannot('invoke', 'DELETE:/api/orders');
-```
+Running the file should print:
 
 ```json
 {
   "allowed": true,
-  "cannotDelete": true
+  "deleteAllowed": false
 }
 ```
 
-The role has no `DELETE:/api/orders` rule, so `can(...)` for DELETE is `false` and `cannot(...)` is `true`. `cannot` is exactly the negation of `can`; it does not assign a separate blocked permission. Use `deny` only when an explicit deny rule is required.
+This is the **raw example output** printed by the program:
 
-## 4. Read roles and effective permissions
+- `allowed: true`: the role has the `invoke + GET:/api/orders` allow rule.
+- `deleteAllowed: false`: no rule allows `DELETE:/api/orders`, so the system denies it by default.
 
-These reads support role detail pages, user detail pages, and diagnostics without reconstructing inheritance in application code.
+The example does not assign a DELETE permission to the user, and it does not create a separate deny rule. `false` is simply the normal result of calling `can()` for an unauthorized operation.
 
-```ts
-const role = await scoped.roles.get('order-reader');
-const ownRules = await scoped.roles.getOwnRules('order-reader');
-const effectiveRules = await scoped.roles.getEffectiveRules('order-reader');
-const chain = await scoped.roles.getChain('order-reader');
-const directRoles = await scoped.userRoles.getDirect('u-1');
-const effectiveRoles = await scoped.userRoles.getEffective('u-1');
-const permissions = await subject.getPermissions();
-const resources = await subject.getResources('invoke');
-```
+If the first run fails, check that MongoDB is reachable, that it supports transactions, and that `MONGODB_URI` points at the expected instance. If you reuse a non-empty example database, the role may already exist; use a clean database or remove the example data before rerunning.
 
-```json
-{
-  "role": { "id": "order-reader", "label": "Order reader", "revision": 2 },
-  "directRoleIds": ["order-reader"],
-  "effectiveRoleIds": ["order-reader"],
-  "ownRules": ["allow:invoke:GET:/api/orders"],
-  "effectiveRules": ["allow:invoke:GET:/api/orders"],
-  "roleChain": ["order-reader"],
-  "permissionRuleCount": 1,
-  "resources": ["GET:/api/orders"]
-}
-```
+## 5. Close and Continue
 
-Steps 1-4 are the independent First Success path. Run `npm run docs:first-success` in this repository to verify the same path against a freshly packed consumer.
+> **Resource shutdown.** permission-core uses the host MonSQLize connection but does not own it; the fixed order is `pc.close()` first, then host-owned `msq.close()`.
 
-## 5. Add a menu, API binding, and role grant
+`finally` guarantees that success and failure both drain permission-core before the host closes the database connection.
 
-A menu node describes navigation or a button. An API binding describes a real backend endpoint owned by one or more nodes. A role grant turns that selected structure into permission rules.
+You now have the first successful core RBAC path:
 
-```ts
-await scoped.menus.create({
-  id: 'operations', type: 'directory', title: 'Operations',
-});
-await scoped.menus.create({
-  id: 'orders', parentId: 'operations', type: 'page', title: 'Orders',
-  path: '/orders', name: 'orders', component: 'OrdersPage',
-  permission: { action: 'read', resource: 'ui:page:orders' },
-});
-await scoped.menus.create({
-  id: 'orders-export', parentId: 'orders', type: 'button',
-  title: 'Export orders', code: 'orders.export',
-  permission: { action: 'invoke', resource: 'ui:button:orders.export' },
-});
-await scoped.apiBindings.create({
-  id: 'orders-export-api', method: 'POST', path: '/api/orders/export',
-  purpose: 'importExport',
-  authorization: {
-    mode: 'all',
-    permissions: [{ action: 'invoke', resource: 'api:POST:/api/orders/export' }],
-  },
-  owners: [{ type: 'button', id: 'orders-export', required: true }],
-  canonicalOwner: { type: 'button', id: 'orders-export' },
-});
-
-const selection = {
-  nodeIds: ['orders'],
-  include: { descendants: true, buttons: true, apis: 'required', dataPermissions: false },
-  apiChoices: { bindingIds: [], permissionsByBinding: {} },
-};
-const preview = await scoped.roles.menuPermissions.preview(
-  'order-reader',
-  { operation: 'grant', selection },
-);
-if (!preview.executable) throw new Error('Resolve preview conflicts first');
-await scoped.roles.menuPermissions.grant('order-reader', selection, {
-  ...preview.expected,
-  previewToken: preview.previewToken,
-});
-
-const visible = await subject.menus.getVisibleTree();
-const buttons = await subject.menus.getButtonMap('orders');
-```
-
-```json
-{
-  "visibleNodeIds": ["operations", "orders"],
-  "buttons": {
-    "orders.export": { "visible": true, "enabled": true, "reason": "allowed" }
-  }
-}
-```
-
-Visible UI state improves navigation but is not a backend security boundary. The export endpoint must enforce `api:POST:/api/orders/export` as well.
-
-## 6. Add row and field permissions
-
-Grant a collection rule with a dynamic row condition, allow fields used by filtering and projection, and explicitly deny the secret field.
-
-```ts
-await scoped.roles.allow('order-reader', {
-  action: 'read',
-  resource: 'db:orders',
-  where: { field: 'merchantId', op: 'eq', valueFrom: 'claims.merchantId' },
-});
-for (const field of ['merchantId', 'status', 'publicValue']) {
-  await scoped.roles.allow('order-reader', {
-    action: 'read', resource: `db:orders:field:${field}`,
-  });
-}
-await scoped.roles.deny('order-reader', {
-  action: 'read', resource: 'db:orders:field:secret',
-});
-
-const dataSubject = pc.forSubject({
-  userId: 'u-1',
-  scope,
-  claims: { merchantId: 'm-1' },
-});
-const orders = dataSubject.data.collection('orders', {
-  resource: 'db:orders',
-  scopeFields: { tenantId: 'tenantId' },
-});
-const rows = await orders.find(
-  { status: 'paid' },
-  { projection: ['merchantId', 'publicValue'] },
-);
-```
-
-Given these stored rows:
-
-```json
-[
-  { "tenantId": "acme", "merchantId": "m-1", "status": "paid", "publicValue": "shown", "secret": "hidden" },
-  { "tenantId": "acme", "merchantId": "m-2", "status": "paid", "publicValue": "other merchant", "secret": "hidden" }
-]
-```
-
-the authorized result is:
-
-```json
-[
-  { "merchantId": "m-1", "publicValue": "shown" }
-]
-```
-
-The runtime combines the caller's Mongo filter, exact tenant scope, all applicable row rules, and field authorization. It does not return a query for the caller to remember to apply.
-
-## 7. Close in owner order
-
-```ts
-await pc.close();
-await msq.close();
-```
-
-First stop new permission operations and drain permission-core, then let the host close MonSQLize. For authorization decisions, continue with [Check Permissions](/guide/check-permission); for database access, continue with [Data Permissions](/guide/data-permissions).
+- To build a role management backend, continue to [Manage Roles and User Assignments](/guide/manage-roles-and-users).
+- To handle interruption, diagnostics, and permission snapshots in business code, continue to [Check Permissions](/guide/check-permission).
+- If `scope`, `subject`, direct, or effective state is still unclear, read [Core Terms and Mental Model](/guide/core-concepts).

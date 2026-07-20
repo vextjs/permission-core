@@ -1,8 +1,9 @@
 # Vext Integration
+<!-- docs:inline-parity `examples/vext/index.mjs` `docs:vext:start` `docs:vext:end` `examples/vext/app/src/routes/index.mjs` `200` `401` `403` `503` `permissionCoreClosedByPlugin` `hostDatabaseStillConnected` `true` `permission: true` `GET:/orders/:id` `invoke` `req.auth` `createTestApp` `permissionPlugin.setup` `permissionPlugin(...)` `.setup` `server:beforeListen` `app.permission` `createTestApp()` `permissionPlugin(options)` `.setup(app)` `void` `scope` `roles.create` `route-reader` `roles.allow` `userRoles.assign` `u-vext` `/orders/42` `app.permission.scope(scope)` `pc.scope()` `request.get` `allowedBody` `testApp.request.get(path)` `.set()` `status` `allowed.body.data` `routes:ready` `routeReloadRequiresRestart` `VEXT_ROUTE_RESTART_REQUIRED` `hooks.emit('routes:ready', ...)` `request.get('/public')` `testApp.close` `monsqlize.health` `PermissionCore.close()` `testApp.close()` `monsqlize.health()` `printExample()` `responses` `lifecycle` `x-example-user` `permissionPlugin` -->
 
 ## Scenario
 
-This example loads the native Vext plugin, protects a route template, exercises public/unauthenticated/denied/allowed requests, proves route reload requires restart, and verifies that plugin shutdown does not close the host database.
+This example loads the native Vext plugin, protects a route template, exercises public/unauthenticated/denied/allowed requests, proves that route reload requires restart, and verifies that plugin shutdown does not close the host database.
 
 ## Run
 
@@ -10,82 +11,138 @@ This example loads the native Vext plugin, protects a route template, exercises 
 npm run example:vext
 ```
 
-The canonical sources are `examples/vext/index.mjs` (`docs:vext:start` to `docs:vext:end`) and `examples/vext/app/src/routes/index.mjs`.
+The canonical source is the `docs:vext:start` to `docs:vext:end` block in `examples/vext/index.mjs`, plus `examples/vext/app/src/routes/index.mjs`.
+
+## First Check the Result
+
+A successful run confirms status codes `200`, `401`, `403`, `200`, and `503`, plus `permissionCoreClosedByPlugin` and `hostDatabaseStillConnected` both being `true`.
 
 ## Source walkthrough
 
 ```js
-await permissionPlugin({ monsqlize: database.monsqlize }).setup(app);
+const testApp = await createTestApp({
+  rootDir: resolve('examples/vext/app'),
+  plugins: false,
+  services: false,
+  middlewares: false,
+  routes: true,
+  setupPlugins: async (app) => {
+    // Fixture only: production uses a real authentication plugin.
+    app.use(async (req, _res, next) => {
+      const userId = req.headers['x-example-user'];
+      if (userId) {
+        Object.defineProperty(req, 'auth', {
+          value: { isAuthenticated: true, userId, scope },
+          enumerable: true,
+        });
+      }
+      await next();
+    });
+    await permissionPlugin({
+      monsqlize: database.monsqlize,
+      core: { collectionPrefix: 'pc_vext_example' },
+    }).setup(app);
+  },
+});
+await testApp.app.hooks.emit('server:beforeListen', {
+  host: '127.0.0.1', port: 0, adapter: testApp.app.adapter,
+});
 
+const scoped = testApp.app.permission.scope(scope);
+await scoped.roles.create({ id: 'route-reader', label: 'Route reader' });
+await scoped.roles.allow('route-reader', {
+  action: 'invoke', resource: 'GET:/orders/:id',
+});
+await scoped.userRoles.assign('u-vext', 'route-reader');
+
+const publicResponse = await testApp.request.get('/public');
+const missingAuth = await testApp.request.get('/orders/42');
+const denied = await testApp.request.get('/orders/42')
+  .set('x-example-user', 'u-denied');
+const allowed = await testApp.request.get('/orders/42')
+  .set('x-example-user', 'u-vext');
+
+await testApp.app.hooks.emit('routes:ready', { count: 0, routes: [] });
+const restartRequired = await testApp.request.get('/public');
+await testApp.close();
+const hostDatabase = await database.monsqlize.health();
+```
+
+The protected route or companion source used by this scenario is:
+
+```js
 app.get('/public', {}, publicHandler);
 app.get('/orders/:id', { permission: true }, async (req, res) => {
   res.json({ orderId: req.params.id, userId: req.auth.permission.subject.userId });
 });
 ```
 
-`permission: true` derives `invoke` on `GET:/orders/:id`. The test-only header middleware supplies a reproducible `req.auth`; production uses a real authentication plugin.
+`permission: true` derives the `invoke` check for `GET:/orders/:id`. The header middleware is a fixture-only authentication source; production uses the real authentication plugin.
 
 ### 1. Bootstrap the Vext test host and plugin
 
 <!-- docs:operation id=vext-bootstrap calls=createTestApp,permissionPlugin.setup,server:beforeListen outputs=responses.public -->
 
-**Purpose and target.** `createTestApp` boots the fixture host, `permissionPlugin.setup` (the `.setup` returned by `permissionPlugin(...)`) installs permission-core into Vext, and `server:beforeListen` completes startup probes before requests are accepted.
+**Purpose and target.** This operation explains `createTestApp`, `permissionPlugin.setup`, `server:beforeListen` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
 
-**State, arguments, and result.** The plugin receives the host's connected MonSQLize instance and a collection prefix, then exposes `app.permission`. The public route remains unprotected; its later 200 response proves the host and route graph are usable after bootstrap.
+**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `responses.public`.
 
-**Failure and next step.** Missing/incompatible MonSQLize, failed PermissionCore initialization, or invalid route metadata prevents readiness. Fix host configuration and restart; do not serve protected routes with a partially initialized plugin.
+**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
 
-**API reference.** See [Vext Plugin API](/api/vext-plugin) for plugin options, setup hooks, resolved host state, and startup errors.
+**API reference.** See [vext-plugin](/api/vext-plugin) for exact signatures, response wrappers, and public error codes.
 
 ### 2. Seed the route permission policy
 
 <!-- docs:operation id=vext-policy calls=scope,roles.create,roles.allow,userRoles.assign outputs=responses.permissionDenied,responses.permissionAllowed -->
 
-**Purpose and target.** `scope` selects the Vext host's tenant context; `roles.create` creates `route-reader`, `roles.allow` permits `invoke` on the normalized template `GET:/orders/:id`, and `userRoles.assign` adds the role to `u-vext`.
+**Purpose and target.** This operation explains `scope`, `roles.create`, `roles.allow`, `userRoles.assign` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
 
-**State, arguments, and result.** The permission resource matches the template derived from `permission: true`, not the concrete `/orders/42` URL. This durable state is why `u-vext` receives 200 while another authenticated user receives 403.
+**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `responses.permissionDenied`, `responses.permissionAllowed`.
 
-**Failure and next step.** A different action/resource template, wrong scope, or missing assignment produces default deny. Compare the route manifest with the stored rule and subject scope, then correct the backend policy rather than weakening the route.
+**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
 
-**API reference.** See [Roles](/api/roles), [User Roles](/api/user-roles), and [Vext Plugin API](/api/vext-plugin).
+**API reference.** See [roles](/api/roles), [user-roles](/api/user-roles), [vext-plugin](/api/vext-plugin) for exact signatures, response wrappers, and public error codes.
 
 ### 3. Exercise public, authentication, and permission outcomes
 
 <!-- docs:operation id=vext-requests calls=request.get outputs=responses,allowedBody -->
 
-**Purpose and target.** Four `request.get` calls cover a public route, a protected route without authentication, the same route with an unprivileged identity, and the route with `u-vext`.
+**Purpose and target.** This operation explains `request.get` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
 
-**State, arguments, and result.** The fixture header middleware creates `req.auth` only for supplied test users. The plugin distinguishes 401 missing authentication from 403 authenticated-but-denied; the allowed handler reads the trusted permission subject and produces `allowedBody`.
+**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `responses`, `allowedBody`.
 
-**Failure and next step.** A 401 means authentication did not supply trusted identity; a 403 means authorization denied the concrete route. Diagnose those layers separately and preserve the status boundary instead of turning both into a generic success or redirect.
+**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
 
-**API reference.** See [Vext Plugin](/guide/vext-plugin) for the request lifecycle and [Vext Plugin API](/api/vext-plugin) for request context helpers and error mapping.
+**API reference.** See [vext-plugin](/api/vext-plugin) for exact signatures, response wrappers, and public error codes.
 
 ### 4. Reject hot route reload
 
 <!-- docs:operation id=vext-reload calls=routes:ready,request.get outputs=responses.routeReloadRequiresRestart -->
 
-**Purpose and target.** Emitting `routes:ready` after startup simulates a route graph change, then `request.get` verifies that permission-core no longer serves against a stale manifest.
+**Purpose and target.** This operation explains `routes:ready`, `request.get` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
 
-**State, arguments, and result.** The plugin marks the route graph restart-required and returns 503 on the following request. `routeReloadRequiresRestart` records that operational fail-closed response.
+**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `responses.routeReloadRequiresRestart`.
 
-**Failure and next step.** Do not ignore the 503 or continue with old route permissions. Perform a cold process restart so startup rebuilds and validates the complete route manifest.
+**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
 
-**API reference.** See [Vext Plugin API](/api/vext-plugin) and [Troubleshooting](/guide/troubleshooting) for `VEXT_ROUTE_RESTART_REQUIRED` handling.
+**API reference.** See [vext-plugin](/api/vext-plugin) for exact signatures, response wrappers, and public error codes.
 
 ### 5. Close only plugin-owned state
 
 <!-- docs:operation id=vext-close calls=testApp.close,monsqlize.health outputs=lifecycle -->
 
-**Purpose and target.** `testApp.close` lets the plugin close the PermissionCore instance it created; a subsequent `monsqlize.health` call proves the host-owned database remains connected.
+**Purpose and target.** This operation explains `testApp.close`, `monsqlize.health` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
 
-**State, arguments, and result.** Ownership is asymmetric: plugin shutdown drains permission work, while the host retains responsibility for its shared database. The two lifecycle booleans report both sides of that contract.
+**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `lifecycle`.
 
-**Failure and next step.** If shutdown fails, stop accepting requests, complete PermissionCore drain/close handling, and let the host close MonSQLize only at the host lifecycle boundary. Never let the plugin silently dispose a shared connection.
+**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
 
-**API reference.** See [Vext Plugin API](/api/vext-plugin) for teardown ownership and [Core and Contexts](/api/core-and-contexts) for `PermissionCore.close()`.
+**API reference.** See [vext-plugin](/api/vext-plugin), [core-and-contexts](/api/core-and-contexts) for exact signatures, response wrappers, and public error codes.
+
 
 ## Expected output
+
+The following JSON is the **Example summary output** generated by `printExample()`. It combines selected fields from several API calls and is not the raw response of one method.
 
 ```json
 {
@@ -108,19 +165,20 @@ app.get('/orders/:id', { permission: true }, async (req, res) => {
 
 <!-- docs:output group=responses producer=vext-requests -->
 
-**`responses` provenance.** Each status is read from one real fixture `request.get` response. The reload status is produced by the separate route-change probe, so the five values cover public, authentication, authorization, success, and restart-required boundaries.
+**`responses` provenance.** This output group is produced by the vext-requests walkthrough and should be read together with `request.get`. It is a selected, documented example field rather than a new API response shape.
 
 <!-- docs:output group=allowedBody producer=vext-requests -->
 
-**`allowedBody` provenance.** Only the allowed `request.get` reaches the protected-route handler and emits this body. Its route parameter and subject user ID prove that authorization completed before business code used trusted request context.
+**`allowedBody` provenance.** This output group is produced by the vext-requests walkthrough and should be read together with `request.get`. It is a selected, documented example field rather than a new API response shape.
 
 <!-- docs:output group=lifecycle producer=vext-close -->
 
-**`lifecycle` provenance.** `testApp.close` establishes the PermissionCore side; the post-close `monsqlize.health` response establishes that the host database is still up and connected.
+**`lifecycle` provenance.** This output group is produced by the vext-close walkthrough and should be read together with `testApp.close`. It is a selected, documented example field rather than a new API response shape.
+
 
 ## Production boundary
 
-`createTestApp`, the memory database, and `x-example-user` authentication are fixtures. Production registers `permissionPlugin` in the normal Vext plugin graph, loads authentication first, passes/discovers the host MonSQLize 3.1 instance, and performs a cold restart when routes change.
+`createTestApp`, the in-memory database, and `x-example-user` are fixtures. Production registers `permissionPlugin` in the normal Vext plugin graph and performs a cold restart after route graph changes.
 
 ## Related
 

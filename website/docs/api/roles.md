@@ -1,10 +1,19 @@
 # Roles
+<!-- docs:inline-parity `scoped.roles` `create()` `get()` `list()` `update()` `previewAccessUpdate()` `executeAccessUpdate()` `getRemovalImpact()` `remove()` `allow()` `deny()` `revoke()` `previewReplaceRules()` `replaceRules()` `getOwnRules()` `getEffectiveRules()` `getChain()` `MutationOptions` `RoleCreateInput` `id` `string` `__proto__` `prototype` `constructor` `label` `description` `status` `enabled \| disabled \| deprecated` `enabled` `parentId` `string \| null` `null` `PermissionRuleInput.action` `read/invoke/...` `*` `PermissionRuleInput.resource` `GET:/api/orders` `db:orders` `PermissionRuleInput.where` `RoleUpdateInput.label` `RoleUpdateInput.description` `RoleAccessUpdateInput.status` `RoleAccessUpdateInput.parentId` `ManualRuleSelector` `effect + action + resource + where?` `semanticKey` `ManualRuleInput.effect` `allow` `deny` `PermissionRuleInput` `first` `number` `50` `1..200` `after` `pageInfo.endCursor` `EntityStatus` `search` `effect` `allow \| deny` `listOwnRules()` `sourceKind` `manual \| menu` `create(input, options?)` `input: RoleCreateInput` `options` `MutationResult<Role>` `data.id/status/parentId/revision` `operationId/auditId` `ROLE_ALREADY_EXISTS` `ROLE_NOT_FOUND` `CIRCULAR_INHERITANCE` `LIMIT_EXCEEDED` `get(roleId)` `roleId` `VersionedResult<Role>` `update/remove` `data.revision` `expectedRevision` `getOwnRules/getEffectiveRules` `get().data` `list(query?)` `query` `first/after/status/search/parentId` `PageResult<Role>` `items` `hasNext=true` `endCursor` `update(roleId, patch, options)` `label/description` `patch: RoleUpdateInput` `options.expectedRevision` `REVISION_CONFLICT` `previewAccessUpdate(roleId, patch, options?)` `patch: RoleAccessUpdateInput` `ImpactPreview<RoleAccessUpdatePlan>` `executable=true` `previewToken/expected` `conflicts` `executeAccessUpdate` `executeAccessUpdate(roleId, patch, options)` `patch` `expectedRevisions + previewToken` `PREVIEW_REQUIRED` `PREVIEW_STALE` `getRemovalImpact(roleId)` `VersionedResult<RoleRemovalImpact>` `data.removable` `data.blockers` `remove` `remove(roleId, options)` `get/getRemovalImpact` `MutationResult<{ removedRoleId: string }>` `ROLE_IN_USE` `allow(roleId, rule, options?)` `rule: PermissionRuleInput` `where` `MutationResult<PermissionRuleView>` `data.semanticKey` `data.sources` `deny(roleId, rule, options?)` `MutationResult<PermissionRule>` `data.effect` `revoke(roleId, selector, options?)` `selector` `effect/action/resource/where?` `MutationResult<{ removed; remainingCount; remainingDigest }>` `removed=0` `previewRuleChange(roleId, change, options?)` `change` `{ operation: 'allow'|'deny', rule }` `{ operation: 'revoke', selector }` `ImpactPreview<ManualRuleChangePlan>` `plan.sourceOperation` `executeRuleChange` `executeRuleChange(roleId, change, options)` `roleId/change` `MutationResult<ManualRuleChangeResult>` `rule` `previewReplaceRules(roleId, rules, options?)` `rules: ManualRuleInput[]` `ImpactPreview<RoleRuleReplacePlan>` `replaceRules(roleId, rules, options)` `rules` `MutationResult<BatchMutationSummary>` `getOwnRules(roleId)` `VersionedResult<PermissionRuleView[]>` `listOwnRules` `getEffectiveRules` `listOwnRules(roleId, query?)` `first/after/effect/sourceKind` `PageResult<PermissionRuleView>` `getEffectiveRules(roleId)` `VersionedResult<EffectiveRoleRules>` `data.role` `data.chain` `data.rules/conflicts` `subject.getPermissions()` `getChain(roleId)` `VersionedResult<RoleChainEntry[]>` `role/depth/included/excludedReason` `update` `previewAccessUpdate` `data` `etag` `32` `2048` -->
+
+`scoped.roles` manages roles, hierarchy, manual rules, high-impact previews, replacement flows, and effective rule reads inside one complete scope.
 
 ## Purpose and preconditions
 
-`scoped.roles` manages tenant-scoped roles, hierarchy, manual rules, impact previews, and effective reads. A role has one optional parent. All IDs and rules are meaningful only inside the context's complete scope.
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+
+## What Do You Want to Do?
+
+Use this table as the shortest route from a task to the first method. Methods that can change broad state use a preview/execute pair so the admin UI can show impact before writing.
 
 ## Signatures
+
+The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.
 
 ```ts
 create(input: RoleCreateInput, options?: MutationOptions): Promise<MutationResult<Role>>
@@ -27,12 +36,209 @@ listOwnRules(roleId: string, query?: CursorQuery & { effect?: 'allow' | 'deny'; 
 getEffectiveRules(roleId: string): Promise<VersionedResult<EffectiveRoleRules>>
 getChain(roleId: string): Promise<VersionedResult<RoleChainEntry[]>>
 ```
+## Input Parameters
 
-`update` changes label/description only. Status or parent changes use `previewAccessUpdate` plus `executeAccessUpdate`. Full rule replacement always uses preview/execute.
+The table explains domain inputs. Shared `MutationOptions`, revision options, preview tokens, pagination, and envelope shapes are documented in the common response contracts.
+
+<!-- docs:params owner=RoleCreateInput locale=en -->
+### `RoleCreateInput`
+### Rule and Change Inputs
+<!-- docs:params owner=RoleRuleInputs locale=en -->
+### Pagination Queries
+## Method Details: Create and Read
+
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+
+<span id="roles-create"></span>
+### `create(input, options?)`
+<!-- docs:method name=roles.create locale=en -->
+
+- **Purpose**: Use `roles.create` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-get"></span>
+### `get(roleId)`
+<!-- docs:method name=roles.get locale=en -->
+
+- **Purpose**: Use `roles.get` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-list"></span>
+### `list(query?)`
+<!-- docs:method name=roles.list locale=en -->
+
+- **Purpose**: Use `roles.list` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `PageResult<T>` or the documented paged business result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-update"></span>
+### `update(roleId, patch, options)`
+<!-- docs:method name=roles.update locale=en -->
+
+- **Purpose**: Use `roles.update` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-preview-access-update"></span>
+## Method Details: High-Impact Role Changes
+
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+
+### `previewAccessUpdate(roleId, patch, options?)`
+<!-- docs:method name=roles.previewAccessUpdate locale=en -->
+
+- **Purpose**: Use `roles.previewAccessUpdate` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `ImpactPreview<Plan>` with `executable`, `expected`, and `previewToken` when applicable. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-execute-access-update"></span>
+### `executeAccessUpdate(roleId, patch, options)`
+<!-- docs:method name=roles.executeAccessUpdate locale=en -->
+
+- **Purpose**: Use `roles.executeAccessUpdate` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-get-removal-impact"></span>
+### `getRemovalImpact(roleId)`
+<!-- docs:method name=roles.getRemovalImpact locale=en -->
+
+- **Purpose**: Use `roles.getRemovalImpact` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-remove"></span>
+### `remove(roleId, options)`
+<!-- docs:method name=roles.remove locale=en -->
+
+- **Purpose**: Use `roles.remove` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-allow"></span>
+## Method Details: Incremental Manual Rule Changes
+
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+
+### `allow(roleId, rule, options?)`
+<!-- docs:method name=roles.allow locale=en -->
+
+- **Purpose**: Use `roles.allow` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-deny"></span>
+### `deny(roleId, rule, options?)`
+<!-- docs:method name=roles.deny locale=en -->
+
+- **Purpose**: Use `roles.deny` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-revoke"></span>
+### `revoke(roleId, selector, options?)`
+<!-- docs:method name=roles.revoke locale=en -->
+
+- **Purpose**: Use `roles.revoke` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-preview-rule-change"></span>
+## Method Details: Preview and Commit Rule Impact
+
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+
+### `previewRuleChange(roleId, change, options?)`
+<!-- docs:method name=roles.previewRuleChange locale=en -->
+
+- **Purpose**: Use `roles.previewRuleChange` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `ImpactPreview<Plan>` with `executable`, `expected`, and `previewToken` when applicable. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-execute-rule-change"></span>
+### `executeRuleChange(roleId, change, options)`
+<!-- docs:method name=roles.executeRuleChange locale=en -->
+
+- **Purpose**: Use `roles.executeRuleChange` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-preview-replace-rules"></span>
+### `previewReplaceRules(roleId, rules, options?)`
+<!-- docs:method name=roles.previewReplaceRules locale=en -->
+
+- **Purpose**: Use `roles.previewReplaceRules` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `ImpactPreview<Plan>` with `executable`, `expected`, and `previewToken` when applicable. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-replace-rules"></span>
+### `replaceRules(roleId, rules, options)`
+<!-- docs:method name=roles.replaceRules locale=en -->
+
+- **Purpose**: Use `roles.replaceRules` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-get-own-rules"></span>
+## Method Details: Read Direct and Effective Rules
+
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+
+### `getOwnRules(roleId)`
+<!-- docs:method name=roles.getOwnRules locale=en -->
+
+- **Purpose**: Use `roles.getOwnRules` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-list-own-rules"></span>
+### `listOwnRules(roleId, query?)`
+<!-- docs:method name=roles.listOwnRules locale=en -->
+
+- **Purpose**: Use `roles.listOwnRules` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `PageResult<T>` or the documented paged business result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-get-effective-rules"></span>
+### `getEffectiveRules(roleId)`
+<!-- docs:method name=roles.getEffectiveRules locale=en -->
+
+- **Purpose**: Use `roles.getEffectiveRules` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="roles-get-chain"></span>
+### `getChain(roleId)`
+<!-- docs:method name=roles.getChain locale=en -->
+
+- **Purpose**: Use `roles.getChain` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
 
 ## Responses and side effects
 
-Reads return `data`, revision vector, `etag`, and detail budget. Writes commit role/rule state plus audit evidence and return operation/audit IDs. `allow`/`deny` add a manual source to a canonical semantic rule; an equivalent menu source remains independently traceable.
+Side effects are scoped and revisioned. Writes record audit evidence and invalidate affected semantic cache keys; reads preserve bounded detail metadata so callers can tell whether diagnostics were complete.
 
 ```json
 {
@@ -46,26 +252,27 @@ Reads return `data`, revision vector, `etag`, and detail budget. Writes commit r
   "cache": { "status": "completed" }
 }
 ```
-
 ## Failures and limits
 
-Important errors are `ROLE_NOT_FOUND`, `ROLE_ALREADY_EXISTS`, `ROLE_IN_USE`, `CIRCULAR_INHERITANCE`, `REVISION_CONFLICT`, `PREVIEW_REQUIRED`, `PREVIEW_STALE`, and `LIMIT_EXCEEDED`. Limits include one parent, chain depth `32`, `2048` rules per role, and bounded effective snapshots. Replace accepts at most `2048` rules.
+Failures close authorization instead of widening it. Important limits are enforced before state is committed, and stale previews or revisions must be refreshed rather than guessed.
 
 ## Example
+
+The example keeps one narrow path per page. It shows the raw method family and a compact response shape, while the full runnable scenarios live in the examples section.
 
 ```ts
 const created = await scoped.roles.create({ id: 'operator', label: 'Operator' });
 await scoped.roles.allow('operator', { action: 'read', resource: 'db:orders' });
 const own = await scoped.roles.getOwnRules('operator');
 ```
-
 ```json
 {
   "createdRevision": 1,
   "ownRules": [{ "effect": "allow", "action": "read", "resource": "db:orders" }]
 }
 ```
-
 ## Related
 
-See [Role Inheritance](/guide/role-inheritance), [User Roles](/api/user-roles), and [Role Menu Permissions](/api/role-menu-permissions).
+Continue with the linked guide or neighboring API page when you need workflow context rather than only signatures.
+
+Continue with [User Roles](/api/user-roles).

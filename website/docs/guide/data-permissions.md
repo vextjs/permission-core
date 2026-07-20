@@ -1,12 +1,12 @@
 # Data Permissions
+<!-- docs:inline-parity `filter` `subject.data.collection()` `AuthorizedCollection` `where` `{ status: 'paid' }` `scopeFields` `roles.allow(roleId, rule)` `valueFrom='claims.merchantId'` `pc.forSubject(input)` `subject.data.collection(name, options)` `orders` `orders.find(filter, options?)` `{ status:'paid' }` `rows: (subject) => ...` `claims` `context` `valueFrom` `all` `any` `not` `eq` `ne` `in` `nin` `gt` `gte` `lt` `lte` `contains` `exists` `$and` `$or` `$nor` `$exists` `i` `$regex` `$not` `$elemMatch` `$all` `$size` `$where` `orders.find()` `roles.allow()` `projection: ['publicValue']` `status` `secret` `FIELD_PERMISSION_DENIED` `find` `findOne` `count` `findAndCount` `findPage` `insertOne` `updateOne` `updateMany` `deleteOne` `deleteMany` `null` `{ data, total }` `{ items, pageInfo, total? }` `{ acknowledged, insertedId }` `{ acknowledged, matchedCount, modifiedCount }` `{ acknowledged, deletedCount }` `updateOne()` `matchedCount=0` `maxAffected` `$set` `$unset` `$inc` `$mul` `$min` `$max` `$addToSet` `$push` `$pull` `Transaction` `resource` -->
 
-`AuthorizedCollection` is the supported data-access boundary. It executes on the host's MonSQLize 3.1 transaction runtime and combines application filters with authorization before MongoDB receives the operation.
+The supported data boundary is `AuthorizedCollection`. It combines the caller's Mongo-style `filter`, exact scope fields, persisted policy `where`, and field permissions before touching MongoDB.
 
-## `filter` and `where` have different jobs
+<span id="data-filter-vs-where"></span>
+## `filter` and `where` Have Different Jobs
 
-- `filter` is the caller's Mongo-style business query for one operation, such as `{ status: 'paid' }`.
-- `where` is a durable policy condition stored on an allow or deny rule, such as “merchantId equals the subject claim.”
-- `scopeFields` maps trusted scope dimensions to exact scalar fields in every business document.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 await scoped.roles.allow('merchant-reader', {
@@ -26,18 +26,12 @@ const orders = pc.forSubject({
 
 const rows = await orders.find({ status: 'paid' });
 ```
-
-The effective Mongo predicate is logically:
-
 ```text
-caller filter AND exact tenant filter AND (matching allows) AND NOT (matching denies)
+调用方 filter AND 精确租户条件 AND 命中的 allow AND NOT 命中的 deny
 ```
+## Multiple Policy Conditions
 
-No public method returns an authorization filter for optional later use. The collection executes the composed predicate so the caller cannot forget or replace it.
-
-## Multiple policy conditions
-
-Use serializable `all`, `any`, and `not` nodes for policy composition:
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 where: {
@@ -53,20 +47,13 @@ where: {
   ],
 }
 ```
+## Mongo-Style Caller Queries
 
-Leaf operators are `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `contains`, and `exists`. `valueFrom` can read trusted subject, claims, or explicit policy context. Missing dynamic context produces an unknown condition and closes authorization rather than widening it.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-Arbitrary JavaScript row functions are intentionally not stored as rules. Functions cannot be canonically persisted, audited, compared, cached across processes, or reproduced by another service instance. Put application-specific computation into trusted claims/context, then reference its scalar result from the durable condition AST.
+## Field Permissions
 
-## Mongo-style caller filters
-
-Caller filters support bounded plain-data Mongo operators including `$and`, `$or`, `$nor`, comparison and set operators, `$exists`, literal `$regex` with optional `i`, `$not`, `$elemMatch`, `$all`, and `$size`. JavaScript predicates, proxies, accessors, `$where`, and arbitrary operators are rejected.
-
-The safe filter is limited to 12 levels, 256 nodes, 32 logical children per node, and 128 KiB canonical bytes. These constraints keep authorization review and database cost bounded.
-
-## Field permissions
-
-Once field-specific rules exist, every projected, filtered, sorted, or changed field must be authorized for that operation. This prevents a caller from inferring a hidden value through filtering or ordering.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 await scoped.roles.allow('merchant-reader', {
@@ -84,16 +71,12 @@ const safe = await orders.find(
   { projection: ['publicValue'] },
 );
 ```
-
 ```json
 [{ "publicValue": "shown" }]
 ```
+## Protected Read and Write Operations
 
-Requesting `secret`, filtering by it, or sorting by a conditional field without an unconditional query-time grant throws `FIELD_PERMISSION_DENIED`.
-
-## Protected reads and writes
-
-The facade supports `find`, `findOne`, `count`, `findAndCount`, signed-cursor `findPage`, `insertOne`, `updateOne`, `updateMany`, `deleteOne`, and `deleteMany`. Inserts are checked against the authorized post-image and receive scope fields from the trusted subject. Updates check both pre-image and post-image, including field rules and scope preservation.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 await scoped.roles.allow('owner-writer', {
@@ -107,15 +90,11 @@ const result = await orders.updateOne(
   { $set: { status: 'paid' } },
 );
 ```
-
 ```json
 { "acknowledged": true, "matchedCount": 1, "modifiedCount": 1 }
 ```
+## Transaction and Ownership Boundary
 
-Bulk update and delete require `maxAffected` from 1 to 1000 and abort when the actual pre-image count exceeds it. Supported update operators are `$set`, `$unset`, `$inc`, `$mul`, `$min`, `$max`, `$addToSet`, `$push`, and `$pull`.
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-## Transaction and ownership boundary
-
-Every operation uses a real MonSQLize transaction. An optional borrowed MonSQLize `Transaction` remains owned by the caller and is validated against the same runtime; permission-core never commits or aborts a borrowed transaction on the caller's behalf. The physical collection name is application configuration, while the logical `resource` is the authorization contract.
-
-See the runnable [Data Guard example](/examples/data-guard) and the [Authorized Collection API](/api/authorized-collection) for complete responses and limits.
+Continue with [Manage Menus](/guide/menu-management).

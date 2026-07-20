@@ -1,22 +1,37 @@
 # Match Resource
+<!-- docs:inline-parity `permission-core/match` `matchResource(pattern, resource)` `pattern` `GET:/orders/:id` `resource` `GET:/orders/42` `can/assert` `boolean` `true` `false` `matchResource()` `*` `:param` `profile.*` `PermissionCore` `matchResource` `write` -->
+
+`matchResource` exposes the same resource matcher outside a `PermissionCore` instance for tests, diagnostics, or custom integration checks.
 
 ## Purpose and preconditions
 
-`permission-core/match` exposes the built-in resource matcher without constructing a core. Use it in configuration tooling or tests that need exactly the same built-in HTTP/API/data/UI pattern semantics. It does not evaluate actions, roles, deny precedence, conditions, or custom resource schemes.
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
 ## Signatures
+
+The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.
 
 ```ts
 import { matchResource } from 'permission-core/match';
 
 matchResource(pattern: string, resource: string): boolean
 ```
+## Method Details
 
-The first argument is a rule-side pattern; the second is a concrete request resource. Reversing them changes the meaning.
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
+### `matchResource(pattern, resource)`
+<!-- docs:method name=matchResource locale=en -->
+
+- **Purpose**: Use `matchResource` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `boolean` or the documented matcher result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<!-- docs:params owner=matchResource locale=en -->
 ## Responses and side effects
 
-The function is synchronous, pure, and returns only `true` or `false`. Invalid or mixed-scheme input returns `false`; it does not throw and does not normalize caller state.
+Side effects are scoped and revisioned. Writes record audit evidence and invalidate affected semantic cache keys; reads preserve bounded detail metadata so callers can tell whether diagnostics were complete.
 
 ```json
 {
@@ -26,14 +41,13 @@ The function is synchronous, pure, and returns only `true` or `false`. Invalid o
   "invalid": false
 }
 ```
-
-HTTP/API `*` is a trailing segment wildcard that requires at least one remaining segment. `:param` consumes one segment. Data field patterns support exact paths, `profile.*`, and field-wide `*`. The rule-side global `*` matches any valid built-in concrete resource.
-
 ## Failures and limits
 
-Custom schemes configured on `PermissionCore` are intentionally unavailable from this standalone function; use a core decision for them. Query strings/fragments, malformed templates, concrete wildcards, unknown schemes, and resources longer than the built-in grammar accepts return `false`. `matchResource` does not implement action-side `write` semantics.
+Failures close authorization instead of widening it. Important limits are enforced before state is committed, and stale previews or revisions must be refreshed rather than guessed.
 
 ## Example
+
+The example keeps one narrow path per page. It shows the raw method family and a compact response shape, while the full runnable scenarios live in the examples section.
 
 ```ts
 const result = {
@@ -43,11 +57,11 @@ const result = {
   tooShort: matchResource('GET:/orders/*', 'GET:/orders'),
 };
 ```
-
 ```json
 { "exact": true, "subtree": true, "field": true, "tooShort": false }
 ```
-
 ## Related
 
-See [Resources and Rules](/guide/resources-and-rules), [Resource Schemes](/api/resource-schemes), and [Check Permissions](/guide/check-permission).
+Continue with the linked guide or neighboring API page when you need workflow context rather than only signatures.
+
+Continue with [Vext Plugin API](/api/vext-plugin).

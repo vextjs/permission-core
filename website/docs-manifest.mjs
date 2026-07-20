@@ -9,8 +9,8 @@ export const docsLocales = ["en", "zh"];
 
 export const docsLocaleContracts = {
     en: {
-        pageCount: 34,
-        guideGroups: { start: 3, tasks: 5, concepts: 4, "integration-ops": 4 },
+        pageCount: 36,
+        guideGroups: { start: 4, tasks: 6, concepts: 4, "integration-ops": 4 },
         apiCount: 12,
         exampleCount: 5,
     },
@@ -72,10 +72,10 @@ function page(id, path, order, section, navGroup, labels, role, sourceOfTruth, o
 export const docsPages = [
     page("home", "index.md", 1, "home", null, { en: "Home", zh: "首页" }, "home", ["package.json", "src/index.ts"], { sourceSymbol: "exports", contentOwner: "public-api", reuseMode: "cross-link", primaryNext: "guide/quick-start.md" }),
     page("introduction", "guide/introduction.md", 2, "guide", "start", { en: "Introduction", zh: "简介" }, "concept", ["src/index.ts", "src/types/foundation.ts"], { sourceSymbol: "PermissionCoreOptions", contentOwner: "product-boundary", primaryNext: "guide/quick-start.md" }),
-    page("quick-start", "guide/quick-start.md", 3, "guide", "start", { en: "Quick Start", zh: "快速开始" }, "tutorial", ["website/docs/zh/guide/quick-start.md", "src/types/rbac.ts"], { sourceSymbol: "docs:first-success:start", contentOwner: "first-success", reuseMode: "generated-snippet", primaryNext: "guide/check-permission.md", primaryNextByLocale: { zh: "guide/manage-roles-and-users.md" } }),
-    page("core-concepts", "guide/core-concepts.md", 3.5, "guide", "start", { zh: "核心术语与心智模型" }, "concept", ["src/types/foundation.ts", "src/types/rbac.ts"], { sourceSymbol: "PermissionSubject", contentOwner: "core-concepts-zh", locales: ["zh"], navLabels: { zh: "核心概念" }, primaryNext: "guide/manage-roles-and-users.md" }),
+    page("quick-start", "guide/quick-start.md", 3, "guide", "start", { en: "Quick Start", zh: "快速开始" }, "tutorial", ["website/docs/zh/guide/quick-start.md", "src/types/rbac.ts"], { sourceSymbol: "docs:first-success:start", contentOwner: "first-success", reuseMode: "generated-snippet", primaryNext: "guide/manage-roles-and-users.md" }),
+    page("core-concepts", "guide/core-concepts.md", 3.5, "guide", "start", { en: "Core Terms and Mental Model", zh: "核心术语与心智模型" }, "concept", ["src/types/foundation.ts", "src/types/rbac.ts"], { sourceSymbol: "PermissionSubject", contentOwner: "core-concepts", navLabels: { en: "Core Concepts", zh: "核心概念" }, primaryNext: "guide/manage-roles-and-users.md" }),
     page("troubleshooting", "guide/troubleshooting.md", 4, "guide", "start", { en: "Troubleshooting", zh: "故障排查" }, "troubleshooting", ["src/core/errors.ts", "src/types/errors.ts"], { sourceSymbol: "PermissionCoreError", contentOwner: "failure-recovery", primaryNext: "guide/production-operations.md" }),
-    page("manage-roles-and-users", "guide/manage-roles-and-users.md", 4.5, "guide", "tasks", { zh: "管理角色与用户授权" }, "how-to", ["src/types/rbac.ts", "src/rbac/public-context.ts"], { sourceSymbol: "RoleManager", contentOwner: "role-user-workflow-zh", locales: ["zh"], navLabels: { zh: "角色与用户" }, primaryNext: "guide/check-permission.md" }),
+    page("manage-roles-and-users", "guide/manage-roles-and-users.md", 4.5, "guide", "tasks", { en: "Manage Roles and User Assignments", zh: "管理角色与用户授权" }, "how-to", ["src/types/rbac.ts", "src/rbac/public-context.ts"], { sourceSymbol: "RoleManager", contentOwner: "role-user-workflow", navLabels: { en: "Roles and Users", zh: "角色与用户" }, primaryNext: "guide/check-permission.md" }),
     page("check-permission", "guide/check-permission.md", 5, "guide", "tasks", { en: "Check Permissions", zh: "检查权限" }, "how-to", ["src/core/permission-core.ts", "src/types/rbac.ts"], { sourceSymbol: "SubjectPermissionContext", contentOwner: "permission-checks", primaryNext: "guide/data-permissions.md" }),
     page("data-permissions", "guide/data-permissions.md", 6, "guide", "tasks", { en: "Data Permissions", zh: "数据权限" }, "how-to", ["src/data/authorized-collection.ts", "src/types/data.ts"], { sourceSymbol: "AuthorizedCollection", contentOwner: "data-guard", reuseMode: "generated-response", primaryNext: "guide/menu-management.md" }),
     page("menu-management", "guide/menu-management.md", 7, "guide", "tasks", { en: "Manage Menus", zh: "管理菜单" }, "how-to", ["src/menu/menu-mutations.ts", "src/types/menu.ts"], { sourceSymbol: "MenuManager", contentOwner: "menu-workflow", reuseMode: "generated-response", primaryNext: "guide/api-bindings.md" }),

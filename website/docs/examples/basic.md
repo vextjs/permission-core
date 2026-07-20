@@ -1,8 +1,9 @@
 # Basic RBAC
+<!-- docs:inline-parity `assign` `set` `examples/basic.mjs` `docs:basic:start` `docs:basic:end` `examples/_support/host.mjs` `finally` `ok` `true` `permissionChecks.allowed` `permissionChecks.cannotDelete` `userRoles.afterSet` `order-reader` `set()` `cannotDelete: true` `can()` `assigned` `replaced` `role` `roles.create` `acme` `roles.allow` `GET:/api/orders` `action` `resource` `reads.ownRules` `roles.create(input)` `{ id, label }` `1` `roles.get()` `roles.allow(roleId, rule)` `roles.get(roleId)` `id` `label` `revision` `roles.getOwnRules(roleId)` `userRoles.assign` `u-1` `userRoles.set` `userRoles.getDirect` `operator` `beforeSet` `userRoles.set(..., { expectedRevision })` `afterSet` `expectedRevision` `getDirect` `userRoles.assign(userId, roleId)` `data.roleIds` `userRoles.getDirect(userId)` `userRoles.set(userId, roleIds, options)` `actorId` `userRoles.getEffective(userId)` `forSubject` `can` `cannot` `explain` `no-allow` `assert` `core.forSubject(input)` `userId` `scope` `subject.can(action, resource)` `invoke` `subject.cannot(action, resource)` `subject.explain(action, resource)` `data.reason` `roles.get` `roles.getOwnRules` `roles.getEffectiveRules` `roles.getChain` `userRoles.getEffective` `getPermissions` `getResources` `getResources('invoke')` `roles.getEffectiveRules(roleId)` `getOwnRules` `data.rules.items` `roles.getChain(roleId)` `role.id` `subject.getPermissions()` `data.rules.total` `subject.getResources(action)` `printExample()` `2` `userRoles` `effective` `getEffective` `semantics` `permissionChecks` `allowed` `cannotDelete` `deleteReason` `reads` -->
 
 ## Scenario
 
-This is the first complete RBAC path: create roles and a rule, assign a user, check allow/default-deny behavior, compare additive `assign` with replacement `set`, and read own/effective authorization state.
+This is the first complete RBAC path: create a role and rule, assign the role to a user, check allow/default-deny behavior, compare additive `assign` with replacing `set`, and read own/effective authorization state.
 
 ## Run
 
@@ -10,73 +11,101 @@ This is the first complete RBAC path: create roles and a rule, assign a user, ch
 npm run example:basic
 ```
 
-The canonical source is `examples/basic.mjs`, between `docs:basic:start` and `docs:basic:end`. It uses the shared host fixture in `examples/_support/host.mjs`.
+The canonical source is the `docs:basic:start` to `docs:basic:end` block in `examples/basic.mjs`, using the shared host fixture in `examples/_support/host.mjs`.
+
+## First Check the Result
+
+A successful run first confirms `ok` is `true`, `permissionChecks.allowed` is `true`, `permissionChecks.cannotDelete` is `true`, and `userRoles.afterSet` finally contains only `order-reader`.
 
 ## Source walkthrough
 
 ```js
-await scoped.userRoles.assign('u-1', 'order-reader');
+await scoped.roles.create({ id: 'order-reader', label: 'Order reader' });
+await scoped.roles.allow('order-reader', {
+  action: 'invoke',
+  resource: 'GET:/api/orders',
+});
+await scoped.roles.create({ id: 'operator', label: 'Operator' });
+
+const assigned = await scoped.userRoles.assign('u-1', 'order-reader');
 const subject = core.forSubject({ userId: 'u-1', scope });
 const allowed = await subject.can('invoke', 'GET:/api/orders');
 const cannotDelete = await subject.cannot('invoke', 'DELETE:/api/orders');
 
-const before = await scoped.userRoles.getDirect('u-1');
-await scoped.userRoles.set('u-1', ['order-reader'], {
-  expectedRevision: before.data.revision,
+await scoped.userRoles.assign('u-1', 'operator');
+const beforeSet = await scoped.userRoles.getDirect('u-1');
+const replaced = await scoped.userRoles.set('u-1', ['order-reader'], {
+  expectedRevision: beforeSet.data.revision,
+  actorId: 'admin',
 });
+
+const role = await scoped.roles.get('order-reader');
+const ownRules = await scoped.roles.getOwnRules('order-reader');
+const effectiveRules = await scoped.roles.getEffectiveRules('order-reader');
+const roleChain = await scoped.roles.getChain('order-reader');
+const effectiveRoles = await scoped.userRoles.getEffective('u-1');
+const permissions = await subject.getPermissions();
+const resources = await subject.getResources('invoke');
+const deleteExplanation = await subject.explain(
+  'invoke',
+  'DELETE:/api/orders',
+);
 ```
 
-`cannotDelete: true` means the corresponding `can()` result is false because no delete allow exists. It does not mean a delete permission was granted or that a separate deny was assigned.
+`cannotDelete: true` means the matching `can()` result is false because there is no delete allow. It does not grant delete access and it does not create a separate deny rule.
 
 ### 1. Create the role state
 
 <!-- docs:operation id=basic-role-state calls=roles.create,roles.allow outputs=role,reads.ownRules -->
 
-**Purpose and target.** `roles.create` creates `order-reader` inside the current `acme` scope, and `roles.allow` attaches the one rule that may invoke `GET:/api/orders` to that role.
+**Purpose and target.** This operation explains `roles.create`, `roles.allow` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
 
-**State, arguments, and result.** The role input supplies the durable ID and label; the rule input supplies an `action` and typed `resource`. These are two committed mutations. The example later reads the saved role and its own rules into `role` and `reads.ownRules`, so the output describes database state rather than the arguments echoed from memory.
+**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `role`, `reads.ownRules`.
 
-**Failure and next step.** A duplicate role, unknown role, invalid rule, or unavailable database rejects the affected call. Because creation and rule assignment are separate mutations, inspect the error before retrying the failed step; do not assume the pair is one transaction.
+**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
 
-**API reference.** See [Roles](/api/roles) for mutation envelopes, role reads, rule inputs, and errors.
+**API reference.** See [roles](/api/roles) for exact signatures, response wrappers, and public error codes.
 
 ### 2. Add a role, then replace the direct-role set
 
 <!-- docs:operation id=basic-assignment calls=userRoles.assign,userRoles.getDirect,userRoles.set outputs=userRoles.afterAssign,userRoles.beforeSet,userRoles.afterSet -->
 
-**Purpose and target.** `userRoles.assign` adds one direct role to `u-1`; `userRoles.set` replaces that user's complete direct-role set. They are deliberately shown together because additive and replacement operations must not be treated as synonyms.
+**Purpose and target.** This operation explains `userRoles.assign`, `userRoles.getDirect`, `userRoles.set` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
 
-**State, arguments, and result.** `userRoles.getDirect` returns the current role IDs plus their revision. The canonical source adds `operator` before this read, which is why `beforeSet` contains two roles. `userRoles.set(..., { expectedRevision })` then commits only `order-reader`, producing `afterSet` with one role while inherited roles remain a separate concept.
+**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `userRoles.afterAssign`, `userRoles.beforeSet`, `userRoles.afterSet`.
 
-**Failure and next step.** A stale `expectedRevision` rejects the replacement instead of overwriting a concurrent administrator change. Re-read with `getDirect`, decide whether the new role set is still correct, and retry with the new revision.
+**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
 
-**API reference.** See [User Roles](/api/user-roles) for additive assignment, replacement semantics, direct/effective reads, and revision errors.
+**API reference.** See [user-roles](/api/user-roles) for exact signatures, response wrappers, and public error codes.
 
 ### 3. Evaluate the concrete operation
 
 <!-- docs:operation id=basic-decision calls=forSubject,can,cannot,explain outputs=permissionChecks -->
 
-**Purpose and target.** `forSubject` binds trusted user and scope identity to a request-time context. `can` checks the allowed GET operation, `cannot` checks the ungranted DELETE operation, and `explain` records why DELETE is blocked.
+**Purpose and target.** This operation explains `forSubject`, `can`, `cannot`, `explain` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
 
-**State, arguments, and result.** `can` returns `true` only when the effective rules allow that exact action/resource pair. `cannot` is the boolean inverse of the same decision, not a permission assignment. With no matching delete allow, the explanation reason is `no-allow`, which is default deny rather than an explicit deny rule.
+**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `permissionChecks`.
 
-**Failure and next step.** Missing trusted scope, unavailable authorization state, or invalid policy context fails closed. Use `explain` for diagnostics, then correct the subject/rules; keep `can` or `assert` as the enforcement call for the real operation.
+**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
 
-**API reference.** See [Core and Contexts](/api/core-and-contexts) for subject factories, decisions, explanations, and fail-closed errors.
+**API reference.** See [core-and-contexts](/api/core-and-contexts) for exact signatures, response wrappers, and public error codes.
 
 ### 4. Read effective authorization state
 
 <!-- docs:operation id=basic-effective-reads calls=roles.get,roles.getOwnRules,roles.getEffectiveRules,roles.getChain,userRoles.getEffective,getPermissions,getResources outputs=role,userRoles.effective,reads -->
 
-**Purpose and target.** `roles.get`, `roles.getOwnRules`, `roles.getEffectiveRules`, and `roles.getChain` inspect the role; `userRoles.getEffective`, `getPermissions`, and `getResources` inspect the user's effective authorization state.
+**Purpose and target.** This operation explains `roles.get`, `roles.getOwnRules`, `roles.getEffectiveRules`, `roles.getChain`, `userRoles.getEffective`, `getPermissions`, `getResources` in the order the runnable source uses them. It identifies which object is being created, read, projected, or enforced and which output group records the evidence.
 
-**State, arguments, and result.** `roles.getOwnRules` excludes inherited sources; `roles.getEffectiveRules` resolves inherited and generated sources; `roles.getChain` explains the parent chain. `userRoles.getEffective` resolves direct roles into effective roles, while `getPermissions` and `getResources('invoke')` provide bounded diagnostic snapshots for the subject.
+**State, arguments, and result.** The arguments come from trusted scope, role, subject, menu, API, or data state already shown in the source block. Each call either returns its own raw envelope or contributes a selected field to `role`, `userRoles.effective`, `reads`.
 
-**Failure and next step.** These reads can reveal missing, disabled, conflicted, or truncated state, but they are not authorization substitutes. Inspect their metadata for diagnosis and still call `can` or `assert` immediately before the protected operation.
+**Failure and next step.** If validation, revision, source integrity, authentication, or authorization fails, stop at that layer, refresh the trusted state, and rerun the matching operation. Do not widen permissions or bypass the guarded facade to make the example pass.
 
-**API reference.** See [Roles](/api/roles), [User Roles](/api/user-roles), and [Core and Contexts](/api/core-and-contexts).
+**API reference.** See [roles](/api/roles), [user-roles](/api/user-roles), [core-and-contexts](/api/core-and-contexts) for exact signatures, response wrappers, and public error codes.
+
 
 ## Expected output
+
+The following JSON is the **Example summary output** generated by `printExample()`. It combines selected fields from several API calls and is not the raw response of one method.
 
 ```json
 {
@@ -115,24 +144,25 @@ await scoped.userRoles.set('u-1', ['order-reader'], {
 
 <!-- docs:output group=role producer=basic-role-state -->
 
-**`role` provenance.** `roles.get` reads `order-reader`, whose state was created by `roles.create` and advanced by `roles.allow`; revision `2` proves the rule mutation changed the durable role state.
+**`role` provenance.** This output group is produced by the basic-role-state walkthrough and should be read together with `roles.get`. It is a selected, documented example field rather than a new API response shape.
 
 <!-- docs:output group=userRoles producer=basic-assignment -->
 
-**`userRoles` provenance.** The three arrays come from the `assign`, pre-`set` `getDirect`, and successful `set` responses. `effective` comes from `getEffective`, and `semantics` states how to interpret the two write methods.
+**`userRoles` provenance.** This output group is produced by the basic-assignment walkthrough and should be read together with `assign`. It is a selected, documented example field rather than a new API response shape.
 
 <!-- docs:output group=permissionChecks producer=basic-decision -->
 
-**`permissionChecks` provenance.** `allowed` and `cannotDelete` are the two boolean decisions; `deleteReason` comes from `explain`. Read all four fields together so `cannotDelete: true` is not mistaken for a granted delete permission.
+**`permissionChecks` provenance.** This output group is produced by the basic-decision walkthrough and should be read together with `explain`. It is a selected, documented example field rather than a new API response shape.
 
 <!-- docs:output group=reads producer=basic-effective-reads -->
 
-**`reads` provenance.** `roles.getOwnRules`, `roles.getEffectiveRules`, `roles.getChain`, `getPermissions`, and `getResources` produce this diagnostic group; none of these fields replaces a concrete authorization check.
+**`reads` provenance.** This output group is produced by the basic-effective-reads walkthrough and should be read together with `getPermissions`. It is a selected, documented example field rather than a new API response shape.
+
 
 ## Production boundary
 
-The example starts an in-memory MongoDB replica set only for repeatability. In production, the host supplies its connected MonSQLize 3.1 instance, trusted tenant/user identity, token secret, and process lifecycle. The example closes PermissionCore before closing the host database.
+The example starts an in-memory MongoDB replica set for repeatability. Production applications provide a connected MonSQLize 3.1 instance, trusted tenant/user identity, token secret, and lifecycle ownership.
 
 ## Related
 
-See [Quick Start](/guide/quick-start), [Check Permissions](/guide/check-permission), and [User Roles](/api/user-roles).
+See [Quick Start](/guide/quick-start), [Check Permissions](/guide/check-permission), and [User Roles API](/api/user-roles).

@@ -5,49 +5,79 @@ hero:
   badge: v2.0.0 preview
   name: permission-core
   text: Authorization that reaches the data layer
-  tagline: One tenant-aware RBAC model for routes, menus, APIs, rows, and fields in Node.js services.
+  tagline: Use one tenant-aware RBAC model to control Node.js APIs, menus, data rows, and fields.
   image:
     src: /permission-authorization-visual.svg
     alt: Authorization flow from identity through roles to application resources
   actions:
     - theme: brand
-      text: Start in 10 minutes
+      text: 10-minute Quick Start
       link: /guide/quick-start
     - theme: alt
-      text: Explore examples
+      text: View Runnable Examples
       link: /examples/basic
 
 features:
   - title: MonSQLize 3.1 persistence
-    details: Use the application's connected MonSQLize instance for durable roles, rules, revisions, audit records, and transactions.
+    details: Reuse the application's connected MonSQLize runtime to persist roles, rules, revisions, audit evidence, and real transactions.
     link: /guide/permission-lifecycle
   - title: Complete admin permissions
-    details: Manage menus, pages, buttons, API bindings, and role grants, then project a safe tree for each user.
+    details: Manage menus, pages, buttons, API bindings, and role grants, then project a safe visible tree for each user.
     link: /guide/menu-management
-  - title: Rows and fields together
-    details: Compose a Mongo-style business filter with tenant scope, policy conditions, and field-level read or write rules.
+  - title: Row and field coordination
+    details: Automatically compose Mongo-style business filters with tenant scope, rule conditions, and read/write field permissions.
     link: /guide/data-permissions
   - title: Real tenant isolation
-    details: The same user and role identifiers remain independent because every read, write, cache key, and audit entry is scoped.
+    details: Every read, write, cache key, and audit record carries scope so reused user and role IDs remain isolated by tenant.
     link: /guide/multi-tenant
   - title: Native Vext plugin
-    details: Consume route permissions, trusted authentication context, lifecycle hooks, and restart-required route reloads.
+    details: Consume route permissions and trusted auth context, join lifecycle hooks, and require restart after route manifest changes.
     link: /guide/vext-plugin
-  - title: Observable and fail-closed
-    details: Use revision checks, previews, audit IDs, health state, bounded outputs, and explicit recovery paths in production.
+  - title: Observable and default-deny
+    details: Support production operations through revisions, previews, audit IDs, health state, bounded responses, and explicit recovery paths.
     link: /guide/production-operations
 ---
 
 # permission-core
+<!-- docs:inline-parity `can()` `PermissionCore` `new PermissionCore(options)` `await init()` `scoped` `pc.scope({ tenantId, ... })` `subject` `pc.forSubject({ userId, scope, claims? })` `AuthorizedCollection` `subject.data.collection(name, options)` -->
 
-permission-core is the authorization layer between a trusted identity and application resources. It answers who may invoke a route, see a menu, call an API, or read and change specific database rows and fields.
+permission-core sits between trusted identity and application resources. It answers who can call an API, see a menu, reach a backend endpoint, and read or mutate specific rows and fields.
 
-It deliberately does **not** perform login, verify credentials, own the application's database connection, or replace backend route checks. The host authenticates the request and owns a connected MonSQLize 3.1 instance; permission-core owns authorization state and decisions.
+It explicitly does **not** handle login, credential verification, ownership of the application database connection, or backend authorization by hiding frontend menus. The host authenticates the user and owns a connected MonSQLize 3.1 instance; permission-core owns authorization state and decisions.
 
-## Recommended path
+## Use Only the Layer You Need
 
-1. Complete [Quick Start](/guide/quick-start) for the first allowed and blocked decisions.
-2. Add [data permissions](/guide/data-permissions) or [menu administration](/guide/menu-management) as the application needs them.
-3. Read the [permission lifecycle](/guide/permission-lifecycle) before production rollout.
+1. **Core RBAC is the starting point.** Create roles and rules, bind users, and call `can()` on the backend.
+2. **Menus and API bindings are optional.** Add them when an admin system needs menu, page, button, and endpoint coordination.
+3. **Row and field data permissions are optional.** Add them when the business needs to restrict records or fields inside a collection.
+4. **Vext and production operations are integration layers.** Use them when the application runs Vext or is preparing for deployment.
 
-The five [runnable examples](/examples/basic) use the same public package surface documented here.
+First-time users only need the first layer. Later capabilities reuse the same tenant, user, role, and rule model.
+
+## Know the Four Entry Points
+
+| Entry | Created by | Owns | Does not own |
+|---|---|---|---|
+| `PermissionCore` | `new PermissionCore(options)` + `await init()` | Lifecycle, health, scope and subject facades | Connecting or closing the host database |
+| `scoped` | `pc.scope({ tenantId, ... })` | Role, assignment, menu, and API management inside one scope | A specific request user |
+| `subject` | `pc.forSubject({ userId, scope, claims? })` | User decisions, menu projection, and data access | Login authentication |
+| `AuthorizedCollection` | `subject.data.collection(name, options)` | Combining business `filter`, scope, row/field permissions, and MonSQLize calls | Returning an optional filter for callers to remember |
+
+Exact parameters and raw responses start in [Core and Contexts API](/api/core-and-contexts).
+
+## Recommended Path
+
+1. Finish [Quick Start](/guide/quick-start) and see the first allowed and denied result.
+2. Build the basic admin flow with [Manage Roles and User Assignments](/guide/manage-roles-and-users).
+3. Add [Data Permissions](/guide/data-permissions) or [Manage Menus](/guide/menu-management) when the business needs them.
+4. Read [Permission Lifecycle](/guide/permission-lifecycle) and [Production Operations](/guide/production-operations) before production rollout.
+
+The five [runnable examples](/examples/basic) use only the public package interfaces documented here.
+
+## Project Entry Points
+
+- [GitHub repository](https://github.com/vextjs/permission-core): source, issues, and current development state.
+- [CHANGELOG](https://github.com/vextjs/permission-core/blob/main/CHANGELOG.md): recorded version changes.
+- [CONTRIBUTING](https://github.com/vextjs/permission-core/blob/main/CONTRIBUTING.md): contribution and repository verification flow.
+- [SECURITY](https://github.com/vextjs/permission-core/blob/main/SECURITY.md): security boundary and private reporting path.
+- [Apache-2.0 LICENSE](https://github.com/vextjs/permission-core/blob/main/LICENSE): license text.

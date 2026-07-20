@@ -1,10 +1,15 @@
 # User Roles
+<!-- docs:inline-parity `scoped.userRoles` `MutationOptions` `RequiredRevisionOptions` `MutationResult` `VersionedResult` `PageResult` `userId` `string` `roleId` `roleIds` `readonly string[]` `options.expectedRevision` `number` `getDirect().data.revision` `query.first` `listUsersByRole` `query.after` `pageInfo.endCursor` `UserRoleBindingSet` `revision` `persisted` `createdAt/updatedAt` `assign(userId, roleId, options?)` `options` `MutationResult<UserRoleBindingSet>` `data.roleIds` `changed` `set` `revoke(userId, roleId, options?)` `clear` `set(userId, roleIds, options)` `getDirect(userId)` `before.data.revision` `expectedRevision` `ROLE_NOT_FOUND` `REVISION_CONFLICT` `clear(userId, options)` `data.roleIds=[]` `set(userId, [], options)` `VersionedResult<UserRoleBindingSet>` `data.revision` `getEffective` `getEffective(userId)` `VersionedResult<UserEffectiveRoles>` `data.direct` `data.effective.items` `direct/viaRoleIds/depth/included/excludedReason` `subject.getPermissions()` `listUsersByRole(roleId, query?)` `query.first/after` `PageResult<UserRoleBindingSet>` `items` `pageInfo` `assign` `getDirect` `revoke` `data` `128` `1024` `20000` `50000` `8 MiB` `set()` `replaced.data.roleIds` `operator` -->
+
+`scoped.userRoles` stores direct role assignments for host user IDs. It distinguishes incremental assignment from full replacement and can read direct or effective role sets.
 
 ## Purpose and preconditions
 
-`scoped.userRoles` manages the direct role set for a user in one complete scope. It does not create users or authenticate them. Every referenced role must already exist in the same scope.
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
 ## Signatures
+
+The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.
 
 ```ts
 assign(userId: string, roleId: string, options?: MutationOptions): Promise<MutationResult<UserRoleBindingSet>>
@@ -15,12 +20,86 @@ getDirect(userId: string): Promise<VersionedResult<UserRoleBindingSet>>
 getEffective(userId: string): Promise<VersionedResult<UserEffectiveRoles>>
 listUsersByRole(roleId: string, query?: CursorQuery): Promise<PageResult<UserRoleBindingSet>>
 ```
+## Parameters and Returned Fields
 
-`assign` is additive and idempotent for one role. `set` replaces the complete direct role set and therefore requires the current user-role-set revision. `revoke` removes one role; `clear` replaces the set with none.
+Use this section to distinguish host-owned user IDs from permission-core role bindings, direct values, effective values, revisions, and cursor fields.
+
+<!-- docs:params owner=UserRoleManager locale=en -->
+## Method Details
+
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
+
+<span id="user-roles-assign"></span>
+### `assign(userId, roleId, options?)`
+<!-- docs:method name=userRoles.assign locale=en -->
+
+- **Purpose**: Use `userRoles.assign` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="user-roles-revoke"></span>
+### `revoke(userId, roleId, options?)`
+<!-- docs:method name=userRoles.revoke locale=en -->
+
+- **Purpose**: Use `userRoles.revoke` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="user-roles-set"></span>
+### `set(userId, roleIds, options)`
+<!-- docs:method name=userRoles.set locale=en -->
+
+- **Purpose**: Use `userRoles.set` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="user-roles-clear"></span>
+### `clear(userId, options)`
+<!-- docs:method name=userRoles.clear locale=en -->
+
+- **Purpose**: Use `userRoles.clear` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="user-roles-get-direct"></span>
+### `getDirect(userId)`
+<!-- docs:method name=userRoles.getDirect locale=en -->
+
+- **Purpose**: Use `userRoles.getDirect` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="user-roles-get-effective"></span>
+### `getEffective(userId)`
+<!-- docs:method name=userRoles.getEffective locale=en -->
+
+- **Purpose**: Use `userRoles.getEffective` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="user-roles-list-users-by-role"></span>
+### `listUsersByRole(roleId, query?)`
+<!-- docs:method name=userRoles.listUsersByRole locale=en -->
+
+- **Purpose**: Use `userRoles.listUsersByRole` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
+- **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
+- **Raw return**: `PageResult<T>` or the documented paged business result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+
+<span id="user-roles-assign-vs-set"></span>
+## How to Choose `assign` and `set`
+
+This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
 ## Responses and side effects
 
-Mutations return the complete persisted direct set in `data`, advance RBAC/user revisions when changed, write audit evidence, and invalidate the affected subject. Reads separate direct bindings from inherited effective roles.
+Side effects are scoped and revisioned. Writes record audit evidence and invalidate affected semantic cache keys; reads preserve bounded detail metadata so callers can tell whether diagnostics were complete.
 
 ```json
 {
@@ -35,12 +114,13 @@ Mutations return the complete persisted direct set in `data`, advance RBAC/user 
   "auditId": "audit_..."
 }
 ```
-
 ## Failures and limits
 
-Missing roles return `ROLE_NOT_FOUND`; stale replacement revisions return `REVISION_CONFLICT`. A user may have at most `128` direct roles. Effective expansion is bounded to `1024` roles, `20000` semantic rules, `50000` sources, and an `8 MiB` snapshot. Empty/non-persisted users are represented explicitly rather than treated as missing user entities.
+Failures close authorization instead of widening it. Important limits are enforced before state is committed, and stale previews or revisions must be refreshed rather than guessed.
 
 ## Example
+
+The example keeps one narrow path per page. It shows the raw method family and a compact response shape, while the full runnable scenarios live in the examples section.
 
 ```ts
 await scoped.userRoles.assign('u-1', 'order-reader');
@@ -49,16 +129,14 @@ const replaced = await scoped.userRoles.set('u-1', ['operator'], {
   expectedRevision: before.data.revision,
 });
 ```
-
 ```json
 {
   "before": ["order-reader"],
   "after": ["operator"]
 }
 ```
-
-`set` does not add `operator` alongside the old role; it replaces the direct set.
-
 ## Related
 
-See [Check Permissions](/guide/check-permission), [Role Inheritance](/guide/role-inheritance), and [Roles](/api/roles).
+Continue with the linked guide or neighboring API page when you need workflow context rather than only signatures.
+
+Continue with [Menus](/api/menus).

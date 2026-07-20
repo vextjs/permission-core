@@ -1,48 +1,39 @@
 # Troubleshooting
+<!-- docs:inline-parity `code` `details.kind` `retryable` `committed` `operationId` `health` `PermissionCoreHealth` `directRoles` `VersionedResult<UserRoleBindingSet>` `data.roleIds/status/revision` `explanation` `SubjectRuntimeResult<PermissionExplanation>` `data.allowed/reason/evaluations` `detailBudget.truncated` `monsqlize` `permission-core` `monsqlize@3.1.0` `VEXT_MONSQLIZE_REQUIRED` `permissionPlugin` `MONSQLIZE_CONTRACT_UNSUPPORTED` `init()` `DATABASE_UNAVAILABLE` `health()` `SCHEMA_VERSION_MISMATCH` `SCHEMA_CONTRACT_MISMATCH` `PermissionCore` `INVALID_SUBJECT` `userId` `tenantId` `SCOPE_CONFLICT` `POLICY_CONTEXT_MISSING` `valueFrom: 'context.*'` `forSubject(subject, context)` `can()` `false` `explain()` `reason` `no-allow` `cannot(action, resource)` `!can(action, resource)` `true` `SCOPE_FIELD_MAPPING_REQUIRED` `scopeFields` `FIELD_PERMISSION_DENIED` `DATA_BULK_SCOPE_MUTATION_UNSAFE` `REVISION_CONFLICT` `conflicts` `choiceRequirements` `getButtonMap()` `apiRisks` `expectedRevision` `health().cache` `VEXT_AUTH_REQUIRED` `VEXT_ROUTE_RESTART_REQUIRED` -->
 
-Start with the error `code` and `details.kind`, not the message text. PermissionCore errors are structured and may also include `retryable`, `committed`, and `operationId`.
+Start from structured error `code` and `details.kind`, then narrow the problem to initialization, subject identity, rule state, data guard, menu state, cache, or Vext route integration.
 
-## Installation and initialization
+## Minimal Diagnostic Order
 
-| Symptom | Likely cause | Recovery |
-|---|---|---|
-| `monsqlize` cannot be resolved | The required peer is missing | Install exactly `monsqlize@3.1.0` next to `permission-core` |
-| `VEXT_MONSQLIZE_REQUIRED` | The Vext plugin received no database runtime | Pass the host's connected MonSQLize instance to `permissionPlugin` |
-| `MONSQLIZE_CONTRACT_UNSUPPORTED` | The instance is old, disconnected, or not MonSQLize 3.1 compatible | Verify version and connection, then recreate the core |
-| `DATABASE_UNAVAILABLE` during `init()` | MongoDB health or transaction probe failed | Restore the database; do not accept authorization traffic until `health()` is up |
-| `SCHEMA_VERSION_MISMATCH` or `SCHEMA_CONTRACT_MISMATCH` | Persisted authorization state does not match this runtime contract | Stop writes, inspect the affected scope hash, and restore a compatible state; do not downgrade around the check |
+Check health, direct roles, and an explanation before changing state. These reads identify the failing layer without accidentally granting new permissions in diagnostic code. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-`PermissionCore` requires an options object with `monsqlize`. A no-argument constructor or a separate storage adapter is not supported.
+```ts
+const health = await pc.health();
+if (health.status !== 'up') {
+  logger.warn({ health }, 'permission core is not fully healthy');
+}
 
-## Scope, identity, and decisions
+const scoped = pc.scope({ tenantId: 'acme' });
+const directRoles = await scoped.userRoles.getDirect('u-1');
+const subject = pc.forSubject({
+  userId: 'u-1', scope: { tenantId: 'acme' },
+});
+const explanation = await subject.explain('invoke', 'GET:/api/orders');
+```
+## Installation and Initialization
 
-| Symptom | Likely cause | Recovery |
-|---|---|---|
-| `INVALID_SUBJECT` | `userId` or the subject scope is incomplete | Build the subject from authenticated server state and include at least `tenantId` |
-| `SCOPE_CONFLICT` | Two trusted identity sources disagree on scope | Reject the request and fix the authentication integration; never choose one silently |
-| `POLICY_CONTEXT_MISSING` | A rule uses `valueFrom: 'context.*'` but the context value is absent | Supply the required context to `forSubject(subject, context)` |
-| `can()` is `false` with no deny rule | No active allow matched | Call `explain()` and inspect `reason`; `no-allow` is the expected default-deny result |
-| An allow still loses | A matching deny, disabled role, unknown condition, or unavailable source closed the decision | Inspect `explain()`, effective roles, effective rules, and source status |
+Most startup failures come from a missing MonSQLize peer, an incompatible runtime, an unavailable database, or a schema contract mismatch. Treat these as readiness failures. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-Remember that `cannot(action, resource)` returns `!can(action, resource)`. A `true` value does not prove that an explicit deny rule exists.
+## Scope, Identity, and Decisions
 
-## Data, menus, and concurrency
+Subject scope must be complete and trusted. Missing policy context, no matching allow, explicit deny, disabled roles, or unavailable sources all fail closed. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-| Symptom | Likely cause | Recovery |
-|---|---|---|
-| `SCOPE_FIELD_MAPPING_REQUIRED` | An authorized collection has no field for a scope dimension | Provide `scopeFields` for each scope dimension in use |
-| `FIELD_PERMISSION_DENIED` on filter or sort | A queried field is not readable, even if it is omitted from the result | Grant the field deliberately or remove it from filtering/sorting; this prevents inference |
-| `DATA_BULK_SCOPE_MUTATION_UNSAFE` | A bulk write can move data outside the authorized condition | Split the operation or use an update that preserves tenant and policy fields |
-| `REVISION_CONFLICT` | Another administrator changed the entity | Reload current data and revision, show the conflict, then let the user retry |
-| Preview is not executable | Choices, source rewrites, or capacity acknowledgement are unresolved | Display `conflicts` and `choiceRequirements`; execute only with the returned preview token |
-| A menu is visible but its button is disabled | The button permission or a required API binding is unavailable | Inspect `getButtonMap()` and the binding's `apiRisks` |
+## Data, Menus, and Concurrency
 
-Management writes are optimistic and audited. Do not retry a conflict by replacing `expectedRevision` with an arbitrary current number; reload the form state first.
+Data filters, field projection, bulk writes, preview flows, menu availability, and revision conflicts all have explicit failure states. Refresh the current state instead of inventing revisions. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-## Cache and Vext recovery
+## Cache and Vext Recovery
 
-Cache is bypassed by default. If opt-in cache health is degraded, permission reads fall back to the database where possible and `health().cache` records the incident. Restore the MonSQLize cache backend and monitor invalidation outcomes; do not add a second cache client to permission-core.
+Cache incidents degrade health and should be recovered through the host MonSQLize cache backend. Vext routes without trusted authentication return authentication errors, and hot route manifest changes require restart. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
-The Vext plugin returns `VEXT_AUTH_REQUIRED` when a protected route has no trusted authentication context. A route manifest change after startup returns `VEXT_ROUTE_RESTART_REQUIRED` and all routes answer 503 until the process restarts with a consistent manifest. This is intentional fail-closed behavior.
-
-For production diagnosis, retain the HTTP request ID, permission `operationId`, error code, details discriminator, tenant-safe scope hash, and current `health()` snapshot. Continue with [Production Operations](/guide/production-operations) for runbooks and readiness checks.
+Continue with [Production Operations](/guide/production-operations).

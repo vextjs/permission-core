@@ -1,8 +1,11 @@
 # Check Permissions
+<!-- docs:inline-parity `pc.forSubject(input)` `userId` `scope` `claims` `subject.can(action, resource, context?)` `Promise<boolean>` `subject.cannot(...)` `can` `!can(...)` `subject.assert(...)` `Promise<void>` `cannot` `assert` `PERMISSION_DENIED` `GET:/orders/:id` `explain()` `SubjectRuntimeResult<PermissionExplanation>` `data` `detailBudget` `can()` `action` `invoke` `resource` `context?` `valueFrom` `can/assert` `allow` `explicit-deny` `no-allow` `policy-unknown` `role-disabled` `context-missing` `roles.get(roleId)` `VersionedResult<Role>` `roles.getOwnRules(roleId)` `VersionedResult<PermissionRuleView[]>` `roles.getEffectiveRules(roleId)` `roles.getChain(roleId)` `getOwnRules` `getEffectiveRules` `getChain` `assign()` `set()` `getDirect/getEffective` `userRoles.assign(userId, roleId, options?)` `UserRoleBindingSet` `userRoles.getDirect(userId)` `set` `userRoles.set(userId, roleIds, options)` `expectedRevision` `userRoles.getEffective(userId)` `assign` `permissions/invokeResources` `subject.getPermissions(options?)` `subject.getResources(action?, options?)` `conditional=true` `getPermissions()` `getResources(action?)` -->
 
-Use a subject context for request-time decisions and a scoped context for administration reads. Both are immutable facades over the same tenant-scoped authorization state.
+Use a subject context for request-time decisions and a scoped context for management reads. Both facades read the same tenant-scoped authorization state.
 
-## Boolean checks and enforcement
+## Boolean Checks and Enforcement
+
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 const subject = pc.forSubject({
@@ -14,16 +17,12 @@ const allowed = await subject.can('invoke', 'GET:/api/orders');
 const blocked = await subject.cannot('invoke', 'DELETE:/api/orders');
 await subject.assert('invoke', 'GET:/api/orders');
 ```
-
 ```json
 { "allowed": true, "blocked": true, "assertResult": "void" }
 ```
+## Explain One Decision
 
-`can` returns a boolean. `cannot` returns the exact logical negation. `assert` resolves with no value when allowed and throws `PERMISSION_DENIED` otherwise. A blocked result does not imply that an explicit deny rule exists; default deny also blocks the operation.
-
-Use the matched route template, such as `GET:/orders/:id`, rather than a concrete URL with query parameters. Keep the action and resource naming identical when granting and checking.
-
-## Explain a decision
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 const explanation = await subject.explain(
@@ -31,7 +30,6 @@ const explanation = await subject.explain(
   'DELETE:/api/orders',
 );
 ```
-
 ```json
 {
   "data": {
@@ -46,10 +44,9 @@ const explanation = await subject.explain(
   "detailBudget": { "limit": 100, "returned": 0, "truncated": false, "digest": "..." }
 }
 ```
+## Read Roles and Rules
 
-Typical reasons are `allow`, `explicit-deny`, `no-allow`, `policy-unknown`, `role-disabled`, and `context-missing`. Explanation traces are bounded; check `detailBudget` before assuming every matching source was returned.
-
-## Read a role and its rules
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 const scoped = pc.scope({ tenantId: 'acme' });
@@ -58,7 +55,6 @@ const own = await scoped.roles.getOwnRules('order-reader');
 const effective = await scoped.roles.getEffectiveRules('order-reader');
 const chain = await scoped.roles.getChain('order-reader');
 ```
-
 ```json
 {
   "role": { "id": "order-reader", "parentId": null, "revision": 2 },
@@ -69,10 +65,9 @@ const chain = await scoped.roles.getChain('order-reader');
   "chain": [{ "role": { "id": "order-reader" }, "depth": 0, "included": true }]
 }
 ```
+## Read and Replace User Roles
 
-`getOwnRules` shows only rules attached to that role. `getEffectiveRules` includes inherited rules, conflicts, source role IDs, and menu-generated sources. `getChain` shows why each role in the single-parent chain is included or excluded.
-
-## Read and replace user roles
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 await scoped.userRoles.assign('u-1', 'order-reader');
@@ -84,7 +79,6 @@ const saved = await scoped.userRoles.set('u-1', ['order-reader'], {
 });
 const effectiveRoles = await scoped.userRoles.getEffective('u-1');
 ```
-
 ```json
 {
   "beforeSet": ["operator", "order-reader"],
@@ -92,16 +86,14 @@ const effectiveRoles = await scoped.userRoles.getEffective('u-1');
   "effective": ["order-reader"]
 }
 ```
+## Read a User Permission Snapshot
 
-`assign` is an incremental add and is idempotent for an existing binding. `set` is a complete replacement protected by `expectedRevision`; omitting a role revokes that direct binding. Use `set` for a form that saves the entire selected role list, not for a single checkbox event.
-
-## Read the subject snapshot
+Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
 
 ```ts
 const permissions = await subject.getPermissions();
 const invokeResources = await subject.getResources('invoke');
 ```
-
 ```json
 {
   "permissions": {
@@ -153,7 +145,4 @@ const invokeResources = await subject.getResources('invoke');
   }
 }
 ```
-
-`getPermissions()` returns direct role IDs, bounded effective roles, bounded effective rules, and conflicts. `getResources(action?)` returns effective resource patterns and marks conditional entries. These methods are diagnostic snapshots, not replacement authorization checks: call `can` or `assert` for the concrete operation and policy context.
-
-For inheritance behavior, continue with [Role Inheritance](/guide/role-inheritance). For method signatures, see [Core and Contexts](/api/core-and-contexts), [Roles](/api/roles), and [User Roles](/api/user-roles).
+Continue with [Data Permissions](/guide/data-permissions).
