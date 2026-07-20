@@ -475,7 +475,7 @@ function assertStableDocsLayout(state, slug) {
                 + JSON.stringify(layout, null, 2),
             );
         }
-        if (layout.sidebar.backgroundTransparent) {
+        if (layout.sidebarBackgroundTransparent) {
             throw new Error(
                 `${slug} sidebar is not an opaque layer: `
                 + JSON.stringify(layout, null, 2),
@@ -574,7 +574,9 @@ async function getBrowserState(client) {
             const sidebarStyle = style(".rp-doc-layout__sidebar");
             return {
                 viewportWidth: window.innerWidth,
-                bodyScrollWidth: document.body.scrollWidth,
+                bodyScrollWidth: document.body?.scrollWidth
+                    ?? document.documentElement?.scrollWidth
+                    ?? 0,
                 sidebar: rect(".rp-doc-layout__sidebar"),
                 doc: rect(".rp-doc-layout__doc"),
                 docContainer,
