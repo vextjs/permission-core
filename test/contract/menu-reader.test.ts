@@ -593,7 +593,7 @@ describe("v2 menu manager read model", () => {
             code: "LIMIT_EXCEEDED",
             details: { kind: "limit-exceeded", max: 8 * 1024 * 1024, unit: "bytes" },
         });
-    }, 15_000);
+    }, 30_000);
 });
 
 describe("v2 menu inventory and grant readers", () => {

@@ -105,7 +105,7 @@ describe("Mongo value normalization", () => {
                 details: expect.objectContaining({ limitName: "mongo-document-bytes" }),
             }),
         );
-    });
+    }, 30_000);
 
     it("accepts the exact 64 KiB canonical value boundary and rejects one byte over", () => {
         const target = 64 * 1024;

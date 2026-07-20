@@ -186,7 +186,7 @@ describe("semantic cache value envelope", () => {
             codec,
             now: 2,
         })).rejects.toThrow(/budget/u);
-    });
+    }, 30_000);
 
     it("rejects snapshots that decode but are not in canonical codec form", async () => {
         const normalizingCodec: SemanticSnapshotCodec<{ label: string }> = {

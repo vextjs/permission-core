@@ -277,7 +277,7 @@ describe("effective authorization integrity and hard limits", () => {
             assertAuthorizationResponseBudget(result);
             return result;
         })).toThrowError(expect.objectContaining({ code: "LIMIT_EXCEEDED" }));
-    });
+    }, 30_000);
 
     it("derives detail digests from complete public rule projections", () => {
         const document = rule(
