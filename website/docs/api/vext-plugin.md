@@ -7,6 +7,16 @@ The Vext plugin exports the runtime integration, request context helpers, route 
 
 This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
+## What Do You Want To Do
+
+| Goal | Entry point |
+|---|---|
+| Register the Vext permission plugin | [`permissionPlugin(options?)`](#vext-permission-plugin) |
+| Get request permission context inside a handler | [`requirePermissionContext(req)`](#vext-require-permission-context) |
+| Perform a side-effect-free type check | [`hasPermissionContext(req)`](#vext-has-permission-context) |
+| Convert a route manifest into API binding input | [`toApiBindingInputs(manifest)`](#vext-to-api-binding-inputs) |
+| Understand route `permission` syntax | [`RouteOptions.permission`](#route-options-permission) |
+
 ## Signatures
 
 The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.

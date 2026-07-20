@@ -4,6 +4,15 @@
 
 所有领域失败都使用从 `permission-core` 导出的 `PermissionCoreError`。按 `code` 与 `details.kind` 分支，不要解析 message 文本。`can()` 返回的布尔拒绝不是异常；`assert()` 会把同一拒绝转换为 `PERMISSION_DENIED`。
 
+## 我想做什么
+
+| 目标 | 入口 |
+|---|---|
+| 捕获并分类 permission-core 错误 | [`PermissionCoreError`](#permission-core-error) |
+| 判断是否能安全重试 | 读取 `retryable`、`committed` 和 `operationId` |
+| 区分业务拒绝和系统异常 | 使用 `can()` 布尔值或捕获 `subject.assert()` 抛错 |
+| 查找具体错误码含义 | [失败与限制](#failures-and-limits) |
+
 ## 签名
 
 ```ts

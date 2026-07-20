@@ -7,6 +7,15 @@
 
 This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
+## What Do You Want To Do
+
+| Goal | Entry point |
+|---|---|
+| Create a protected collection facade | [`subject.data.collection(name, options)`](#authorized-collection-factory) |
+| Read, count, or paginate authorized rows | [`find()`](#authorized-find), [`findAndCount()`](#authorized-find-and-count), [`findPage()`](#authorized-find-page) |
+| Create, update, or delete business documents | [`insertOne()`](#authorized-insert-one), [`updateOne()`](#authorized-update-one), [`deleteOne()`](#authorized-delete-one) |
+| Diagnose filter, field, or scope failures | [Failures and limits](#failures-and-limits) |
+
 ## Signatures
 
 The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.

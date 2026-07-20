@@ -71,6 +71,8 @@ await msq.close();
 
 创建角色、添加一条规则等小型增量写可以直接执行。破坏性、结构性、替换或高影响变更必须先 preview 再 execute。签名 preview 会绑定请求、影响计划、容量评估和预期修订向量。
 
+可以把管理写入分成两类：小型增量写直接提交，例如创建角色、追加一条 allow、给用户增量绑定角色；会影响结构、来源、容量或大量用户的写入必须先预览，例如移动/删除菜单、替换接口绑定、改父角色、角色菜单授权和 stale 修复。preview 只回答“如果现在执行会发生什么”，execute 才写数据库，并且必须提交同一 input、`expectedRevisions` 和 `previewToken`。
+
 运行时在一个 MonSQLize 事务内重新校验修订、来源完整性、层级、容量和幂等性后提交。成功的 `MutationResult` 包含：
 
 ```json

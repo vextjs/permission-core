@@ -7,6 +7,15 @@ Resource schemes validate and match resource strings. Built-ins cover HTTP, API,
 
 This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
+## What Do You Want To Do
+
+| Goal | Entry point |
+|---|---|
+| Review built-in resource syntax | Read "Definition Fields and Lifecycle" |
+| Register a custom resource scheme | [`new PermissionCore({ resourceSchemes })`](#resource-schemes-configure) |
+| Validate the scheme contract during initialization | `pc.init()` and health fields |
+| Test the built-in matcher separately | [Match Resource API](/api/match-resource) |
+
 ## Signatures
 
 The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.

@@ -4,6 +4,16 @@
 
 `scoped.userRoles` 管理某个用户在一个完整 scope 内的直接角色集合。它不创建用户，也不认证用户。引用的每个角色必须已存在于同一 scope。
 
+## 我想做什么
+
+| 目标 | 入口 |
+|---|---|
+| 给用户增量添加或移除角色 | [`assign()`](#user-roles-assign)、[`revoke()`](#user-roles-revoke) |
+| 保存完整角色勾选结果 | [`getDirect()`](#user-roles-get-direct) 后 [`set()`](#user-roles-set) |
+| 清空用户直接角色 | [`clear()`](#user-roles-clear) |
+| 查看直接角色和继承后的有效角色 | [`getDirect()`](#user-roles-get-direct)、[`getEffective()`](#user-roles-get-effective) |
+| 反查某角色绑定了哪些用户 | [`listUsersByRole()`](#user-roles-list-users-by-role) |
+
 ## 签名
 
 ```ts

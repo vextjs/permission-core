@@ -4,6 +4,16 @@
 
 `permission-core/plugins/vext` 是可选的 Vext 0.3.26 集成子路径。宿主必须运行 Node.js `>=20.19.0`、提供宿主持有的 MonSQLize 3.1 实例，并安装在权限判断前写入可信请求状态的认证插件。根入口与 `match` 入口仍保持 Node.js `>=18.0.0` 契约。
 
+## 我想做什么
+
+| 目标 | 入口 |
+|---|---|
+| 注册 Vext 权限插件 | [`permissionPlugin(options?)`](#vext-permission-plugin) |
+| 在 handler 中取得请求权限上下文 | [`requirePermissionContext(req)`](#vext-require-permission-context) |
+| 做无副作用类型检查 | [`hasPermissionContext(req)`](#vext-has-permission-context) |
+| 从路由 manifest 生成接口绑定输入 | [`toApiBindingInputs(manifest)`](#vext-to-api-binding-inputs) |
+| 理解 route `permission` 语法 | [`RouteOptions.permission`](#route-options-permission) |
+
 ## 签名
 
 ```ts

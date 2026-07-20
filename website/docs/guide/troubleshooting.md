@@ -20,6 +20,18 @@ const subject = pc.forSubject({
 });
 const explanation = await subject.explain('invoke', 'GET:/api/orders');
 ```
+## Find by Symptom
+
+| Symptom | Check first | Usually jump to |
+|---|---|---|
+| `can()` returns `false` even though you expected allow | `reason/evaluations` from `subject.explain()` | Scope, Identity, and Decisions |
+| `assert()` throws `PERMISSION_DENIED` | `explain()` with the same action/resource | Scope, Identity, and Decisions |
+| Menu is visible but a button is disabled | `reason/apiRisks` from `subject.menus.getButtonMap()` | Data, Menus, and Concurrency |
+| API binding exists but the role lacks permission | Whether role-menu preview includes `apis` | Data, Menus, and Concurrency |
+| Authorized collection returns no rows | scope, `scopeFields`, row `where`, and field permissions | Data, Menus, and Concurrency |
+| preview or cursor is stale | Whether input, scope, filter/sort, or state changed | Data, Menus, and Concurrency |
+| Vext route keeps returning 503 | Authentication context and route manifest changes | Cache and Vext Recovery |
+
 ## Installation and Initialization
 
 Most startup failures come from a missing MonSQLize peer, an incompatible runtime, an unavailable database, or a schema contract mismatch. Treat these as readiness failures. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.

@@ -2,6 +2,23 @@
 
 接口绑定把真实后端 endpoint 连接到使用它的菜单、页面或按钮，同时回答两个独立问题：接口需要哪些权限，以及接口不可调用时是否应禁用它的 UI owner。
 
+## 与菜单如何关联
+
+菜单节点先定义 UI 结构：页面、菜单和按钮各自有稳定 `id`，按钮还会有前端使用的 `code`。接口绑定不会挂在路由字符串上，而是通过 `owners` 指向这些菜单对象：
+
+```ts
+owners: [
+  { type: 'button', id: 'orders-export', required: true },
+],
+canonicalOwner: { type: 'button', id: 'orders-export' },
+```
+
+这表示 `/api/orders/export` 是 `orders-export` 按钮使用的真实后端接口。`owners` 决定运行时可用性：当当前 subject 缺少 binding 的 `authorization` 权限时，`required: true` 的 owner 会被投影为不可用，例如按钮 `enabled=false`、`reason='api-unavailable'`。`canonicalOwner` 只是主要管理归属，必须也出现在 `owners` 中；它不会替代 owner 列表，也不会自动给角色授权。
+
+角色菜单授权会读取菜单节点和这些 owner 关系。管理员选择 `orders` 页面并包含 `buttons/apis` 时，preview 会把页面、按钮、关联 API binding 和数据模板展开成带来源的角色规则；执行 grant 后，用户通过角色绑定同时获得可见菜单、按钮状态和后端 `api:` 权限。完整选择流程见[角色菜单授权](/zh/guide/role-menu-authorization)。
+
+在菜单场景里，`authorization.permissions` 建议只表达“是否允许调用这个 endpoint”，也就是 `api:*` 权限。不要把 `db:*` 数据权限混进接口绑定；页面或按钮关联的数据权限模板放在菜单节点的 `dataPermissions`，真实数据范围仍由数据权限或数据层查询负责。
+
 ## 绑定结构
 
 以下示例承接[管理菜单](/zh/guide/menu-management)：当前 scope 中已经存在 `orders` 页面，以及其子按钮 `id='orders-export'`、`code='orders.export'`。owner 不存在时 `create()` 会拒绝写入。
@@ -16,7 +33,6 @@ const created = await scoped.apiBindings.create({
     mode: 'all',
     permissions: [
       { action: 'invoke', resource: 'api:POST:/api/orders/export' },
-      { action: 'read', resource: 'db:orders' },
     ],
   },
   owners: [
@@ -44,7 +60,7 @@ const created = await scoped.apiBindings.create({
 | 输入部分 | 本例含义 | 容易混淆的边界 |
 |---|---|---|
 | `method/path` | 唯一 endpoint 契约，method 会规范为大写 | 不是权限本身；后端仍按 authorization 执行检查 |
-| `authorization` | 调用 endpoint 需要同时具备 invoke 和 orders read | `mode='all'` 作用于 permissions，不作用于 owners |
+| `authorization` | 调用 endpoint 需要具备 `api:POST:/api/orders/export` | 入门场景只放 `api:*` 调用权限；不要把数据权限写进这里 |
 | `owners` | binding 属于 export button，并且不可调用时应禁用按钮 | 一个 binding 可有多个 owner；一个 owner 也可有多个 bindings |
 | `canonicalOwner` | 主要管理归属 | 必须同时出现在 owners，但不会删除其他 owners |
 | [`create(input, options?)`](/zh/api/api-bindings#api-bindings-create) | 写入完整 binding | 不会自动给角色授权；返回 `data.revision` 供后续管理 |

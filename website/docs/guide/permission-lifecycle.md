@@ -56,7 +56,7 @@ Use this section to connect the previous example with the next concrete API call
 
 ## Management Write Path
 
-Use this section to connect the previous example with the next concrete API call. Keep the values scoped, trusted, and read from the documented response shape instead of guessing hidden state. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+Small incremental writes can commit directly, such as creating a role, appending one allow rule, or incrementally assigning a role to a user. Structural, source-affecting, capacity-affecting, or high-impact writes must use preview before execute, such as moving or removing menus, replacing API bindings, changing parent roles, role-menu authorization, and stale repair. Preview only answers "what would happen if this ran now"; execute writes the database and must submit the same input, `expectedRevisions`, and `previewToken`.
 
 ```json
 {

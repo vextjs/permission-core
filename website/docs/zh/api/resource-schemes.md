@@ -4,6 +4,15 @@
 
 资源方案定义规则 pattern 如何匹配具体 resource。内置方案覆盖 HTTP 路由、`api:`、`db:`、`ui:` 和仅规则侧可用的全局 `*`。只有这些语法不能表示稳定应用资源域时，才添加自定义方案。
 
+## 我想做什么
+
+| 目标 | 入口 |
+|---|---|
+| 查看内置资源语法 | 阅读“定义字段与生命周期” |
+| 注册自定义资源方案 | [`new PermissionCore({ resourceSchemes })`](#resource-schemes-configure) |
+| 在初始化时验证 scheme contract | `pc.init()` 与 health 字段 |
+| 单独测试内置匹配器 | [资源匹配 API](/zh/api/match-resource) |
+
 ## 签名
 
 ```ts

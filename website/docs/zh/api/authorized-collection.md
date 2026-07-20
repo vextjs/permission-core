@@ -4,6 +4,15 @@
 
 `subject.data.collection()` 用租户 scope、行策略、字段权限、有界 Mongo 风格 filter 和写守卫包装一个 MonSQLize collection。`init()` 后从可信主体创建。主体上出现的每个 scope 维度都必须映射到不可变的标量业务数据字段。
 
+## 我想做什么
+
+| 目标 | 入口 |
+|---|---|
+| 创建受保护集合门面 | [`subject.data.collection(name, options)`](#authorized-collection-factory) |
+| 授权读取、统计或分页 | [`find()`](#authorized-find)、[`findAndCount()`](#authorized-find-and-count)、[`findPage()`](#authorized-find-page) |
+| 授权创建、更新或删除业务文档 | [`insertOne()`](#authorized-insert-one)、[`updateOne()`](#authorized-update-one)、[`deleteOne()`](#authorized-delete-one) |
+| 排查 filter、字段或 scope 失败 | [失败与限制](#failures-and-limits) |
+
 ## 签名
 
 ```ts

@@ -7,6 +7,15 @@
 
 This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
+## What Do You Want To Do
+
+| Goal | Entry point |
+|---|---|
+| Initialize or check whether the core is usable | [`pc.init()`](#audit-init), [`pc.health()`](#audit-health) |
+| Check whether tokens and cursors are stable across instances | Read `health.tokens` |
+| Correlate audit evidence for a management write | Read `operationId`, `auditId`, and `revisions` from mutation results |
+| Handle degraded or down state | [Failures and limits](#failures-and-limits) |
+
 ## Signatures
 
 The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.

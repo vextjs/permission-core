@@ -7,6 +7,16 @@
 
 This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
+## What Do You Want To Do
+
+| Goal | Entry point |
+|---|---|
+| Incrementally add or remove one role | [`assign()`](#user-roles-assign), [`revoke()`](#user-roles-revoke) |
+| Save a complete role checkbox state | [`getDirect()`](#user-roles-get-direct) then [`set()`](#user-roles-set) |
+| Clear all direct roles for a user | [`clear()`](#user-roles-clear) |
+| Read direct roles and inherited effective roles | [`getDirect()`](#user-roles-get-direct), [`getEffective()`](#user-roles-get-effective) |
+| List users assigned to a role | [`listUsersByRole()`](#user-roles-list-users-by-role) |
+
 ## Signatures
 
 The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.

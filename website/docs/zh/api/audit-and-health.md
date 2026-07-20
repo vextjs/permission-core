@@ -4,6 +4,15 @@
 
 公开运维面由 `init()`/`health()` 以及管理变更返回的审计和 revision 证据组成。permission-core 在事务中写入持久化内部审计行，但有意不公开通用审计日志查询 manager。
 
+## 我想做什么
+
+| 目标 | 入口 |
+|---|---|
+| 初始化或检查 core 是否可用 | [`pc.init()`](#audit-init)、[`pc.health()`](#audit-health) |
+| 判断多实例 token/cursor 是否稳定 | 读取 `health.tokens` |
+| 关联一次管理写入的审计证据 | 读取 mutation 返回的 `operationId`、`auditId`、`revisions` |
+| 处理 degraded/down 状态 | [失败与限制](#failures-and-limits) |
+
 ## 签名
 
 ```ts

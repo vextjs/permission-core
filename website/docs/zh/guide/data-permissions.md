@@ -4,10 +4,12 @@
 
 `AuthorizedCollection` 是受支持的数据访问边界。它运行在宿主 MonSQLize 3.1 的事务运行时上，在操作到达 MongoDB 前把应用查询与授权条件组合起来。
 
+它不是 MonSQLize collection 的透明代理，而是 permission-core 定义的受保护数据访问门面。调用方传入的是可审计、可组合、可限制成本的安全查询子集；需要完整 MonSQLize 表达力的场景，应在业务仓储层明确处理，并避免把任意查询对象伪装成授权查询。
+
 <span id="data-filter-vs-where"></span>
 ## `filter` 与 `where` 职责不同
 
-- `filter` 是调用方针对一次操作提供的 Mongo 风格业务查询，例如 `{ status: 'paid' }`。
+- `filter` 是调用方针对一次操作提供的安全 Mongo 风格业务查询，例如 `{ status: 'paid' }`；它不是完整 MonSQLize 查询语法。
 - `where` 是持久化在 allow 或 deny 规则上的策略条件，例如“merchantId 等于 subject claim”。
 - `scopeFields` 把可信 scope 维度映射到每个业务文档中的精确标量字段。
 
@@ -30,6 +32,8 @@ const orders = pc.forSubject({
 const rows = await orders.find({ status: 'paid' });
 ```
 
+`pc.forSubject(...).data.collection(...)` 同步创建 `AuthorizedCollection`。它绑定了当前 subject、物理 collection `orders`、逻辑授权资源 `db:orders` 和 scope 字段映射；创建时不访问数据库，真正的 MonSQLize 读写发生在后续 `find`、`findPage`、`updateOne`、`deleteMany` 等方法中。
+
 这里的 `scopeFields: { tenantId: 'tenantId' }` 不是把租户固定为 `tenantId`，也不是写入租户值。左侧 `tenantId` 指 `subject.scope.tenantId`，右侧 `'tenantId'` 指业务文档里的字段路径。因此当当前 subject 的 scope 是 `{ tenantId: 'acme' }` 时，集合会在每次真实 Mongo 操作中强制加入“文档 `tenantId` 字段等于 `acme`”这一类精确条件。
 
 如果写成 `scopeFields: { tenantId: 'acme' }`，含义会变成把 `subject.scope.tenantId` 映射到文档字段 `acme`，也就是检查文档的 `acme` 字段，而不是检查文档的 `tenantId` 字段。只有当业务文档真的有这个字段时才有意义；通常这不是想要的多租户映射。
@@ -46,6 +50,20 @@ const rows = await orders.find({ status: 'paid' });
 ```text
 调用方 filter AND 精确租户条件 AND 命中的 allow AND NOT 命中的 deny
 ```
+
+以上示例中，`orders.find({ status: 'paid' })` 逻辑上接近：
+
+```ts
+rawOrders.find({
+  $and: [
+    { status: 'paid' },
+    { tenantId: 'acme' },
+    { merchantId: 'm-1' },
+  ],
+});
+```
+
+真实实现还会加入 scope 标量保护、字段权限检查、deny 反向条件、事务和查询预算；示例只展示权限组合的心智模型。
 
 公开 API 不会只返回一个授权 filter 让调用方之后选择是否使用。集合会直接执行组合后的条件，调用方无法忘记或替换权限条件。
 
@@ -76,9 +94,11 @@ where: {
 
 ## Mongo 风格调用方查询
 
-调用方 filter 支持有界的纯数据 Mongo 操作符，包括 `$and`、`$or`、`$nor`、比较与集合操作符、`$exists`、可选 `i` 的字面量 `$regex`、`$not`、`$elemMatch`、`$all` 和 `$size`。JavaScript 谓词、Proxy、访问器、`$where` 和任意操作符会被拒绝。
+调用方 filter 使用 `SafeMongoFilter`，支持有界的纯数据 Mongo 操作符，包括 `$and`、`$or`、`$nor`、比较与集合操作符、`$exists`、可选 `i` 的字面量 `$regex`、`$not`、`$elemMatch`、`$all` 和 `$size`。JavaScript 谓词、Proxy、访问器、`$where` 和任意操作符会被拒绝。
 
 安全 filter 最多 12 层、256 个节点、每个逻辑节点 32 个子项和 128 KiB 规范化字节，用于限制授权审查与数据库成本。
+
+因此可以把它理解成“接近 Mongo 的授权查询输入”，而不是“原样透传到底层 MonSQLize collection 的查询对象”。
 
 ## 字段权限
 
@@ -123,6 +143,39 @@ const safe = await orders.find(
 | 创建 | [`insertOne`](/zh/api/authorized-collection#authorized-insert-one) | `{ acknowledged, insertedId }` |
 | 单条/批量更新 | [`updateOne`](/zh/api/authorized-collection#authorized-update-one) / [`updateMany`](/zh/api/authorized-collection#authorized-update-many) | `{ acknowledged, matchedCount, modifiedCount }` |
 | 单条/批量删除 | [`deleteOne`](/zh/api/authorized-collection#authorized-delete-one) / [`deleteMany`](/zh/api/authorized-collection#authorized-delete-many) | `{ acknowledged, deletedCount }` |
+
+签名游标分页可直接通过 `findPage()` 使用。第一次请求给出业务 filter、稳定排序和页大小；下一页提交上一页返回的 cursor：
+
+```ts
+const page = await orders.findPage({
+  filter: { status: 'paid' },
+  sort: { createdAt: -1 },
+  first: 20,
+  totals: true,
+});
+
+const next = await orders.findPage({
+  filter: { status: 'paid' },
+  sort: { createdAt: -1 },
+  first: 20,
+  after: page.pageInfo.endCursor!,
+});
+```
+
+```json
+{
+  "items": [],
+  "pageInfo": {
+    "hasNext": false,
+    "hasPrev": false,
+    "startCursor": null,
+    "endCursor": null
+  },
+  "total": 0
+}
+```
+
+cursor 会绑定查询契约、scope、subject、claims/context 指纹和策略修订；换用户、换 scope、换 filter/sort 或篡改 cursor 都不会继续复用旧分页边界。`totals: true` 才返回 `total`。
 
 ```ts
 await scoped.roles.allow('owner-writer', {

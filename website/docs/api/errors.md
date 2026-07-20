@@ -7,6 +7,15 @@
 
 This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
+## What Do You Want To Do
+
+| Goal | Entry point |
+|---|---|
+| Catch and classify permission-core failures | [`PermissionCoreError`](#permission-core-error) |
+| Decide whether retry is safe | Read `retryable`, `committed`, and `operationId` |
+| Distinguish business denial from system failure | Use the `can()` boolean or catch `subject.assert()` |
+| Look up concrete error code meaning | [Failures and limits](#failures-and-limits) |
+
 ## Signatures
 
 The signatures below are the public contract. The code block is kept executable-looking so TypeScript users can compare argument order, option requirements, and raw return wrappers quickly.

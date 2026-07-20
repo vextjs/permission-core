@@ -4,6 +4,15 @@
 
 `permission-core/match` 在不构造 core 的情况下公开内置资源 matcher。配置工具或测试需要与内置 HTTP/API/数据/UI pattern 完全相同的语义时使用。它不判断 action、角色、deny 优先级、条件或自定义资源方案。
 
+## 我想做什么
+
+| 目标 | 入口 |
+|---|---|
+| 在测试中验证资源模式 | [`matchResource(pattern, resource)`](#match-resource) |
+| 复现 `can/assert` 的字符串匹配结果 | 传入同一 action/resource 资源字符串 |
+| 理解 `*`、`:param` 和字段通配 | [示例](#example) |
+| 判断是否需要自定义资源方案 | [资源方案 API](/zh/api/resource-schemes) |
+
 ## 签名
 
 ```ts

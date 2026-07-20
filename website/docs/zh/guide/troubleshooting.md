@@ -26,6 +26,18 @@ const explanation = await subject.explain('invoke', 'GET:/api/orders');
 
 这三个读取不会修复状态。先根据证据定位层级，再调用相应管理写入或部署恢复；不要在诊断代码中自动追加 allow。
 
+## 按症状快速定位
+
+| 症状 | 先查什么 | 通常跳到 |
+|---|---|---|
+| `can()` 返回 `false`，但以为已经授权 | `subject.explain()` 的 `reason/evaluations` | Scope、身份与决策 |
+| `assert()` 抛 `PERMISSION_DENIED` | 同一 action/resource 的 `explain()` | Scope、身份与决策 |
+| 菜单能看到，但按钮 disabled | `subject.menus.getButtonMap()` 的 `reason/apiRisks` | 数据、菜单与并发 |
+| API binding 创建了但角色没权限 | 角色菜单授权 preview 是否包含 `apis` | 数据、菜单与并发 |
+| 授权集合查不到数据 | scope、`scopeFields`、行级 `where` 和字段权限 | 数据、菜单与并发 |
+| preview/cursor 过期 | 是否更换 input、scope、filter/sort 或状态已变更 | 数据、菜单与并发 |
+| Vext 路由持续 503 | 认证上下文、manifest 是否热变更 | 缓存与 Vext 恢复 |
+
 ## 安装与初始化
 
 | 现象 | 常见原因 | 恢复方式 |

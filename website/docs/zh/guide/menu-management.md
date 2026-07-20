@@ -1,6 +1,108 @@
 # 管理菜单
 
-菜单管理保存由后端负责的导航模型。节点本身不是一条权限：它携带权限要求、可选数据模板、层级元数据和修订状态；角色授权是下一项独立任务。
+菜单管理保存由后端负责的导航模型。最推荐从“一份菜单配置”开始理解：页面、按钮、按钮调用的接口、以及授权角色时顺带生成的数据权限模板，都可以放在同一个 manifest 里维护。
+
+当前 API 的 manifest 是扁平结构：`nodes` 放目录、页面、按钮等 UI 节点；`apiBindings` 放真实后端接口，并通过 `owners` 指回按钮或页面。这样写起来比嵌套稍长，但好处是一个接口可以被多个按钮复用，也可以独立审计和变更。
+
+## 一份可导入的菜单配置
+
+```ts
+const manifest = {
+  schemaVersion: 2,
+  mode: 'merge',
+  nodes: [
+    {
+      id: 'operations',
+      type: 'directory',
+      title: 'Operations',
+      order: 0,
+    },
+    {
+      id: 'orders',
+      parentId: 'operations',
+      type: 'page',
+      title: 'Orders',
+      path: '/orders',
+      name: 'orders',
+      component: 'OrdersPage',
+      order: 0,
+      permission: { action: 'read', resource: 'ui:page:orders' },
+      dataPermissions: [
+        { action: 'read', resource: 'db:orders', label: 'Read orders' },
+      ],
+    },
+    {
+      id: 'orders-export',
+      parentId: 'orders',
+      type: 'button',
+      title: 'Export',
+      code: 'orders.export',
+      order: 0,
+      permission: { action: 'invoke', resource: 'ui:button:orders.export' },
+    },
+  ],
+  apiBindings: [
+    {
+      id: 'orders-list-api',
+      method: 'GET',
+      path: '/api/orders',
+      purpose: 'entry',
+      authorization: {
+        mode: 'all',
+        permissions: [
+          { action: 'invoke', resource: 'api:GET:/api/orders' },
+        ],
+      },
+      owners: [{ type: 'page', id: 'orders', required: true }],
+      canonicalOwner: { type: 'page', id: 'orders' },
+    },
+    {
+      id: 'orders-export-api',
+      method: 'POST',
+      path: '/api/orders/export',
+      purpose: 'importExport',
+      authorization: {
+        mode: 'all',
+        permissions: [
+          { action: 'invoke', resource: 'api:POST:/api/orders/export' },
+        ],
+      },
+      owners: [{ type: 'button', id: 'orders-export', required: true }],
+      canonicalOwner: { type: 'button', id: 'orders-export' },
+    },
+  ],
+};
+
+const preview = await scoped.menus.manifest.preview(manifest);
+if (preview.executable) {
+  await scoped.menus.manifest.import(manifest, {
+    ...preview.expected,
+    previewToken: preview.previewToken,
+  });
+}
+```
+
+这段配置表达的是：
+
+| 配置 | 作用 | 运行时影响 |
+|---|---|---|
+| `nodes[0]` directory | 只是导航分组 | 不代表业务权限。 |
+| `nodes[1]` page | `/orders` 页面 | 用户拿到 `ui:page:orders` 后，页面才会出现在可见菜单/路由状态中。 |
+| `nodes[1].dataPermissions` | 这个页面关联的业务数据权限模板 | 不会在创建菜单时立即授权；角色菜单授权勾选 `dataPermissions` 后，才会展开成角色规则。 |
+| `nodes[2]` button | 页面里的导出按钮 | 用户拿到 `ui:button:orders.export` 后，按钮才会进入按钮状态表。 |
+| `apiBindings[0]` | 点击/进入订单页面后默认加载的接口 | 如果用户缺少这里的 `api:GET:/api/orders` 调用权限，页面路由仍可能可见，但运行时会报告该页面依赖的必需接口不可用；后端接口仍要独立检查。 |
+| `apiBindings[1]` | 导出按钮调用的后端接口 | 如果用户缺少这里的 `api:POST:/api/orders/export` 调用权限，按钮会被投影为不可用；后端接口仍要独立检查。 |
+| `owners` | 把接口绑定到哪个页面、菜单或按钮 | `type: 'page'` 适合页面默认加载接口，`type: 'menu'` 适合点击菜单本身触发的接口，`type: 'button'` 适合按钮操作接口；`required: true` 表示缺少该接口权限时对应 UI 应视为不可用。 |
+
+所以你可以把它当成一份“菜单配置文件”：
+
+- 页面权限写在页面节点的 `permission`。
+- 点击页面/菜单默认调用的接口权限写在 `apiBindings[].authorization.permissions`，通常只放 `api:*` 调用权限，并用 `owners: [{ type: 'page' | 'menu', id: ... }]` 指回该页面或菜单。
+- 纯按钮权限写在按钮节点的 `permission`。
+- 按钮对应接口权限写在 `apiBindings[].authorization.permissions`，通常只放 `api:*` 调用权限。
+- 接口与按钮的关系写在 `apiBindings[].owners`。
+- 数据权限不要混进菜单接口权限里；页面关联的数据权限模板放 `dataPermissions`，真实数据范围由数据权限/数据层检查负责。
+- 角色拿到哪些页面、按钮、接口和数据模板，由[角色菜单授权](/zh/guide/role-menu-authorization)决定。
 
 ## 节点类型
 
@@ -14,6 +116,8 @@
 | `iframe` | 带内部路由的嵌入 URL | `url`、`path`、`name`、`permission` |
 
 按钮不会作为导航节点出现在树中，而是由 subject 按所属页面或菜单返回按钮状态表。
+
+菜单节点只定义可被授权和投影的 UI 资产。真实后端 endpoint 不写在节点上，而是在[接口绑定](/zh/guide/api-bindings)中通过 `owners` 指向这些 page/menu/button `id`；随后[角色菜单授权](/zh/guide/role-menu-authorization)才把选中的菜单、按钮、接口和数据模板展开成角色规则。
 
 ## 创建并读取节点
 
