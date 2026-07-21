@@ -1,14 +1,209 @@
-# 配置接口与响应字段
+# 接口与响应字段
 
-在新版菜单模型里，业务侧不再直接维护公开的接口绑定管理 API。后台页面可以用 `menus.loadApis`、`menus.actions`、`menus.responses` 逐项配置接口和字段；配置即代码场景也可以在 `MenuConfigInput` 里写 `load`、`actions` 和 `response`。保存时 permission-core 会自动生成内部接口契约，并把它们用于角色菜单授权、Vext 路由守卫和响应字段投影。
+新版菜单模型里，业务侧不需要手动创建 `apiBinding`。你只要把 `api:*` 资源配置到页面默认接口或按钮操作上，permission-core 会在保存时自动生成内部接口契约，并把它用于角色菜单授权、Vext 路由守卫和响应字段裁剪。
 
-## 页面加载接口
+这页只回答三件事：
 
-页面进入时要调用的接口写在 `views[].load[]`：
+1. 页面打开时默认调用哪些接口。
+2. 页面按钮点击时调用哪些接口，或者只是纯前端按钮权限。
+3. 某个接口响应里哪些字段需要按角色授权后才能返回。
+
+## 使用前提
+
+逐项配置接口和字段前，需要先有菜单配置、菜单和页面：
 
 ```ts
-load: [{
+const scoped = pc.scope({ tenantId: 'acme', appId: 'admin' });
+
+// 这里假设已经创建好：
+// configId: 'admin'
+// menuId: 'orders'
+// viewId: 'orders-list'
+```
+
+完整流程通常是：
+
+```text
+创建菜单配置
+-> 创建菜单
+-> 创建页面 orders-list
+-> 给页面添加默认加载接口
+-> 给按钮添加接口或 UI 权限
+-> 给接口配置响应字段
+-> 给角色授权页面、接口、按钮和字段
+-> 后端用 assert/filterResponse 或 Vext 保护接口
+```
+
+如果配置、页面或按钮还不存在，`menus.loadApis.add()`、`menus.actions.create()`、`menus.responses.set()` 会在预览或执行阶段失败。
+
+## 页面默认接口
+
+页面默认接口表示：用户打开某个页面时，这个页面需要调用的后端接口。
+
+在配置即代码里，对应字段是 `load.resource`；在后台逐项管理 API 里，对应 `menus.loadApis.add()` 的 `input.resource`。
+
+例如订单列表页打开时会请求：
+
+```text
+GET /api/orders
+```
+
+就把它登记为 `orders-list` 页面的 load API：
+
+```ts
+const added = await scoped.menus.loadApis.add('admin', 'orders-list', {
   resource: 'api:GET:/api/orders',
+}, {
+  actorId: 'admin',
+  idempotencyKey: 'orders-list-load-add-v1',
+});
+```
+
+这段代码的意思是：
+
+> 把 `GET /api/orders` 登记为 `admin` 配置中 `orders-list` 页面的默认加载接口。
+
+参数说明：
+
+| 参数 | 说明 |
+|---|---|
+| `'admin'` | 菜单配置 ID，表示修改哪一套后台菜单。 |
+| `'orders-list'` | 页面/view ID，表示接口挂在哪个页面下。 |
+| `resource` | 接口资源，格式为 `api:METHOD:/path`。 |
+| `actorId` | 当前管理端操作者，用于审计。 |
+| `idempotencyKey` | 幂等键，避免同一次提交被重复执行。 |
+
+保存成功后，配置快照里会出现：
+
+```json
+{
+  "configId": "admin",
+  "config": {
+    "menus": [
+      {
+        "id": "orders",
+        "views": [
+          {
+            "id": "orders-list",
+            "load": [
+              { "resource": "api:GET:/api/orders" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+这条 load 会影响三处：
+
+| 场景 | 影响 |
+|---|---|
+| 菜单配置 | 系统会把该接口登记到内部接口契约。 |
+| 角色授权 | `include.loads: true` 时，角色会拿到 `invoke + api:GET:/api/orders`。 |
+| 用户运行时 | `getViewState()` 会用页面加载接口判断页面是否可用。 |
+
+接口资源不需要写 `action: 'invoke'`。`loadApis.add()` 会自动把 `api:GET:/api/orders` 编译成 `invoke + api:GET:/api/orders`。
+
+路径中有参数时，使用路由模板：
+
+```ts
+{ resource: 'api:GET:/api/orders/:id' }
+```
+
+不要把具体业务 ID 写进资源：
+
+```ts
+// 不推荐
+{ resource: 'api:GET:/api/orders/123' }
+```
+
+## 页面按钮和操作
+
+按钮或操作表示：用户在页面里点击某个动作，例如导出、审核、删除、打开详情。
+
+在配置即代码里，对应字段是 `actions[].resource`；在后台逐项管理 API 里，对应 `menus.actions.create()` 的 `input.resource`。
+
+如果按钮会调用后端接口，使用 `api:*`：
+
+```ts
+await scoped.menus.actions.create('admin', 'orders-list', {
+  id: 'export',
+  title: '导出订单',
+  resource: 'api:POST:/api/orders/export',
+}, {
+  actorId: 'admin',
+  idempotencyKey: 'orders-export-action-v1',
+});
+```
+
+这段代码的意思是：
+
+> 在 `orders-list` 页面上创建一个“导出订单”按钮。用户有这个按钮权限时，才应该能看到或点击它；如果按钮调用后端，后端还要校验 `invoke + api:POST:/api/orders/export`。
+
+如果按钮只是纯前端能力，不调用后端接口，使用 `ui:button:*`：
+
+```ts
+await scoped.menus.actions.create('admin', 'orders-list', {
+  id: 'show-cost-column',
+  title: '显示成本列',
+  resource: 'ui:button:orders.show-cost-column',
+}, {
+  actorId: 'admin',
+  idempotencyKey: 'orders-show-cost-column-action-v1',
+});
+```
+
+两类按钮的区别：
+
+| resource | 适合场景 | 后端是否需要接口鉴权 |
+|---|---|---|
+| `api:POST:/api/orders/export` | 点击后请求后端接口 | 需要 |
+| `ui:button:orders.show-cost-column` | 只控制前端展示或交互 | 不需要 |
+
+如果按钮只是打开弹窗，而弹窗里再请求接口，推荐把弹窗建成一个 `dialog` 或 `drawer` view，再给这个 view 配置自己的 load API。这样权限含义更清楚：
+
+```text
+按钮权限：能不能打开弹窗
+弹窗页面权限：能不能进入弹窗视图
+弹窗 load API：能不能请求弹窗里的数据接口
+```
+
+## 响应字段配置
+
+响应字段配置回答的是：
+
+> 这个接口返回的 DTO 里，哪些字段需要变成可授权字段？
+
+注意区分两件事：
+
+| 操作 | 作用 |
+|---|---|
+| `menus.responses.set()` | 声明“这个接口有哪些可授权字段”。 |
+| `roles.menuPermissions.grant({ responseFields })` | 给某个角色分配“实际能返回哪些字段”。 |
+
+也就是说，配置响应字段不等于用户已经能看到字段。角色没有字段授权时，字段仍会被裁剪。
+
+### owner 怎么写
+
+`menus.responses.set()` 需要通过 `owner` 指明字段属于哪个接口来源。
+
+| ownerType | 用途 | 示例 |
+|---|---|---|
+| `load` | 页面默认加载接口的响应字段 | 订单列表页的 `GET /api/orders` |
+| `action` | 按钮接口的响应字段 | 导出按钮的 `POST /api/orders/export` |
+| `api` | 按 API 资源查找来源 | 高级用法，不推荐新手优先使用 |
+
+页面默认接口的字段配置：
+
+```ts
+const responseInput = {
+  owner: {
+    ownerType: 'load',
+    viewId: 'orders-list',
+    resource: 'api:GET:/api/orders',
+  },
   response: {
     target: 'items',
     preserve: ['total'],
@@ -18,64 +213,52 @@ load: [{
       { field: 'amount', title: '金额' },
     ],
   },
-}]
-```
+} as const;
 
-`load.resource` 必须是 `ApiResource`，格式是 `api:METHOD:/path`。这里不需要写 `action: 'invoke'`；系统会自动把 load 编译成 `invoke + api:GET:/api/orders`。
-
-后台页面逐项保存时，对应方法是：
-
-```ts
-const preview = await scoped.menus.loadApis.previewAdd('admin', 'orders-list', {
-  resource: 'api:GET:/api/orders',
-});
-
-await scoped.menus.loadApis.add('admin', 'orders-list', {
-  resource: 'api:GET:/api/orders',
-}, {
-  ...preview.expected,
-  previewToken: preview.previewToken,
+await scoped.menus.responses.set('admin', responseInput, {
   actorId: 'admin',
+  idempotencyKey: 'orders-response-fields-v1',
 });
 ```
 
-这条 load 会影响三处：
+这段代码的意思是：
 
-| 场景 | 影响 |
+> `api:GET:/api/orders` 返回分页数据，真正要裁剪的是 `items` 中每一行；`total` 是分页总数，保留但不参与字段授权；`orderNo/status/amount` 是可以分配给角色的字段。
+
+这些普通新增/设置操作会自动完成内部预览并提交。管理端如果想先展示影响，可以改用对应的 `previewAdd()`、`previewCreate()` 或 `previewSet()`，确认后再带 `expected/previewToken` 执行。
+
+参数说明：
+
+| 参数 | 说明 |
 |---|---|
-| 菜单保存 | `menus.loadApis.add()`、`menus.responses.set()` 或 `menus.config.save()` 会把该接口登记到内部契约。 |
-| 角色授权 | `include.loads: true` 时会把该接口调用权限授给角色。 |
-| 用户运行时 | `getViewState()` 会用接口权限判断页面是否可用；`filterResponse()` 会按响应字段裁剪返回值。 |
+| `owner.ownerType: 'load'` | 字段属于页面默认接口。 |
+| `owner.viewId` | 页面 ID。 |
+| `owner.resource` | 页面 load API 资源。 |
+| `response.target` | 要裁剪的对象或数组路径。分页接口常用 `items` 或 `data.items`。 |
+| `response.preserve` | 保留但不参与字段授权的外层字段，如 `total`、`cursor`。 |
+| `response.fields[].field` | 响应 DTO 字段路径，不是数据库字段路径。 |
+| `response.fields[].title` | 管理后台展示名。 |
 
-## 页面按钮和操作
+保存后，配置快照接近：
 
-页面内按钮、工具栏动作、行操作写在 `views[].actions[]`：
-
-```ts
-actions: [{
-  id: 'export',
-  title: '导出订单',
-  resource: 'api:POST:/api/orders/export',
-  response: [{ field: 'downloadUrl', title: '下载地址' }],
-}]
+```json
+{
+  "resource": "api:GET:/api/orders",
+  "response": {
+    "target": "items",
+    "preserve": ["total"],
+    "fields": [
+      { "field": "orderNo", "title": "订单号" },
+      { "field": "status", "title": "状态" },
+      { "field": "amount", "title": "金额" }
+    ]
+  }
+}
 ```
 
-`actions[].resource` 可以是后端接口，也可以是纯前端 UI 资源：
+### 数组形式和对象形式
 
-| 资源 | 适合场景 |
-|---|---|
-| `api:POST:/api/orders/export` | 点击后会请求后端接口，应该由后端鉴权。 |
-| `ui:button:orders.export` | 纯前端能力，例如只控制按钮展示，后端没有对应接口。 |
-
-如果按钮调用后端，优先使用 `api:`。这样 `roles.menuPermissions.grant()` 勾选 `include.actions: true` 后，角色会同时拿到按钮状态和接口调用能力。
-
-后台页面逐项保存时，对应方法是 `menus.actions.previewCreate()` / `menus.actions.create()`。按钮如果是 `ui:button:*` 纯前端资源，不能配置 `response`；只有 `api:*` 接口才有响应字段。
-
-## 响应字段配置
-
-响应字段有两种写法。
-
-对象或数组直接裁剪：
+在 `MenuConfigInput.load[].response` 或 `actions[].response` 里，可以直接写数组：
 
 ```ts
 response: [
@@ -84,7 +267,27 @@ response: [
 ]
 ```
 
-分页响应裁剪：
+但在 `menus.responses.set()` 里，`response` 使用对象形式。即使没有 `target`，也要写成：
+
+```ts
+response: {
+  fields: [
+    { field: 'orderNo', title: '订单号' },
+    { field: 'buyer.name', title: '买家姓名' },
+  ],
+}
+```
+
+如果接口返回分页结构：
+
+```json
+{
+  "items": [{ "orderNo": "O-1001", "status": "paid", "amount": 88 }],
+  "total": 1
+}
+```
+
+推荐写：
 
 ```ts
 response: {
@@ -93,47 +296,18 @@ response: {
   fields: [
     { field: 'orderNo', title: '订单号' },
     { field: 'status', title: '状态' },
+    { field: 'amount', title: '金额' },
   ],
 }
 ```
 
-`field` 支持点路径，例如 `buyer.name`。`target` 也支持点路径，例如 `data.items`。`preserve` 适合保留分页总数、游标、状态码等外层字段，但不要把敏感业务字段放进 `preserve`，因为它不参与字段授权。
-
-后台页面逐项保存响应字段时，对应方法是：
-
-```ts
-const preview = await scoped.menus.responses.previewSet('admin', {
-  owner: { ownerType: 'load', viewId: 'orders-list', resource: 'api:GET:/api/orders' },
-  response: {
-    target: 'items',
-    preserve: ['total'],
-    fields: [
-      { field: 'orderNo', title: '订单号' },
-      { field: 'status', title: '状态' },
-    ],
-  },
-});
-
-await scoped.menus.responses.set('admin', {
-  owner: { ownerType: 'load', viewId: 'orders-list', resource: 'api:GET:/api/orders' },
-  response: {
-    target: 'items',
-    preserve: ['total'],
-    fields: [
-      { field: 'orderNo', title: '订单号' },
-      { field: 'status', title: '状态' },
-    ],
-  },
-}, {
-  ...preview.expected,
-  previewToken: preview.previewToken,
-  actorId: 'admin',
-});
-```
+不要把敏感业务字段放进 `preserve`，因为 `preserve` 不参与字段授权。
 
 ## 授权响应字段
 
-配置里声明字段后，还需要在角色菜单授权里选择字段：
+声明字段之后，还要给角色授权字段。下面表示：
+
+> `order-operator` 可以进入订单列表页，可以调用页面默认接口和按钮接口，但订单列表接口只返回 `orderNo` 和 `status`。
 
 ```ts
 const selection = {
@@ -144,58 +318,140 @@ const selection = {
     target: 'items',
     fields: ['orderNo', 'status'],
   }],
-  include: { loads: true, actions: true, responseFields: 'none' },
+  include: {
+    loads: true,
+    actions: true,
+    responseFields: 'none',
+  },
 };
 ```
 
-`fields` 必须来自配置中已经声明的字段。分页或嵌套响应建议写 `target`，例如 `items` 或 `data.items`；同一个接口存在多个响应目标时，不写 `target` 会因为目标不明确而被 preview 拒绝。不要给角色分配配置里不存在的字段。
+`fields` 必须来自前面已经声明过的响应字段。分页或嵌套响应建议写 `target`，例如 `items` 或 `data.items`；同一个接口存在多个响应目标时，不写 `target` 会因为目标不明确而被 preview 拒绝。
+
+默认不会自动全选响应字段。如果确实要给某角色全部字段，必须显式设置：
+
+```ts
+include: { responseFields: 'all' }
+```
 
 ## 后端裁剪响应
 
-接口处理器返回前调用：
+响应字段必须在后端返回前裁剪，不应该只靠前端隐藏。
+
+手写框架时，推荐把接口入口鉴权和响应字段裁剪分开写：
 
 ```ts
-const projected = await subject.menus.filterResponse('api:GET:/api/orders', {
+const subject = pc.forSubject({ userId: 'u-menu', scope });
+
+await subject.assert('invoke', 'api:GET:/api/orders');
+
+const payload = {
   items: [
     { orderNo: 'O-1001', status: 'paid', amount: 88, internalCost: 51 },
   ],
   total: 1,
   debug: true,
-});
+};
+
+const projected = await subject.menus.filterResponse(
+  'api:GET:/api/orders',
+  payload,
+);
+
+return projected.data;
 ```
+
+如果当前用户只有 `orderNo` 和 `status` 字段权限，`projected.data` 接近：
 
 ```json
 {
-  "items": [{ "orderNo": "O-1001", "status": "paid" }],
+  "items": [
+    { "orderNo": "O-1001", "status": "paid" }
+  ],
   "total": 1
 }
 ```
 
-`filterResponse()` 会先执行接口权限检查。当前用户没有 `invoke + api:GET:/api/orders` 时，它会失败；当前用户有接口权限但只被授权部分字段时，它只返回这些字段。
+职责边界：
 
-在 Vext 插件里，受 `permission: true` 保护的路由会自动对 `res.json()` 做响应字段投影；手写业务代码也可以显式调用 `req.auth.permission.filterResponse()`。详见[Vext 插件](/zh/guide/vext-plugin)。
+| 方法 | 职责 |
+|---|---|
+| `subject.assert('invoke', apiResource)` | 保护接口入口。 |
+| `subject.menus.filterResponse(apiResource, payload)` | 按当前用户字段授权裁剪响应。 |
 
-## 后端接口仍要鉴权
+`filterResponse()` 内部也会检查当前用户是否能 `invoke` 该 API；但业务接口仍建议先使用 `subject.assert()` 或框架守卫保护入口，这样失败点更清晰。
 
-响应字段投影不是路由鉴权的替代品。业务接口仍应先保护入口：
+使用 Vext 插件时，受 `permission: true` 保护的路由可以自动做接口鉴权和响应字段投影；手写业务代码也可以显式调用 `req.auth.permission.filterResponse()`。详见[Vext 插件](/zh/guide/vext-plugin)。
 
-```ts
-const subject = pc.forSubject({ userId: 'u-menu', scope });
-await subject.assert('invoke', 'api:GET:/api/orders');
-const projected = await subject.menus.filterResponse('api:GET:/api/orders', payload);
+## 未配置响应字段时会怎样
+
+- 如果某个 API 没有配置 `response`，`filterResponse()` 在接口权限通过后会返回原始 payload。
+- 如果某个 API 配置了 `response`，但当前用户没有字段授权，则只会保留 `preserve` 中声明的结构字段。
+- 如果接口包含敏感字段，应该配置 `response` 并通过角色授权显式分配字段。
+
+## 同一个接口被多个页面复用
+
+同一个 `apiResource` 可以被多个页面或按钮复用，但响应结构需要兼容。
+
+例如这些通常可以合并：
+
+```text
+orders-list    -> api:GET:/api/orders -> target: items
+sales-orders   -> api:GET:/api/orders -> target: items
 ```
 
-如果使用 Vext 插件，`permission: true` 会用路由的 method/path 自动检查 `invoke + api:METHOD:/path`。如果不使用 Vext，就在自己的框架中调用 `subject.assert()`。
+但如果同一个接口在不同页面声明了不同响应结构，例如一个是 `target: 'items'`，另一个是 `target: 'data.rows'`，预览可能会拒绝。遇到这种情况，优先考虑拆成不同 API，或者统一响应结构。
+
+## 配置即代码等价写法
+
+如果你从插件、CI/CD 或配置文件一次性导入菜单，也可以把接口和响应字段写在 `MenuConfigInput` 里：
+
+```ts
+const menuConfig = {
+  configId: 'admin',
+  menus: [{
+    id: 'orders',
+    title: '订单中心',
+    views: [{
+      id: 'orders-list',
+      type: 'page',
+      title: '订单列表',
+      path: '/orders',
+      component: 'OrdersPage',
+      load: [{
+        resource: 'api:GET:/api/orders',
+        response: {
+          target: 'items',
+          preserve: ['total'],
+          fields: [
+            { field: 'orderNo', title: '订单号' },
+            { field: 'status', title: '状态' },
+          ],
+        },
+      }],
+      actions: [{
+        id: 'export',
+        title: '导出订单',
+        resource: 'api:POST:/api/orders/export',
+      }],
+    }],
+  }],
+};
+```
+
+这和逐项调用 `menus.loadApis.add()`、`menus.actions.create()`、`menus.responses.set()` 的结果一致，只是入口不同。
 
 ## 常见误区
 
 | 误区 | 正确理解 |
 |---|---|
-| 需要先创建接口绑定，再写菜单 | 不需要。现在通过 `menus.loadApis/actions/responses` 或 `MenuConfigInput` 声明接口，内部绑定由系统生成。 |
-| 只能写完整 `MenuConfigInput` | 不需要。后台页面优先用 `menus.loadApis/actions/responses` 逐项维护。 |
-| `load` 要写 action | 不需要。`load.resource` 自动补成 `invoke`。 |
+| 需要先手动创建接口绑定 | 不需要。通过 `loadApis/actions/responses` 或 `MenuConfigInput` 声明接口后，系统会生成内部绑定。 |
+| `load` 要写 `action: 'invoke'` | 不需要。`api:*` 会自动按 `invoke` 处理。 |
+| `menus.responses.set()` 的 `response` 可以直接写数组 | 不可以。逐项 API 使用对象形式：`response: { fields: [...] }`。数组形式主要用于 `MenuConfigInput`。 |
+| 配置了响应字段，用户就能看到这些字段 | 不会。字段还要通过角色菜单授权分配。 |
 | 角色选中页面就自动返回所有字段 | 不会。默认不给响应字段；必须显式选择字段或设置 `include.responseFields: 'all'`。 |
+| `filterResponse()` 直接返回业务对象 | 不是。裁剪后的业务数据在 `projected.data`。 |
 | 响应字段只影响前端展示 | 不对。它应该在后端返回前通过 `filterResponse()` 裁剪。 |
 | `preserve` 可以放任何字段 | 不建议。`preserve` 是总数/游标这类外层结构字段，不是业务字段授权。 |
 
-精确字段约束见[配置接口与响应字段 API](/zh/api/api-bindings)，完整流程见[管理菜单](/zh/guide/menu-management)。
+精确字段约束见[配置接口与响应字段 API](/zh/api/api-bindings)，完整流程见[管理菜单](/zh/guide/menu-management)和[角色菜单授权](/zh/guide/role-menu-authorization)。

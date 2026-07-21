@@ -39,7 +39,7 @@ menus.actions.create(configId: string, viewId: string, input: MenuActionCreateIn
 menus.responses.set(configId: string, input: MenuResponseSetInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
 ```
 
-关键参数标记：`load.resource: ApiResource`，`actions[].resource: ApiResource | UiResource`，`response?: ResponseProjectionConfigInput`。
+关键参数标记：`load.resource: ApiResource`，`actions[].resource: ApiResource | UiResource`，`response?: ResponseProjectionConfigInput`。逐项 API 的 `options` 普通情况下传 `actorId/idempotencyKey` 即可，系统会自动内部预览并提交；级联删除、撤权删除或自动提交被拒绝时，再使用对应 `preview*()` 返回的 `expected/previewToken` 显式确认。
 
 ## 参数对象
 

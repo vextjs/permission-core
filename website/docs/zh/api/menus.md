@@ -16,7 +16,7 @@
 |---|---|---|
 | 创建空配置 | `menus.configs.previewCreate(input)` / `menus.configs.create(input, options)` | 后台先创建一套菜单配置，再逐项添加菜单和页面。 |
 | 创建菜单、页面、接口、按钮、字段 | `menus.items.*`、`menus.views.*`、`menus.loadApis.*`、`menus.actions.*`、`menus.responses.*` | 面向后台管理页面的低心智对象方法。 |
-| 一次提交多个菜单变更 | `menus.management.previewChanges(configId, changes)` / `applyChanges(configId, changes, options)` | 一个表单保存多个变更时使用。 |
+| 一次提交多个菜单变更 | `menus.management.applyChanges(configId, changes, options)`；需要展示影响时先 `previewChanges()` | 一个表单保存多个变更时使用。普通安全变更可自动预览并提交。 |
 | 预览菜单配置 | `menus.config.preview(config, options?)` | 保存前校验菜单、页面、接口、响应字段、容量和冲突。 |
 | 保存菜单配置 | `menus.config.save(config, options)` | 用预览返回的 `expected` 和 `previewToken` 提交配置。 |
 | 读取配置 | `menus.config.get(configId)` / `menus.config.list(query?)` | 管理后台详情页和列表页使用。 |
@@ -65,7 +65,19 @@ subject.menus.getViewState(input: { configId: string; viewId: string } | { path:
 subject.menus.filterResponse(apiResource: ApiResource, payload: unknown): Promise<SubjectRuntimeResult<unknown>>
 ```
 
-关键参数标记：`configId` 定位一套菜单配置；`changes: NonEmptyMenuManagementChangeArray` 是增量变更；`config: MenuConfigInput` 是批量完整配置；所有 execute options 都必须带 preview 返回的 `expected` 和 `previewToken`。
+关键参数标记：`configId` 定位一套菜单配置；`changes: NonEmptyMenuManagementChangeArray` 是增量变更；`config: MenuConfigInput` 是批量完整配置。
+
+`MenuManagementExecuteOptions` 有两种形态：
+
+```ts
+// 普通后台保存：自动内部预览并提交。
+{ actorId?: string; reason?: string; requestId?: string; idempotencyKey?: string }
+
+// 显式预览确认：用于级联删除、撤权删除、容量风险或管理端先展示影响。
+{ ...preview.expected, previewToken: preview.previewToken, actorId?: string, idempotencyKey?: string }
+```
+
+不要只传半套显式参数：只有 `previewToken` 没有 `expectedRevisions`，或只有 `expectedRevisions` 没有 `previewToken`，都会返回 `INVALID_ARGUMENT`。`menus.config.save/remove/applyChanges` 是旧的完整配置批量入口，仍然必须使用 preview 返回的 `expected/previewToken`。
 
 对象方法还有对应的 `previewUpdate/update/previewRemove/remove`，签名与 `previewCreate/create` 一致，只是多了要更新或删除的 `menuId/viewId/resource/actionId`。
 
@@ -83,7 +95,7 @@ subject.menus.filterResponse(apiResource: ApiResource, payload: unknown): Promis
 | `MenuLoadApiAddInput` | `resource` | 给页面添加默认加载接口；格式是 `api:METHOD:/path`，系统自动使用 `invoke`。 |
 | `MenuActionCreateInput` | `title/resource` | 给页面添加按钮或操作；`resource` 可为 `api:*` 或 `ui:button:*`。 |
 | `MenuResponseSetInput` | `owner/response` | 给 load 或 api action 配置响应字段；`owner` 指向字段属于哪个接口来源。 |
-| `MenuManagementExecuteOptions` | `expectedRevisions/previewToken` | 执行参数；来自 preview，同时建议传 `actorId/idempotencyKey`。 |
+| `MenuManagementExecuteOptions` | 自动模式或显式确认模式 | 普通增量写只传 `actorId/idempotencyKey`；级联删除、撤权删除或容量风险用 preview 返回的 `expectedRevisions/previewToken`。 |
 
 `MenuResponseSetInput.owner` 有三种写法：
 
@@ -274,7 +286,9 @@ subject.menus.filterResponse(apiResource: ApiResource, payload: unknown): Promis
 
 ## 失败与限制
 
-常见失败包括配置 ID 重复或缺失、资源格式无效、响应字段路径非法、预览 token 过期、revision 冲突和容量超限。`load.resource` 必须是 `api:` 资源；响应字段只能引用配置里声明过的字段。保存配置不会自动给任何角色或用户授权。
+常见失败包括配置 ID 重复或缺失、资源格式无效、响应字段路径非法、自动提交需要显式预览确认、预览 token 过期、revision 冲突和容量超限。`load.resource` 必须是 `api:` 资源；响应字段只能引用配置里声明过的字段。保存配置不会自动给任何角色或用户授权。
+
+增量管理自动模式遇到级联删除、撤权删除或不可自动确认的影响时，会抛出 `MENU_MANAGEMENT_PREVIEW_CONFLICT`。读取 `details.operations/conflicts/warnings` 给管理员展示，然后调用对应的 `preview*()`，确认后带 `expected/previewToken` 执行。
 
 ## 示例
 

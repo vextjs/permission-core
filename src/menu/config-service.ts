@@ -61,8 +61,12 @@ import { mapDatabaseReadError, type PermissionRepository } from "../persistence/
 import {
     ManagementMutationExecutor,
     type CacheInvalidator,
+    type NormalizedMutationOptions,
+    normalizeMutationOptions,
 } from "../rbac/mutation-executor";
 import {
+    type NormalizedPreviewExecutionOptions,
+    type NormalizedPreviewOptions,
     normalizeMenuPreviewExecutionOptions,
     normalizePreviewOptions,
 } from "../rbac/preview-inputs";
@@ -113,6 +117,20 @@ const PAGE_DEFAULT = 50;
 const PAGE_MAX = 200;
 const MAX_CONFIG_CHANGES = 100;
 const CONFIG_MUTATION_LIMIT = 1_000;
+const MENU_MANAGEMENT_EXECUTE_OPTION_KEYS = [
+    "actorId",
+    "reason",
+    "requestId",
+    "idempotencyKey",
+    "expectedRevisions",
+    "expectedRevision",
+    "previewToken",
+    "acknowledgeCapacityRisk",
+] as const;
+
+type NormalizedMenuManagementExecution =
+    | { readonly mode: "auto"; readonly options: NormalizedMutationOptions }
+    | { readonly mode: "strict"; readonly options: NormalizedPreviewExecutionOptions };
 
 type ConfigChangeOperation =
     | { readonly operation: "save"; readonly config: CompiledMenuConfig }
@@ -170,6 +188,81 @@ function insertOptions(session: MongoSession) {
 
 function writeOptions(session: MongoSession) {
     return { session, cache: { invalidate: false as const }, collation: SIMPLE_COLLATION };
+}
+
+function normalizeMenuManagementExecutionOptions(value: MenuManagementExecuteOptions): NormalizedMenuManagementExecution {
+    const record = exactMenuRecord(value ?? {}, MENU_MANAGEMENT_EXECUTE_OPTION_KEYS, "options");
+    if (Object.hasOwn(record, "expectedRevision")) {
+        throw validationError("INVALID_ARGUMENT", "options.expectedRevision", "is not supported for menu management execution");
+    }
+    const hasExpectedRevisions = Object.hasOwn(record, "expectedRevisions");
+    const hasPreviewToken = Object.hasOwn(record, "previewToken");
+    if (hasExpectedRevisions !== hasPreviewToken) {
+        throw validationError("INVALID_ARGUMENT", "options", "requires expectedRevisions and previewToken together");
+    }
+    if (Object.hasOwn(record, "acknowledgeCapacityRisk") && !hasExpectedRevisions) {
+        throw validationError("INVALID_ARGUMENT", "acknowledgeCapacityRisk", "requires explicit previewToken execution");
+    }
+    if (hasExpectedRevisions) {
+        return {
+            mode: "strict",
+            options: normalizeMenuPreviewExecutionOptions(record as unknown as RequiredRevisionVectorOptions & PreviewExecutionOptions),
+        };
+    }
+    const mutationRecord = Object.fromEntries(
+        ["actorId", "reason", "requestId", "idempotencyKey"]
+            .filter((key) => Object.hasOwn(record, key))
+            .map((key) => [key, record[key]]),
+    );
+    return { mode: "auto", options: normalizeMutationOptions(mutationRecord) };
+}
+
+function previewOptionsFromMutation(options: NormalizedMutationOptions): NormalizedPreviewOptions {
+    return {
+        actorId: options.actorId,
+        ...(options.reason === undefined ? {} : { reason: options.reason }),
+        ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
+    };
+}
+
+function hasExplicitRemoveRisk(change: MenuManagementChange) {
+    switch (change.operation) {
+        case "config.remove":
+        case "menu.remove":
+        case "view.remove":
+        case "loadApi.remove":
+        case "action.remove":
+            return change.input?.cascade === true || change.input?.revokeGrants === true;
+        case "response.remove":
+            return change.input.revokeGrants === true;
+        default:
+            return false;
+    }
+}
+
+function requiresExplicitManagementPreview(
+    preview: ImpactPreview<MenuManagementPlan>,
+    changes: readonly MenuManagementChange[],
+) {
+    return changes.some(hasExplicitRemoveRisk)
+        || (preview.capacity !== null && preview.capacity.disposition !== "safe");
+}
+
+function menuManagementPreviewConflict(preview: ImpactPreview<MenuManagementPlan>) {
+    return new PermissionCoreError(
+        "MENU_MANAGEMENT_PREVIEW_CONFLICT",
+        `Menu management changes for ${preview.plan.configId} require explicit preview confirmation.`,
+        {
+            details: {
+                kind: "menu-management-preview-conflict",
+                configId: preview.plan.configId,
+                changeDigest: preview.plan.changeDigest,
+                conflicts: preview.conflicts,
+                warnings: preview.warnings,
+                operations: preview.plan.operations,
+            },
+        },
+    );
 }
 
 function toPolicyValue(value: unknown): PolicyValue {
@@ -1780,6 +1873,131 @@ export class MenuConfigService {
         configId: string,
         changesInput: NonEmptyMenuManagementChangeArray,
         options: MenuManagementExecuteOptions,
+    ): Promise<MutationResult<MenuManagementResult>> {
+        const execution = normalizeMenuManagementExecutionOptions(options);
+        if (execution.mode === "strict") {
+            return this.applyManagementChangesStrict(scope, configId, changesInput, execution.options);
+        }
+        return this.executeManagementChangesAuto(scope, configId, changesInput, execution.options);
+    }
+
+    private executeManagementChangesAuto(
+        scope: PermissionScope,
+        configIdInput: string,
+        changesInput: NonEmptyMenuManagementChangeArray,
+        options: NormalizedMutationOptions,
+    ): Promise<MutationResult<MenuManagementResult>> {
+        const normalizedInput = normalizeManagementChangeSetInput(configIdInput, changesInput);
+        return this.executor.execute({
+            scope,
+            operation: "menus.config.applyChanges",
+            action: "replace",
+            resource: "menu-config:*",
+            request: toPolicyValue({ mode: "auto", configId: normalizedInput.configId, changes: normalizedInput.changes }),
+            options,
+            decodeReplay: decodeManagementResult,
+            replayDetails: (data) => ({
+                returned: data.operations.samples.items.length,
+                total: data.operations.samples.total,
+                tree: toPolicyValue(data),
+            }),
+            work: async ({ transaction, state, now }) => {
+                const reader = new MenuScopeReader(this.repository, this.schemes, state, transaction.session);
+                const normalized = await this.normalizeManagementChanges(
+                    reader,
+                    normalizedInput.configId,
+                    normalizedInput.changes as NonEmptyMenuManagementChangeArray,
+                    transaction.session,
+                );
+                const prepared = await this.planChangeSet(reader, normalized.configChanges, now, "menus.config.previewChanges", true, transaction.session);
+                const preparedManagement: PreparedMenuPlan<MenuManagementPlan> = {
+                    ...prepared,
+                    publicPlan: (budget) => this.managementPlan(prepared, normalized, budget),
+                };
+                const preview = buildMenuPreview({
+                    tokens: this.tokens,
+                    actor: previewOptionsFromMutation(options),
+                    issuedAt: now,
+                    prepared: preparedManagement,
+                });
+                if (!preview.executable || requiresExplicitManagementPreview(preview, normalized.changes)) {
+                    throw menuManagementPreviewConflict(preview);
+                }
+                const changed = prepared.configInserts.length > 0
+                    || prepared.configUpdates.length > 0
+                    || prepared.configDeletes.length > 0
+                    || prepared.nodeInserts.length > 0
+                    || prepared.nodeUpdates.length > 0
+                    || prepared.nodeDeletes.length > 0
+                    || prepared.bindingInserts.length > 0
+                    || prepared.bindingUpdates.length > 0
+                    || prepared.bindingDeletes.length > 0;
+                const data = this.managementResult(prepared, normalized);
+                const primaryEntity = {
+                    kind: "scope" as const,
+                    id: state.scopeKey,
+                    before: state.revision,
+                    after: state.revision + (changed ? 1 : 0),
+                };
+                if (!changed) {
+                    return {
+                        changed: false,
+                        data,
+                        primaryRevision: primaryEntity.after,
+                        entity: primaryEntity,
+                        revisionImpact: { rbac: false, menu: false },
+                        change: { kind: "menu-config-change-set", plan: prepared.completePlan },
+                        cacheTargets: [],
+                        validatedPlanHash: prepared.planHash,
+                    };
+                }
+                await this.applyDocuments(prepared, transaction.session, reader);
+                const [configCount, nodeCount, bindingCount] = await Promise.all([
+                    this.repository.collections.menuConfigs.count({ scopeKey: state.scopeKey }, readOptions(transaction.session)),
+                    this.repository.collections.menuNodes.count({ scopeKey: state.scopeKey }, readOptions(transaction.session)),
+                    this.repository.collections.apiBindings.count({ scopeKey: state.scopeKey }, readOptions(transaction.session)),
+                ]);
+                if (
+                    configCount !== prepared.targetConfigs.length
+                    || nodeCount !== prepared.targetNodes.length
+                    || bindingCount !== prepared.targetBindings.length
+                ) {
+                    databaseWriteFailure("menu config post-count differs from the compiled target inventory");
+                }
+                return {
+                    changed: true,
+                    data,
+                    primaryRevision: primaryEntity.after,
+                    entity: primaryEntity,
+                    relatedEntities: prepared.configInserts.map((config) => ({
+                        kind: "menu-config" as const,
+                        id: config.configId,
+                        before: 0,
+                        after: config.configRevision,
+                    })),
+                    revisionImpact: { rbac: false, menu: true },
+                    scopeAggregate: {
+                        menuConfigCount: prepared.target.metrics.menuConfigCount,
+                        menuConfigBytes: prepared.targetConfigs.reduce((total, config) => total + config.configBytes, 0),
+                        menuNodeCount: prepared.target.metrics.menuNodeCount,
+                        apiBindingCount: prepared.target.metrics.apiBindingCount,
+                        responseFieldCount: prepared.target.metrics.responseFieldCount,
+                        responseFieldOwnerCount: prepared.target.metrics.responseFieldOwnerCount,
+                        replaceManifestBytes: prepared.targetReplaceManifestBytes,
+                    },
+                    change: { kind: "menu-config-change-set", plan: prepared.completePlan },
+                    cacheTargets: [`scope:${state.scopeKey}:menu`],
+                    validatedPlanHash: prepared.planHash,
+                };
+            },
+        });
+    }
+
+    private async applyManagementChangesStrict(
+        scope: PermissionScope,
+        configId: string,
+        changesInput: NonEmptyMenuManagementChangeArray,
+        options: RequiredRevisionVectorOptions & PreviewExecutionOptions,
     ): Promise<MutationResult<MenuManagementResult>> {
         const reader = await this.store.open(scope);
         const normalized = await this.normalizeManagementChanges(reader, configId, changesInput);

@@ -55,13 +55,7 @@ const scope = { tenantId: "acme", appId: "admin" };
 const scoped = runtime.core.scope(scope);
 
 try {
-    const configPreview = await scoped.menus.management.previewChanges("admin", menuChanges, { actorId: "admin" });
-    if (!configPreview.executable) {
-        throw new Error(`menu config is not executable: ${configPreview.conflicts.items.map((item) => item.code).join(",")}`);
-    }
     const savedConfig = await scoped.menus.management.applyChanges("admin", menuChanges, {
-        ...configPreview.expected,
-        previewToken: configPreview.previewToken,
         actorId: "admin",
         idempotencyKey: "example-menu-config-incremental-save",
     });

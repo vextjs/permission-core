@@ -429,6 +429,7 @@ describe("Vext permission HTTP error mapping", () => {
         IDEMPOTENCY_CONFLICT: 409,
         PREVIEW_REQUIRED: 409,
         PREVIEW_STALE: 409,
+        MENU_MANAGEMENT_PREVIEW_CONFLICT: 409,
         ROLE_NOT_FOUND: 404,
         ROLE_ALREADY_EXISTS: 409,
         ROLE_IN_USE: 409,
@@ -468,6 +469,15 @@ describe("Vext permission HTTP error mapping", () => {
                 return { kind: "data-value-unsupported", origin: "caller-input", valueType: "function" };
             case "PREVIEW_REQUIRED":
                 return { kind: "preview-required", reason: "capacity-risk", previewMethod: "roles.previewRuleChange", affectedTotal: 2, affectedDigest: "digest" };
+            case "MENU_MANAGEMENT_PREVIEW_CONFLICT":
+                return {
+                    kind: "menu-management-preview-conflict",
+                    configId: "admin",
+                    changeDigest: "sha256:test",
+                    conflicts: { total: 0, items: [], truncated: false, digest: "sha256:conflicts" },
+                    warnings: { total: 0, items: [], truncated: false, digest: "sha256:warnings" },
+                    operations: { total: 0, items: [], truncated: false, digest: "sha256:operations" },
+                };
             case "SCHEMA_VERSION_MISMATCH":
                 return { kind: "schema-version-mismatch", expected: 2, current: 1, scopeHash: "scope" };
             case "SCHEMA_CONTRACT_MISMATCH":

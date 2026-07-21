@@ -25,6 +25,7 @@ const REQUIRED_DETAIL_KINDS: Partial<Record<PermissionCoreErrorCode, readonly st
     REVISION_CONFLICT: ["revision-conflict", "reconcile-superseded"],
     READ_CONFLICT: ["read-conflict"],
     PREVIEW_STALE: ["preview-stale"],
+    MENU_MANAGEMENT_PREVIEW_CONFLICT: ["menu-management-preview-conflict"],
     CURSOR_STALE: ["cursor-stale"],
     DATABASE_UNAVAILABLE: ["database-failure"],
     DATABASE_ERROR: ["database-failure"],
@@ -94,6 +95,7 @@ export function vextPermissionHttpStatus(input: PermissionCoreErrorCode | HttpSt
         case "IDEMPOTENCY_CONFLICT":
         case "PREVIEW_REQUIRED":
         case "PREVIEW_STALE":
+        case "MENU_MANAGEMENT_PREVIEW_CONFLICT":
         case "ROLE_ALREADY_EXISTS":
         case "ROLE_IN_USE":
         case "CIRCULAR_INHERITANCE":

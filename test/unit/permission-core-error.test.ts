@@ -36,4 +36,30 @@ describe("PermissionCoreError runtime identity", () => {
         expect(isPermissionCoreError(enumerableBrand)).toBe(false);
         expect(isPermissionCoreError({ code: "PERMISSION_DENIED", [ERROR_BRAND]: true })).toBe(false);
     });
+
+    it("requires structured details for menu management preview conflicts", () => {
+        expect(() => new PermissionCoreError("MENU_MANAGEMENT_PREVIEW_CONFLICT", "conflict"))
+            .toThrow(TypeError);
+
+        const error = new PermissionCoreError("MENU_MANAGEMENT_PREVIEW_CONFLICT", "conflict", {
+            details: {
+                kind: "menu-management-preview-conflict",
+                configId: "admin",
+                changeDigest: "sha256:test",
+                conflicts: { total: 0, items: [], truncated: false, digest: "sha256:conflicts" },
+                warnings: { total: 0, items: [], truncated: false, digest: "sha256:warnings" },
+                operations: {
+                    total: 1,
+                    items: [{ operation: "menu.remove", targetId: "orders", outcome: "removed" }],
+                    truncated: false,
+                    digest: "sha256:operations",
+                },
+            },
+        });
+
+        expect(error.details).toMatchObject({
+            kind: "menu-management-preview-conflict",
+            configId: "admin",
+        });
+    });
 });

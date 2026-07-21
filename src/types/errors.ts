@@ -1,10 +1,12 @@
+import type { PolicyValue } from "./foundation";
+
 export type PermissionCoreErrorCode =
     | "NOT_INITIALIZED" | "CORE_CLOSED" | "CORE_CLOSE_TIMEOUT" | "INVALID_CONFIGURATION"
     | "MONSQLIZE_CONTRACT_UNSUPPORTED" | "SCHEMA_VERSION_MISMATCH" | "SCHEMA_CONTRACT_MISMATCH" | "PERSISTED_STATE_INVALID" | "DATABASE_UNAVAILABLE"
     | "INVALID_SUBJECT" | "SCOPE_CONFLICT" | "PERMISSION_DENIED"
     | "INVALID_ARGUMENT" | "INVALID_ACTION" | "INVALID_RESOURCE" | "INVALID_FILTER"
     | "INVALID_POLICY" | "POLICY_CONTEXT_MISSING" | "INVALID_CURSOR" | "CURSOR_STALE" | "LIMIT_EXCEEDED"
-    | "REVISION_CONFLICT" | "READ_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "PREVIEW_REQUIRED" | "PREVIEW_STALE"
+    | "REVISION_CONFLICT" | "READ_CONFLICT" | "IDEMPOTENCY_CONFLICT" | "PREVIEW_REQUIRED" | "PREVIEW_STALE" | "MENU_MANAGEMENT_PREVIEW_CONFLICT"
     | "ROLE_NOT_FOUND" | "ROLE_ALREADY_EXISTS" | "ROLE_IN_USE" | "CIRCULAR_INHERITANCE"
     | "MENU_NOT_FOUND" | "MENU_ALREADY_EXISTS" | "MENU_HIERARCHY_INVALID" | "DEPENDENCY_EXISTS"
     | "API_BINDING_NOT_FOUND" | "API_BINDING_ALREADY_EXISTS" | "AUDIT_ENTRY_NOT_FOUND" | "STALE_REFERENCE"
@@ -88,6 +90,43 @@ export interface AuditLookupDetails {
     by: "auditId" | "operationId";
 }
 
+export interface MenuManagementPreviewConflictDetails {
+    kind: "menu-management-preview-conflict";
+    configId: string;
+    changeDigest: string;
+    conflicts: {
+        total: number;
+        items: readonly {
+            id: string;
+            code: string;
+            message: string;
+            currentRevision?: number;
+        }[];
+        truncated: boolean;
+        digest: string;
+    };
+    warnings: {
+        total: number;
+        items: readonly {
+            code: string;
+            message: string;
+            details?: Readonly<Record<string, PolicyValue>>;
+        }[];
+        truncated: boolean;
+        digest: string;
+    };
+    operations: {
+        total: number;
+        items: readonly {
+            operation: string;
+            targetId: string;
+            outcome: "created" | "updated" | "removed" | "unchanged";
+        }[];
+        truncated: boolean;
+        digest: string;
+    };
+}
+
 export interface ReconcileSupersededDetails {
     kind: "reconcile-superseded";
     operationId: string;
@@ -106,4 +145,5 @@ export type PermissionCoreErrorDetails =
     | SchemaMismatchDetails
     | DatabaseFailureDetails
     | AuditLookupDetails
+    | MenuManagementPreviewConflictDetails
     | ReconcileSupersededDetails;

@@ -23,10 +23,7 @@ const runtime = await startExampleCore("menu-admin");
 const scope = { tenantId: "acme", appId: "admin" };
 const scoped = runtime.core.scope(scope);
 
-const configPreview = await scoped.menus.management.previewChanges("admin", menuChanges, { actorId: "admin" });
 const savedConfig = await scoped.menus.management.applyChanges("admin", menuChanges, {
-  ...configPreview.expected,
-  previewToken: configPreview.previewToken,
   actorId: "admin",
   idempotencyKey: "example-menu-config-incremental-save",
 });
@@ -65,15 +62,15 @@ const directGrant = await scoped.roles.menuPermissions.getDirect("order-operator
 
 这段代码省略了 `menuChanges` 和 `rawOrders` 的定义；完整文件中 `menuChanges` 逐项创建了 `admin` 配置、`orders` 菜单、`orders-list` 页面、`api:GET:/api/orders` 加载接口、`export` 操作和响应字段。
 
-### 1. 预览并保存菜单配置
+### 1. 保存菜单配置
 
-<!-- docs:operation id=menu-model calls=menus.management.previewChanges,menus.management.applyChanges outputs=config -->
+<!-- docs:operation id=menu-model calls=menus.management.applyChanges outputs=config -->
 
-**目的与目标。** `menus.management.previewChanges` 先验证 `menuChanges`，告诉管理员保存后会产生哪些内部菜单、接口和响应字段资产；`menus.management.applyChanges` 使用同一组变更、`expected` 和 `previewToken` 执行写入。本步骤产出 `config`，它表示配置是否保存成功以及内部 manifest 是否发生变化。
+**目的与目标。** `menus.management.applyChanges` 接收 `menuChanges`，内部先预览，确认普通创建操作没有冲突后再写入。本步骤产出 `config`，它表示配置是否保存成功以及内部 manifest 是否发生变化。
 
 **状态、参数与结果。** `configId: "admin"` 是后续授权和运行时读取的主键；`loadApi.add` 的 `resource` 使用 `api:GET:/api/orders`，不需要再写 `action: 'invoke'`；`response.set` 声明订单接口可分配字段。保存返回 `MutationResult<MenuManagementResult>`，`savedConfig.data.config` 是快照，`savedConfig.data.manifestOperations` 是内部同步摘要。
 
-**失败与下一步。** 如果预览不可执行，说明配置冲突、资源格式错误或会破坏已有授权来源；应先展示 `conflicts` 并重新预览。不要跳过 preview 直接保存，也不要把旧 token 用在改过的配置上。
+**失败与下一步。** 如果自动提交返回 `MENU_MANAGEMENT_PREVIEW_CONFLICT`，说明这次变更需要管理员显式预览确认；应展示错误里的 `details.operations/conflicts/warnings`，再调用对应的 `preview*()`。普通参数错误或资源格式错误会按原错误码返回。
 
 **API 参考。** 参见[菜单 API](/zh/api/menus)，了解 `menus.management`、`menus.items/views/loadApis/actions/responses` 的签名、响应 envelope 和错误边界。
 
@@ -127,19 +124,19 @@ const directGrant = await scoped.roles.menuPermissions.getDirect("order-operator
     "manifestChanged": true
   },
   "roleGrant": {
-    "generatedSources": 3,
+    "generatedSources": 5,
     "generatedResponseFields": 2,
     "grantCount": 1,
     "responseFieldCount": 2,
     "auditRecorded": true
   },
   "subjectRuntime": {
-    "viewTreeIds": ["orders"],
+    "viewTreeIds": ["orders", "orders-list"],
     "viewAllowed": true,
     "exportEnabled": true,
     "projectedResponse": {
-      "items": [{ "orderNo": "O-1001", "status": "paid" }],
-      "total": 1
+      "total": 1,
+      "items": [{ "orderNo": "O-1001", "status": "paid" }]
     }
   }
 }

@@ -306,7 +306,14 @@ export type MenuManagementChange =
 export type NonEmptyMenuManagementChangeArray = readonly [MenuManagementChange, ...MenuManagementChange[]];
 
 export type MenuManagementPreviewOptions = PreviewOptions;
-export type MenuManagementExecuteOptions = RequiredRevisionVectorOptions & PreviewExecutionOptions;
+export type MenuManagementAutoExecuteOptions = MutationOptions & {
+    expectedRevisions?: never;
+    expectedRevision?: never;
+    previewToken?: never;
+    acknowledgeCapacityRisk?: never;
+};
+export type MenuManagementStrictExecuteOptions = RequiredRevisionVectorOptions & PreviewExecutionOptions;
+export type MenuManagementExecuteOptions = MenuManagementAutoExecuteOptions | MenuManagementStrictExecuteOptions;
 
 export interface MenuManagementPlannedOperation {
     operation: MenuManagementChange["operation"];

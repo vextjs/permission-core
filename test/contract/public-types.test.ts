@@ -84,12 +84,20 @@ if (false) {
     };
     const detail: PermissionCoreErrorDetails = { kind: "validation", reason: "example" };
     const data = null as unknown as SubjectDataRuntime;
+    const menuManagement = null as unknown as MenuConfigRootManager["management"];
+    const menuManagementChanges = [{ operation: "menu.create", input: { id: "orders", title: "Orders" } }] as const;
     const orders = data.collection<
         { _id: string; tenantId: string; amount: number },
         { amount: number }
     >("orders", { resource: "db:orders", scopeFields: { tenantId: "tenantId" } });
     void orders.insertOne({ amount: 10 });
-    void [minimal, disabled, enabled, health, subject, detail, data, orders];
+    void menuManagement.applyChanges("admin", menuManagementChanges, { actorId: "admin", idempotencyKey: "auto" });
+    void menuManagement.applyChanges("admin", menuManagementChanges, {
+        actorId: "admin",
+        expectedRevisions: { global: 0, menu: 0, entities: [] },
+        previewToken: "preview-token",
+    });
+    void [minimal, disabled, enabled, health, subject, detail, data, orders, menuManagement];
 
     // @ts-expect-error Empty cache objects are not a third configuration state.
     new PermissionCore({ monsqlize, cache: {} });
@@ -109,6 +117,10 @@ if (false) {
     void data.collection("orders", { resource: "db:orders", scopeFields: { tenantId: "tenantId" } }, {});
     // @ts-expect-error Raw Mongo handles are not part of the protected surface.
     void orders.raw();
+    // @ts-expect-error Preview tokens must be paired with expectedRevisions.
+    void menuManagement.applyChanges("admin", menuManagementChanges, { actorId: "admin", previewToken: "preview-token" });
+    // @ts-expect-error Menu management execution no longer accepts the old scalar expectedRevision option.
+    void menuManagement.applyChanges("admin", menuManagementChanges, { actorId: "admin", expectedRevision: 1 });
     // @ts-expect-error Old bottom-level menu manager is no longer exported from the package root.
     type RemovedMenuManager = import("../../src").MenuManager;
     // @ts-expect-error Old manifest manager is no longer exported from the package root.

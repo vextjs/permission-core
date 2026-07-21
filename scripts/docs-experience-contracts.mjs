@@ -241,10 +241,10 @@ export const operationPageContracts = [
         operations: [
             {
                 id: "menu-model",
-                headings: { en: "1. Preview and save the menu config", zh: "1. 预览并保存菜单配置" },
+                headings: { en: "1. Preview and save the menu config", zh: "1. 保存菜单配置" },
                 calls: ["menus.config.preview", "menus.config.save"],
                 callsByLocale: {
-                    zh: ["menus.management.previewChanges", "menus.management.applyChanges"],
+                    zh: ["menus.management.applyChanges"],
                 },
                 outputs: ["config"],
                 apiPaths: ["/api/menus"],

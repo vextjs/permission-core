@@ -340,6 +340,109 @@ describe("menu config manager on MonSQLize 3.1", () => {
         })).resolves.toMatchObject({ data: { items: [{ orderNo: "O-1" }], total: 1 } });
     }, TEST_TIMEOUT);
 
+    it("auto-commits safe incremental menu manager calls and still gates risky operations", async () => {
+        const targetScope = scope("auto-incremental");
+        const scoped = core.scope(targetScope);
+
+        await expect(scoped.menus.configs.create({ configId: "admin", title: "Admin" }, {
+            actorId: "admin",
+            idempotencyKey: "auto-create-admin-config",
+        })).resolves.toMatchObject({ changed: true, data: { config: { configId: "admin", menus: [] } } });
+        await expect(scoped.menus.configs.create({ configId: "admin", title: "Admin" }, {
+            actorId: "admin",
+            idempotencyKey: "auto-create-admin-config",
+        })).resolves.toMatchObject({ replayed: true, data: { config: { configId: "admin" } } });
+
+        await scoped.menus.items.create("admin", { id: "orders", title: "Orders" }, {
+            actorId: "admin",
+            idempotencyKey: "auto-create-orders-menu",
+        });
+        await scoped.menus.views.create("admin", "orders", {
+            id: "orders-list",
+            type: "page",
+            title: "Orders",
+            path: "/admin/orders",
+            component: "OrdersPage",
+        }, {
+            actorId: "admin",
+            idempotencyKey: "auto-create-orders-view",
+        });
+        await scoped.menus.loadApis.add("admin", "orders-list", {
+            resource: "api:GET:/api/orders",
+            response: {
+                target: "items",
+                preserve: ["total"],
+                fields: [
+                    { field: "orderNo", title: "Order number" },
+                    { field: "status", title: "Status" },
+                ],
+            },
+        }, {
+            actorId: "admin",
+            idempotencyKey: "auto-add-orders-load",
+        });
+        await scoped.menus.actions.create("admin", "orders-list", {
+            id: "export",
+            title: "Export",
+            resource: "api:POST:/api/orders/export",
+        }, {
+            actorId: "admin",
+            idempotencyKey: "auto-create-export-action",
+        });
+
+        await expect(scoped.menus.config.get("admin")).resolves.toMatchObject({
+            data: {
+                menus: [expect.objectContaining({
+                    id: "orders",
+                    views: [expect.objectContaining({
+                        id: "orders-list",
+                        load: [expect.objectContaining({
+                            resource: "api:GET:/api/orders",
+                            response: expect.objectContaining({
+                                target: "items",
+                                fields: [
+                                    expect.objectContaining({ field: "orderNo" }),
+                                    expect.objectContaining({ field: "status" }),
+                                ],
+                            }),
+                        })],
+                        actions: [expect.objectContaining({ id: "export" })],
+                    })],
+                })],
+            },
+        });
+
+        await expect(scoped.menus.items.update("admin", "orders", { title: "Orders v2" }, {
+            actorId: "admin",
+            previewToken: "token",
+        } as never)).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+        await expect(scoped.menus.items.update("admin", "orders", { title: "Orders v2" }, {
+            actorId: "admin",
+            acknowledgeCapacityRisk: true,
+        } as never)).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+        await expect(scoped.menus.items.create("admin", { id: "orders", title: "Duplicate" }, {
+            actorId: "admin",
+        })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+        await expect(scoped.menus.items.remove("admin", "orders", { cascade: true }, {
+            actorId: "admin",
+        })).rejects.toMatchObject({
+            code: "MENU_MANAGEMENT_PREVIEW_CONFLICT",
+            details: expect.objectContaining({
+                kind: "menu-management-preview-conflict",
+                configId: "admin",
+            }),
+        });
+
+        const removePreview = await scoped.menus.items.previewRemove("admin", "orders", { cascade: true }, { actorId: "admin" });
+        if (!removePreview.executable) throw new Error(`expected strict remove preview to be executable: ${removePreview.conflicts.items.map((item) => item.code).join(",")}`);
+        await expect(scoped.menus.items.remove("admin", "orders", { cascade: true }, {
+            ...removePreview.expected,
+            previewToken: removePreview.previewToken,
+            actorId: "admin",
+            idempotencyKey: "strict-remove-orders-menu",
+        })).resolves.toMatchObject({ changed: true, data: { configId: "admin" } });
+    }, TEST_TIMEOUT);
+
     it("grants role menu permissions from business config selections and exposes response fields", async () => {
         const targetScope = scope("business-grant");
         const scoped = core.scope(targetScope);
