@@ -67,13 +67,15 @@ describe("public scoped menu config managers on MonSQLize 3.1", () => {
         await context?.close();
     }, TEST_TIMEOUT);
 
-    it("exposes the public scope facade through menus.config only", async () => {
+    it("exposes the public scope facade through high-level menu managers", async () => {
         const scoped = core.scope(scope("surface"));
         expect(Object.isFrozen(scoped)).toBe(true);
         expect(Object.isFrozen(scoped.menus)).toBe(true);
         expect(Object.isFrozen(scoped.menus.config)).toBe(true);
+        expect(Object.isFrozen(scoped.menus.management)).toBe(true);
+        expect(Object.isFrozen(scoped.menus.configs)).toBe(true);
         expect(Object.keys(scoped)).toEqual(["roles", "userRoles", "menus"]);
-        expect(Object.keys(scoped.menus)).toEqual(["config"]);
+        expect(Object.keys(scoped.menus)).toEqual(["config", "management", "configs", "items", "views", "loadApis", "actions", "responses"]);
         expect((scoped as { apiBindings?: unknown }).apiBindings).toBeUndefined();
 
         const config = ordersConfig();

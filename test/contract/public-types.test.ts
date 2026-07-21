@@ -28,7 +28,9 @@ describe("B1 public type contract", () => {
 
 describe("B4 menu public type contract", () => {
     it("exports the complete high-level menu manager method sets from the root", () => {
-        const rootKeys = ["config"] as const satisfies readonly (keyof MenuConfigRootManager)[];
+        const rootKeys = [
+            "config", "management", "configs", "items", "views", "loadApis", "actions", "responses",
+        ] as const satisfies readonly (keyof MenuConfigRootManager)[];
         const configKeys = [
             "preview", "save", "get", "list", "previewRemove", "remove", "previewChanges", "applyChanges",
         ] as const satisfies readonly (keyof MenuConfigManager)[];

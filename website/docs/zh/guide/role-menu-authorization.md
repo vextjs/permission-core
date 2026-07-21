@@ -36,6 +36,7 @@ const selection = {
   views: ['orders-list'],
   responseFields: [{
     apiResource: 'api:GET:/api/orders',
+    target: 'items',
     fields: ['orderNo', 'status'],
   }],
   include: {
@@ -58,7 +59,9 @@ const selection = {
 | `include.actions` | `true` | 自动包含所选页面的 `actions[].resource`。 |
 | `include.responseFields` | `'none'` | 不自动全选字段，只使用显式 `responseFields`。 |
 
-如果你希望“选中页面时默认拥有所有已声明响应字段”，可以把 `include.responseFields` 设为 `'all'`。后台管理系统一般更建议显式选择字段，避免页面后来新增敏感字段时自动泄漏给旧角色。
+默认值是：`descendants: false`、`loads: true`、`actions: false`、`responseFields: 'none'`。也就是说，勾选一个页面时会默认给页面加载接口，但不会默认给按钮，也不会默认给响应字段。如果你希望“选中页面时默认拥有所有已声明响应字段”，可以把 `include.responseFields` 设为 `'all'`。后台管理系统一般更建议显式选择字段，避免页面后来新增敏感字段时自动泄漏给旧角色。
+
+分页响应或多层响应要写 `target`。例如接口返回 `{ items, total }` 时，`target: 'items'` 表示授权的是 `items` 每一行里的字段；`total` 这类分页字段应在响应配置的 `preserve` 中声明，不要放进角色字段授权。
 
 ## 预览再提交
 

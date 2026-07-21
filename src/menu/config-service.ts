@@ -20,9 +20,23 @@ import type {
     MenuConfigSaveResult,
     MenuConfigSnapshot,
     MenuConfigSummary,
+    MenuActionInput,
+    MenuConfigMenuInput,
+    MenuLoadInput,
+    MenuManagementChange,
+    MenuManagementExecuteOptions,
+    MenuManagementPlan,
+    MenuManagementPlannedOperation,
+    MenuManagementPreviewOptions,
+    MenuManagementResult,
+    MenuResponseOwnerRef,
+    MenuResponseRemoveInput,
+    MenuResponseSetInput,
+    MenuViewInput,
     MenuManifestInput,
     MutationResult,
     NonEmptyMenuConfigChangeArray,
+    NonEmptyMenuManagementChangeArray,
     PageResult,
     PermissionScope,
     PolicyValue,
@@ -63,6 +77,7 @@ import {
     aggregateCompiledMenuConfigs,
     type CompiledScopeMenuTarget,
 } from "./config-aggregate";
+import { configInputFromSnapshot } from "./config-draft";
 import {
     compileMenuConfigInput,
     compileMenuConfigSnapshot,
@@ -232,60 +247,6 @@ function exactPersistedMenuConfigDocument(value: unknown) {
     return snapshot;
 }
 
-function responseInputFromSnapshot(response: NonNullable<MenuConfigSnapshot["menus"][number]["views"][number]["load"][number]["response"]>) {
-    return {
-        ...(response.target === undefined ? {} : { target: response.target }),
-        ...(response.preserve === undefined ? {} : { preserve: response.preserve }),
-        fields: response.fields.map(({ fieldId: _fieldId, ...field }) => field),
-    };
-}
-
-function configInputFromSnapshot(snapshot: MenuConfigSnapshot): MenuConfigInput {
-    const menuInput = (menu: MenuConfigSnapshot["menus"][number]): MenuConfigInput["menus"][number] => ({
-        id: menu.id,
-        title: menu.title,
-        ...(menu.children.length === 0 ? {} : { children: menu.children.map(menuInput) }),
-        ...(menu.views.length === 0 ? {} : { views: menu.views.map((view) => ({
-            id: view.id,
-            type: view.type,
-            title: view.title,
-            ...(view.path === undefined ? {} : { path: view.path }),
-            ...(view.component === undefined ? {} : { component: view.component }),
-            ...(view.url === undefined ? {} : { url: view.url }),
-            navigation: view.navigation,
-            enabled: view.enabled,
-            ...(view.i18nKey === undefined ? {} : { i18nKey: view.i18nKey }),
-            ...(view.load.length === 0 ? {} : { load: view.load.map((load) => ({
-                resource: load.resource,
-                ...(load.response === undefined ? {} : { response: responseInputFromSnapshot(load.response) }),
-                ...(load.meta === undefined ? {} : { meta: load.meta }),
-            })) }),
-            ...(view.actions.length === 0 ? {} : { actions: view.actions.map((action) => ({
-                ...(action.id === undefined ? {} : { id: action.id }),
-                title: action.title,
-                resource: action.resource,
-                ...(action.opens === undefined ? {} : { opens: action.opens }),
-                ...(action.response === undefined ? {} : { response: responseInputFromSnapshot(action.response) }),
-                enabled: action.enabled,
-                ...(action.i18nKey === undefined ? {} : { i18nKey: action.i18nKey }),
-                ...(action.meta === undefined ? {} : { meta: action.meta }),
-            })) }),
-            ...(view.meta === undefined ? {} : { meta: view.meta }),
-        })) }),
-        navigation: menu.navigation,
-        enabled: menu.enabled,
-        ...(menu.icon === undefined ? {} : { icon: menu.icon }),
-        ...(menu.i18nKey === undefined ? {} : { i18nKey: menu.i18nKey }),
-        ...(menu.meta === undefined ? {} : { meta: menu.meta }),
-    });
-    return {
-        configId: snapshot.configId,
-        ...(snapshot.title === undefined ? {} : { title: snapshot.title }),
-        menus: snapshot.menus.map(menuInput),
-        ...(snapshot.meta === undefined ? {} : { meta: snapshot.meta }),
-    };
-}
-
 export function materializeMenuConfigDocument(
     value: unknown,
     expectedScope: Readonly<PermissionScope>,
@@ -302,16 +263,9 @@ export function materializeMenuConfigDocument(
     const updatedAt = nonNegativeInteger(raw.updatedAt, "menu-config.updatedAt");
     if (updatedAt < createdAt) persistedInvalid("menu-config.updatedAt precedes createdAt");
     const configRevision = positiveInteger(raw.configRevision, "menu-config.configRevision");
-    const rawConfig = raw.config as MenuConfigSnapshot;
-    let normalized: MenuConfigSnapshot;
-    try {
-        const input = configInputFromSnapshot(rawConfig);
-        normalized = normalizeMenuConfigInput(input, { revision: configRevision, createdAt, updatedAt });
-    } catch (error) {
-        persistedInvalid("menu-config.config is invalid", error);
-    }
+    const normalized = normalizePersistedMenuConfigSnapshot(raw.config as MenuConfigSnapshot, configRevision, createdAt, updatedAt);
     if (normalized.configId !== configId) persistedInvalid("menu-config.configId differs from its snapshot");
-    if (canonicalString(rawConfig) !== canonicalString(normalized)) {
+    if (canonicalString(raw.config) !== canonicalString(normalized)) {
         persistedInvalid("menu-config.config is not canonical");
     }
     const compiled = compileMenuConfigSnapshot(normalized, schemes);
@@ -338,6 +292,34 @@ export function materializeMenuConfigDocument(
         createdAt,
         updatedAt,
     };
+    assertMenuConfigDocumentMetrics(document, raw);
+    assertInternalDocumentBudget(document);
+    return deepFreeze(document);
+}
+
+function normalizePersistedMenuConfigSnapshot(
+    rawConfig: MenuConfigSnapshot,
+    revision: number,
+    createdAt: number,
+    updatedAt: number,
+) {
+    try {
+        return normalizeMenuConfigInput(configInputFromSnapshot(rawConfig), {
+            revision,
+            createdAt,
+            updatedAt,
+            allowEmptyMenus: true,
+            allowEmptyContainers: true,
+        });
+    } catch (error) {
+        persistedInvalid("menu-config.config is invalid", error);
+    }
+}
+
+function assertMenuConfigDocumentMetrics(
+    document: Readonly<InternalMenuConfigDocument>,
+    raw: ReturnType<typeof exactPersistedMenuConfigDocument>,
+) {
     const numericFields = [
         "menuCount",
         "viewCount",
@@ -354,8 +336,6 @@ export function materializeMenuConfigDocument(
     if (typeof document.aggregateDigest !== "string" || document.aggregateDigest.length === 0) {
         persistedInvalid("menu-config.aggregateDigest is invalid");
     }
-    assertInternalDocumentBudget(document);
-    return deepFreeze(document);
 }
 
 export async function readScopedMenuConfigDocuments(
@@ -368,23 +348,10 @@ export async function readScopedMenuConfigDocuments(
     let after: string | undefined;
     const pageSize = Math.min(repository.findMaxLimit, 200);
     try {
-        const collection = (repository.collections as typeof repository.collections & {
-            readonly menuConfigs?: typeof repository.collections.menuConfigs;
-        }).menuConfigs;
-        if (collection === undefined) {
-            if ((reader.state.menuConfigCount ?? 0) !== 0 || (reader.state.menuConfigBytes ?? 0) !== 0) {
-                persistedInvalid("scope references menu configs but the config collection is unavailable");
-            }
-            return Object.freeze(result);
-        }
+        const collection = resolveMenuConfigCollection(repository, reader);
+        if (collection === undefined) return Object.freeze(result);
         while (result.length <= 1_000) {
-            const filter = after === undefined
-                ? { scopeKey: reader.state.scopeKey }
-                : { scopeKey: reader.state.scopeKey, configId: { $gt: after } };
-            const rows = await collection.find(filter, readOptions(session))
-                .sort({ configId: 1 })
-                .limit(pageSize)
-                .toArray();
+            const rows = await readMenuConfigPage(collection, reader.state.scopeKey, pageSize, after, session);
             if (!reader.state.persisted && rows.length > 0) {
                 persistedInvalid("menu config documents exist without their owning scope state");
             }
@@ -411,6 +378,33 @@ export async function readScopedMenuConfigDocuments(
     } catch (error) {
         throw mapDatabaseReadError("The menu config inventory read failed.", error);
     }
+}
+
+function resolveMenuConfigCollection(repository: PermissionRepository, reader: MenuScopeReader) {
+    const collection = (repository.collections as typeof repository.collections & {
+        readonly menuConfigs?: typeof repository.collections.menuConfigs;
+    }).menuConfigs;
+    if (collection !== undefined) return collection;
+    if ((reader.state.menuConfigCount ?? 0) !== 0 || (reader.state.menuConfigBytes ?? 0) !== 0) {
+        persistedInvalid("scope references menu configs but the config collection is unavailable");
+    }
+    return undefined;
+}
+
+async function readMenuConfigPage(
+    collection: PermissionRepository["collections"]["menuConfigs"],
+    scopeKey: string,
+    pageSize: number,
+    after: string | undefined,
+    session?: MongoSession,
+) {
+    const filter = after === undefined
+        ? { scopeKey }
+        : { scopeKey, configId: { $gt: after } };
+    return collection.find(filter, readOptions(session))
+        .sort({ configId: 1 })
+        .limit(pageSize)
+        .toArray();
 }
 
 export async function readScopedMenuConfigDocument(
@@ -606,6 +600,425 @@ function normalizeChangeSet(changesInput: NonEmptyMenuConfigChangeArray | readon
     )));
 }
 
+type MutableMenuConfigInput = Omit<MenuConfigInput, "menus"> & {
+    menus: MutableMenuInput[];
+};
+type MutableMenuInput = Omit<MenuConfigMenuInput, "children" | "views"> & {
+    children?: MutableMenuInput[];
+    views?: MutableViewInput[];
+};
+type MutableViewInput = Omit<MenuViewInput, "load" | "actions"> & {
+    load?: MutableLoadInput[];
+    actions?: MutableActionInput[];
+};
+type MutableLoadInput = MenuLoadInput;
+type MutableActionInput = MenuActionInput;
+
+interface NormalizedManagementChangeSet {
+    readonly configId: string;
+    readonly changes: readonly MenuManagementChange[];
+    readonly configChanges: readonly MenuConfigChange[];
+    readonly operations: readonly MenuManagementPlannedOperation[];
+    readonly changeDigest: string;
+}
+
+function mutableClone<T>(value: T): T {
+    return JSON.parse(canonicalString(value)) as T;
+}
+
+function mutableConfigInputFromSnapshot(snapshot: MenuConfigSnapshot): MutableMenuConfigInput {
+    return mutableClone(configInputFromSnapshot(snapshot)) as MutableMenuConfigInput;
+}
+
+function managementOperationTarget(change: MenuManagementChange) {
+    switch (change.operation) {
+        case "config.create":
+            return change.input.configId;
+        case "config.update":
+        case "config.remove":
+            return "config";
+        case "menu.create":
+            return change.input.id;
+        case "menu.update":
+        case "menu.remove":
+            return change.menuId;
+        case "view.create":
+            return change.input.id;
+        case "view.update":
+        case "view.remove":
+            return change.viewId;
+        case "loadApi.add":
+            return change.input.resource;
+        case "loadApi.update":
+        case "loadApi.remove":
+            return change.resource;
+        case "action.create":
+            return change.input.id ?? change.input.resource;
+        case "action.update":
+        case "action.remove":
+            return change.actionId;
+        case "response.set":
+            return responseOwnerTarget(change.input.owner);
+        case "response.remove":
+            return responseOwnerTarget(change.input.owner);
+    }
+}
+
+function managementOutcome(operation: MenuManagementChange["operation"]): MenuManagementPlannedOperation["outcome"] {
+    if (operation.endsWith(".create") || operation.endsWith(".add") || operation === "response.set") return "created";
+    if (operation.endsWith(".remove")) return "removed";
+    return "updated";
+}
+
+function responseOwnerTarget(owner: MenuResponseOwnerRef) {
+    if (owner.ownerType === "load") return `${owner.viewId}:${owner.resource}`;
+    if (owner.ownerType === "action") return `${owner.viewId}:${owner.actionId}`;
+    return owner.apiResource;
+}
+
+function normalizeManagementChangeSetInput(
+    configIdInput: string,
+    changesInput: NonEmptyMenuManagementChangeArray | readonly MenuManagementChange[],
+): { readonly configId: string; readonly changes: readonly MenuManagementChange[]; readonly operations: readonly MenuManagementPlannedOperation[]; readonly changeDigest: string } {
+    const configId = normalizeRbacId(configIdInput, "configId");
+    const raw = denseMenuArray(changesInput, "changes", MAX_CONFIG_CHANGES) as MenuManagementChange[];
+    if (raw.length === 0) {
+        throw validationError("INVALID_ARGUMENT", "changes", "must contain at least one change");
+    }
+    const changes = raw.map((change, index) => {
+        const record = exactMenuRecord(change, [
+            "operation", "input", "patch", "menuId", "viewId", "resource", "actionId",
+        ], `changes[${index}]`);
+        if (typeof record.operation !== "string") {
+            throw validationError("INVALID_ARGUMENT", `changes[${index}].operation`, "must be a string");
+        }
+        return deepFreeze(change);
+    });
+    const configCreate = changes.filter((change) => change.operation === "config.create");
+    if (configCreate.length > 1) {
+        throw validationError("INVALID_ARGUMENT", "changes", "can contain at most one config.create");
+    }
+    if (changes.some((change) => change.operation === "config.remove") && changes.length > 1) {
+        throw validationError("INVALID_ARGUMENT", "changes", "config.remove must be the only change in the set");
+    }
+    const operations = changes.map((change) => deepFreeze({
+        operation: change.operation,
+        targetId: managementOperationTarget(change),
+        outcome: managementOutcome(change.operation),
+    }) satisfies MenuManagementPlannedOperation);
+    return deepFreeze({
+        configId,
+        changes,
+        operations: Object.freeze(operations),
+        changeDigest: digestCanonical({ configId, changes }),
+    });
+}
+
+function emptyConfigDraft(input: MenuManagementChange & { operation: "config.create" }, configId: string): MutableMenuConfigInput {
+    const create = exactMenuRecord(input.input, ["configId", "title", "meta"], "changes.config.create.input");
+    const inputConfigId = normalizeRbacId(create.configId, "changes.config.create.input.configId");
+    if (inputConfigId !== configId) {
+        throw validationError("INVALID_ARGUMENT", "changes.config.create.input.configId", "must match the target configId");
+    }
+    return mutableClone({
+        configId,
+        ...(Object.hasOwn(create, "title") ? { title: create.title } : {}),
+        menus: [],
+        ...(Object.hasOwn(create, "meta") ? { meta: create.meta } : {}),
+    }) as MutableMenuConfigInput;
+}
+
+function updateConfigDraft(draft: MutableMenuConfigInput, patch: MenuManagementChange & { operation: "config.update" }) {
+    for (const [key, value] of Object.entries(patch.patch)) {
+        if (value === null) delete (draft as unknown as Record<string, unknown>)[key];
+        else (draft as unknown as Record<string, unknown>)[key] = value;
+    }
+}
+
+function findMenuDraft(menus: MutableMenuInput[], menuId: string): MutableMenuInput | undefined {
+    for (const menu of menus) {
+        if (menu.id === menuId) return menu;
+        const found = findMenuDraft(menu.children ?? [], menuId);
+        if (found !== undefined) return found;
+    }
+    return undefined;
+}
+
+function removeMenuDraft(menus: MutableMenuInput[], menuId: string, cascade: boolean): boolean {
+    const index = menus.findIndex((menu) => menu.id === menuId);
+    if (index >= 0) {
+        const menu = menus[index]!;
+        const hasChildren = (menu.children?.length ?? 0) > 0 || (menu.views?.length ?? 0) > 0;
+        if (hasChildren && !cascade) {
+            throw validationError("INVALID_ARGUMENT", "changes.menu.remove.input.cascade", "is required when removing a non-empty menu");
+        }
+        menus.splice(index, 1);
+        return true;
+    }
+    return menus.some((menu) => removeMenuDraft(menu.children ?? [], menuId, cascade));
+}
+
+function allViewsInDraft(menus: readonly MutableMenuInput[], output: MutableViewInput[] = []) {
+    for (const menu of menus) {
+        output.push(...(menu.views ?? []));
+        allViewsInDraft(menu.children ?? [], output);
+    }
+    return output;
+}
+
+function findViewDraft(draft: MutableMenuConfigInput, viewId: string): MutableViewInput | undefined {
+    return allViewsInDraft(draft.menus).find((view) => view.id === viewId);
+}
+
+function removeViewDraft(menus: MutableMenuInput[], viewId: string): boolean {
+    for (const menu of menus) {
+        const views = menu.views ?? [];
+        const index = views.findIndex((view) => view.id === viewId);
+        if (index >= 0) {
+            views.splice(index, 1);
+            menu.views = views;
+            return true;
+        }
+        if (removeViewDraft(menu.children ?? [], viewId)) return true;
+    }
+    return false;
+}
+
+function findActionDraft(view: MutableViewInput, actionId: string): MutableActionInput | undefined {
+    return (view.actions ?? []).find((action) => action.id === actionId || action.resource === actionId);
+}
+
+function applyNullablePatch(target: Record<string, unknown>, patch: Readonly<Record<string, unknown>>) {
+    for (const [key, value] of Object.entries(patch)) {
+        if (value === null) delete target[key];
+        else target[key] = value;
+    }
+}
+
+function applyResponseToOwner(draft: MutableMenuConfigInput, input: MenuResponseSetInput) {
+    const setResponse = (owner: { resource: string; response?: unknown }) => {
+        if (!owner.resource.startsWith("api:")) {
+            throw validationError("INVALID_ARGUMENT", "response.owner", "response fields can only be attached to API owners");
+        }
+        owner.response = input.response;
+    };
+    if (input.owner.ownerType === "load") {
+        const resource = input.owner.resource;
+        const view = findViewDraft(draft, input.owner.viewId);
+        const load = view?.load?.find((candidate) => candidate.resource === resource);
+        if (load === undefined) throw new PermissionCoreError("MENU_NOT_FOUND", "The response owner load API was not found.");
+        setResponse(load);
+        return;
+    }
+    if (input.owner.ownerType === "action") {
+        const view = findViewDraft(draft, input.owner.viewId);
+        const action = view === undefined ? undefined : findActionDraft(view, input.owner.actionId);
+        if (action === undefined) throw new PermissionCoreError("MENU_NOT_FOUND", "The response owner action was not found.");
+        setResponse(action);
+        return;
+    }
+    let matched = 0;
+    for (const view of allViewsInDraft(draft.menus)) {
+        for (const load of view.load ?? []) {
+            if (load.resource === input.owner.apiResource) {
+                setResponse(load);
+                matched += 1;
+            }
+        }
+        for (const action of view.actions ?? []) {
+            if (action.resource === input.owner.apiResource) {
+                setResponse(action);
+                matched += 1;
+            }
+        }
+    }
+    if (matched === 0) throw new PermissionCoreError("MENU_NOT_FOUND", "The response owner API was not found.");
+}
+
+function responseTargetMatches(response: unknown, target: string | undefined) {
+    if (target === undefined) return true;
+    if (response === null || typeof response !== "object" || Array.isArray(response)) return false;
+    return (response as { target?: unknown }).target === target;
+}
+
+function removeResponseFromOwner(owner: { response?: unknown }, input: MenuResponseRemoveInput) {
+    if (owner.response === undefined || !responseTargetMatches(owner.response, input.target)) return;
+    if (input.fields === undefined) {
+        delete owner.response;
+        return;
+    }
+    if (owner.response === null || typeof owner.response !== "object" || Array.isArray(owner.response)) {
+        delete owner.response;
+        return;
+    }
+    const response = owner.response as { fields?: unknown };
+    const fields = denseMenuArray(response.fields, "response.fields", 256)
+        .filter((field) => {
+            if (field === null || typeof field !== "object" || Array.isArray(field)) return true;
+            const name = (field as { field?: unknown }).field;
+            return typeof name !== "string" || !input.fields!.includes(name);
+        });
+    if (fields.length === 0) delete owner.response;
+    else response.fields = fields;
+}
+
+function removeResponseByInput(draft: MutableMenuConfigInput, input: MenuResponseRemoveInput) {
+    const removeFromLoad = (viewId: string, resource: string) => {
+        const view = findViewDraft(draft, viewId);
+        const load = view?.load?.find((candidate) => candidate.resource === resource);
+        if (load === undefined) throw new PermissionCoreError("MENU_NOT_FOUND", "The response owner load API was not found.");
+        removeResponseFromOwner(load, input);
+    };
+    const removeFromAction = (viewId: string, actionId: string) => {
+        const view = findViewDraft(draft, viewId);
+        const action = view === undefined ? undefined : findActionDraft(view, actionId);
+        if (action === undefined) throw new PermissionCoreError("MENU_NOT_FOUND", "The response owner action was not found.");
+        removeResponseFromOwner(action, input);
+    };
+    if (input.owner.ownerType === "load") {
+        removeFromLoad(input.owner.viewId, input.owner.resource);
+        return;
+    }
+    if (input.owner.ownerType === "action") {
+        removeFromAction(input.owner.viewId, input.owner.actionId);
+        return;
+    }
+    let matched = 0;
+    for (const view of allViewsInDraft(draft.menus)) {
+        for (const load of view.load ?? []) {
+            if (load.resource === input.owner.apiResource) {
+                removeResponseFromOwner(load, input);
+                matched += 1;
+            }
+        }
+        for (const action of view.actions ?? []) {
+            if (action.resource === input.owner.apiResource) {
+                removeResponseFromOwner(action, input);
+                matched += 1;
+            }
+        }
+    }
+    if (matched === 0) throw new PermissionCoreError("MENU_NOT_FOUND", "The response owner API was not found.");
+}
+
+function applyMenuManagementChange(draft: MutableMenuConfigInput, change: Extract<MenuManagementChange, { operation: `menu.${string}` }>) {
+    if (change.operation === "menu.create") {
+        const { parentId, ...menu } = change.input;
+        const created = mutableClone(menu) as MutableMenuInput;
+        if (parentId === undefined || parentId === null) {
+            draft.menus.push(created);
+            return;
+        }
+        const parent = findMenuDraft(draft.menus, normalizeRbacId(parentId, "changes.menu.create.input.parentId"));
+        if (parent === undefined) throw new PermissionCoreError("MENU_NOT_FOUND", `Menu ${parentId} was not found.`);
+        if ((parent.views?.length ?? 0) > 0) {
+            throw validationError("INVALID_ARGUMENT", "changes.menu.create.input.parentId", "cannot add a child menu under a menu that already owns views");
+        }
+        parent.children = parent.children ?? [];
+        parent.children.push(created);
+        return;
+    }
+    if (change.operation === "menu.update") {
+        const menu = findMenuDraft(draft.menus, normalizeRbacId(change.menuId, "changes.menu.update.menuId"));
+        if (menu === undefined) throw new PermissionCoreError("MENU_NOT_FOUND", `Menu ${change.menuId} was not found.`);
+        applyNullablePatch(menu as unknown as Record<string, unknown>, change.patch as Readonly<Record<string, unknown>>);
+        return;
+    }
+    const removed = removeMenuDraft(draft.menus, normalizeRbacId(change.menuId, "changes.menu.remove.menuId"), change.input?.cascade === true);
+    if (!removed) throw new PermissionCoreError("MENU_NOT_FOUND", `Menu ${change.menuId} was not found.`);
+}
+
+function applyViewManagementChange(draft: MutableMenuConfigInput, change: Extract<MenuManagementChange, { operation: `view.${string}` }>) {
+    if (change.operation === "view.create") {
+        const menu = findMenuDraft(draft.menus, normalizeRbacId(change.menuId, "changes.view.create.menuId"));
+        if (menu === undefined) throw new PermissionCoreError("MENU_NOT_FOUND", `Menu ${change.menuId} was not found.`);
+        if ((menu.children?.length ?? 0) > 0) {
+            throw validationError("INVALID_ARGUMENT", "changes.view.create.menuId", "cannot add a view under a menu that already owns child menus");
+        }
+        menu.views = menu.views ?? [];
+        menu.views.push(mutableClone(change.input) as MutableViewInput);
+        return;
+    }
+    if (change.operation === "view.update") {
+        const view = findViewDraft(draft, normalizeRbacId(change.viewId, "changes.view.update.viewId"));
+        if (view === undefined) throw new PermissionCoreError("MENU_NOT_FOUND", `View ${change.viewId} was not found.`);
+        applyNullablePatch(view as unknown as Record<string, unknown>, change.patch as Readonly<Record<string, unknown>>);
+        return;
+    }
+    const removed = removeViewDraft(draft.menus, normalizeRbacId(change.viewId, "changes.view.remove.viewId"));
+    if (!removed) throw new PermissionCoreError("MENU_NOT_FOUND", `View ${change.viewId} was not found.`);
+}
+
+function applyLoadApiManagementChange(draft: MutableMenuConfigInput, change: Extract<MenuManagementChange, { operation: `loadApi.${string}` }>) {
+    const view = findViewDraft(draft, normalizeRbacId(change.viewId, `changes.${change.operation}.viewId`));
+    if (view === undefined) throw new PermissionCoreError("MENU_NOT_FOUND", `View ${change.viewId} was not found.`);
+    if (change.operation === "loadApi.add") {
+        view.load = view.load ?? [];
+        view.load.push(mutableClone(change.input) as MutableLoadInput);
+        return;
+    }
+    const loads = view.load;
+    const index = loads?.findIndex((candidate) => candidate.resource === change.resource) ?? -1;
+    if (loads === undefined || index < 0) throw new PermissionCoreError("MENU_NOT_FOUND", `Load ${change.resource} was not found.`);
+    if (change.operation === "loadApi.update") {
+        applyNullablePatch(loads[index]! as unknown as Record<string, unknown>, change.patch as Readonly<Record<string, unknown>>);
+    } else {
+        loads.splice(index, 1);
+    }
+}
+
+function applyActionManagementChange(draft: MutableMenuConfigInput, change: Extract<MenuManagementChange, { operation: `action.${string}` }>) {
+    const view = findViewDraft(draft, normalizeRbacId(change.viewId, `changes.${change.operation}.viewId`));
+    if (view === undefined) throw new PermissionCoreError("MENU_NOT_FOUND", `View ${change.viewId} was not found.`);
+    if (change.operation === "action.create") {
+        view.actions = view.actions ?? [];
+        view.actions.push(mutableClone(change.input) as MutableActionInput);
+        return;
+    }
+    const actions = view.actions;
+    const index = actions?.findIndex((action) => action.id === change.actionId || action.resource === change.actionId) ?? -1;
+    if (actions === undefined || index < 0) throw new PermissionCoreError("MENU_NOT_FOUND", `Action ${change.actionId} was not found.`);
+    if (change.operation === "action.update") {
+        applyNullablePatch(actions[index]! as unknown as Record<string, unknown>, change.patch as Readonly<Record<string, unknown>>);
+    } else {
+        actions.splice(index, 1);
+    }
+}
+
+function applyManagementChange(draft: MutableMenuConfigInput, change: MenuManagementChange) {
+    switch (change.operation) {
+        case "config.create":
+        case "config.remove":
+            return;
+        case "config.update":
+            return updateConfigDraft(draft, change);
+        case "menu.create":
+        case "menu.update":
+        case "menu.remove":
+            return applyMenuManagementChange(draft, change);
+        case "view.create":
+        case "view.update":
+        case "view.remove":
+            return applyViewManagementChange(draft, change);
+        case "loadApi.add":
+        case "loadApi.update":
+        case "loadApi.remove":
+            return applyLoadApiManagementChange(draft, change);
+        case "action.create":
+        case "action.update":
+        case "action.remove":
+            return applyActionManagementChange(draft, change);
+        case "response.set":
+            return applyResponseToOwner(draft, change.input);
+        case "response.remove":
+            return removeResponseByInput(draft, change.input);
+    }
+}
+
+function decodeManagementResult(value: unknown): MenuManagementResult {
+    return deepFreeze(value as MenuManagementResult);
+}
+
 function materializeTargetNodes(input: {
     readonly manifest: MenuManifestInput & { readonly schemaVersion: 2; readonly mode: "replace" };
     readonly current: readonly Readonly<InternalMenuNodeDocument>[];
@@ -728,6 +1141,8 @@ export class MenuConfigService {
             revision,
             createdAt: input.current?.createdAt ?? input.now,
             updatedAt: input.now,
+            allowEmptyMenus: true,
+            allowEmptyContainers: true,
         });
         const compiled = compileMenuConfigSnapshot(snapshot, this.schemes);
         const document: InternalMenuConfigDocument = {
@@ -801,12 +1216,18 @@ export class MenuConfigService {
         return deepFreeze({ aggregate, configs: Object.freeze(target) });
     }
 
-    private normalizeOperations(changes: readonly MenuConfigChange[], now: number) {
+    private normalizeOperations(changes: readonly MenuConfigChange[], now: number, allowEmptyDraft = false) {
         return changes.map((change): ConfigChangeOperation => {
             if (change.operation === "remove") return { operation: "remove", configId: change.configId };
             return {
                 operation: "save",
-                config: compileMenuConfigInput(change.config, { revision: 1, createdAt: now, updatedAt: now }, this.schemes),
+                config: compileMenuConfigInput(change.config, {
+                    revision: 1,
+                    createdAt: now,
+                    updatedAt: now,
+                    allowEmptyMenus: allowEmptyDraft,
+                    allowEmptyContainers: allowEmptyDraft,
+                }, this.schemes),
             };
         });
     }
@@ -856,9 +1277,10 @@ export class MenuConfigService {
         changes: readonly MenuConfigChange[],
         issuedAt: number,
         method: "menus.config.preview" | "menus.config.previewRemove" | "menus.config.previewChanges",
+        allowEmptyDraft = false,
         session?: MongoSession,
     ): Promise<PreparedConfigPlan> {
-        const operations = this.normalizeOperations(changes, issuedAt);
+        const operations = this.normalizeOperations(changes, issuedAt, allowEmptyDraft);
         const currentConfigs = await this.readConfigs(reader, session);
         const currentInventory = await reader.readCompleteInventory();
         const targetConfigState = this.targetConfigs({
@@ -1062,7 +1484,7 @@ export class MenuConfigService {
         const issuedAt = await this.repository.getDatabaseTime();
         const prepared = await this.repository.withTransaction(async (transaction) => {
             const reader = await this.store.open(scope, transaction.session);
-            return this.planChangeSet(reader, changes, issuedAt, method, transaction.session);
+            return this.planChangeSet(reader, changes, issuedAt, method, false, transaction.session);
         });
         return buildMenuPreview({ tokens: this.tokens, actor, issuedAt, prepared: selectPlan(prepared) });
     }
@@ -1231,6 +1653,150 @@ export class MenuConfigService {
         );
     }
 
+    private async normalizeManagementChanges(
+        reader: MenuScopeReader,
+        configIdInput: string,
+        changesInput: NonEmptyMenuManagementChangeArray,
+        session?: MongoSession,
+    ): Promise<NormalizedManagementChangeSet> {
+        const normalized = normalizeManagementChangeSetInput(configIdInput, changesInput);
+        if (normalized.changes[0]?.operation === "config.remove") {
+            const current = await this.readExistingManagementConfig(reader, normalized.configId, session);
+            if (current === null) throw new PermissionCoreError("MENU_NOT_FOUND", `Menu config ${normalized.configId} was not found.`);
+            return deepFreeze({
+                ...normalized,
+                configChanges: Object.freeze([{ operation: "remove", configId: normalized.configId } satisfies MenuConfigChange]),
+            });
+        }
+
+        const draft = await this.buildManagementDraft(reader, normalized, session);
+        return deepFreeze({
+            ...normalized,
+            configChanges: Object.freeze([{ operation: "save", config: draft } satisfies MenuConfigChange]),
+        });
+    }
+
+    private async readExistingManagementConfig(
+        reader: MenuScopeReader,
+        configId: string,
+        session?: MongoSession,
+    ): Promise<MenuConfigSnapshot | null> {
+        try {
+            return (await this.readConfig(reader, configId, session)).config;
+        } catch (error) {
+            if (error instanceof PermissionCoreError && error.code === "MENU_NOT_FOUND") return null;
+            throw error;
+        }
+    }
+
+    private async buildManagementDraft(
+        reader: MenuScopeReader,
+        normalized: Readonly<Pick<NormalizedManagementChangeSet, "configId" | "changes">>,
+        session?: MongoSession,
+    ) {
+        let draft: MutableMenuConfigInput | undefined;
+        for (const change of normalized.changes) {
+            if (change.operation === "config.create") {
+                if (draft !== undefined) throw validationError("INVALID_ARGUMENT", "changes.config.create", "must be the first config change");
+                const current = await this.readExistingManagementConfig(reader, normalized.configId, session);
+                if (current !== null) throw new PermissionCoreError("MENU_ALREADY_EXISTS", `Menu config ${normalized.configId} already exists.`);
+                draft = emptyConfigDraft(change, normalized.configId);
+                continue;
+            }
+            if (draft === undefined) {
+                const current = await this.readExistingManagementConfig(reader, normalized.configId, session);
+                if (current === null) throw new PermissionCoreError("MENU_NOT_FOUND", `Menu config ${normalized.configId} was not found.`);
+                draft = mutableConfigInputFromSnapshot(current);
+            }
+            applyManagementChange(draft, change);
+        }
+        if (draft === undefined) throw validationError("INVALID_ARGUMENT", "changes", "must produce a config draft");
+        return draft;
+    }
+
+    private managementPlan(
+        prepared: PreparedConfigPlan,
+        normalized: NormalizedManagementChangeSet,
+        budget: DetailBudgetAllocator,
+    ): MenuManagementPlan {
+        const savePlan = prepared.savePlans.find((plan) => plan.configId === normalized.configId);
+        const removePlan = prepared.removePlans.find((plan) => plan.configId === normalized.configId);
+        const before = savePlan?.before ?? removePlan?.before;
+        return deepFreeze({
+            configId: normalized.configId,
+            changeDigest: normalized.changeDigest,
+            operations: budget.bounded(normalized.operations),
+            ...(before === undefined ? {} : { before }),
+            ...(savePlan === undefined ? {} : { after: savePlan.after }),
+            manifestOperations: sampledCountSample(prepared.manifestSummary.samples.items.map((item) => `${item.outcome}:${item.id}`)),
+            affectedRoles: sampledCountSample([]),
+            affectedUsers: sampledCountSample([]),
+            responseFieldImpacts: sampledCountSample(normalized.operations
+                .filter((operation) => operation.operation.startsWith("response."))
+                .map((operation) => operation.targetId)),
+        });
+    }
+
+    private managementResult(prepared: PreparedConfigPlan, normalized: NormalizedManagementChangeSet): MenuManagementResult {
+        const saveResult = prepared.changeResults.find((result): result is MenuConfigSaveResult =>
+            "config" in result && result.config.configId === normalized.configId);
+        const removeResult = prepared.changeResults.find((result): result is MenuConfigRemoveResult =>
+            "configId" in result && result.configId === normalized.configId);
+        return deepFreeze({
+            configId: normalized.configId,
+            ...(saveResult === undefined ? {} : { config: saveResult.config }),
+            operations: prepared.manifestSummary,
+            manifestOperations: prepared.manifestSummary,
+            retainedGrantCount: saveResult?.retainedGrantCount ?? 0,
+            refreshedGrantCount: 0,
+            revokedGrantCount: saveResult?.revokedGrantCount ?? removeResult?.revokedGrantCount ?? 0,
+            detachedResponseFieldCount: 0,
+        });
+    }
+
+    async previewManagementChanges(
+        scope: PermissionScope,
+        configId: string,
+        changesInput: NonEmptyMenuManagementChangeArray,
+        options?: MenuManagementPreviewOptions,
+    ): Promise<ImpactPreview<MenuManagementPlan>> {
+        const actor = normalizePreviewOptions(options);
+        const issuedAt = await this.repository.getDatabaseTime();
+        let normalized: NormalizedManagementChangeSet | undefined;
+        const prepared = await this.repository.withTransaction(async (transaction) => {
+            const reader = await this.store.open(scope, transaction.session);
+            normalized = await this.normalizeManagementChanges(reader, configId, changesInput, transaction.session);
+            return this.planChangeSet(reader, normalized.configChanges, issuedAt, "menus.config.previewChanges", true, transaction.session);
+        });
+        const preparedManagement: PreparedMenuPlan<MenuManagementPlan> = {
+            ...prepared,
+            publicPlan: (budget) => this.managementPlan(prepared, normalized!, budget),
+        };
+        return buildMenuPreview({ tokens: this.tokens, actor, issuedAt, prepared: preparedManagement });
+    }
+
+    async applyManagementChanges(
+        scope: PermissionScope,
+        configId: string,
+        changesInput: NonEmptyMenuManagementChangeArray,
+        options: MenuManagementExecuteOptions,
+    ): Promise<MutationResult<MenuManagementResult>> {
+        const reader = await this.store.open(scope);
+        const normalized = await this.normalizeManagementChanges(reader, configId, changesInput);
+        await reader.verifyMenuUnchanged();
+        return this.executeChanges(
+            scope,
+            normalized.configChanges,
+            options,
+            "menus.config.applyChanges",
+            "replace",
+            "menu-config:*",
+            (prepared) => this.managementResult(prepared, normalized),
+            decodeManagementResult,
+            true,
+        );
+    }
+
     private async readConfig(reader: MenuScopeReader, configId: string, session?: MongoSession) {
         return readScopedMenuConfigDocument(this.repository, this.schemes, reader, configId, session);
     }
@@ -1290,6 +1856,7 @@ export class MenuConfigService {
         resource: string,
         selectData: (prepared: PreparedConfigPlan) => T,
         decodeReplay: (value: unknown) => T,
+        allowEmptyDraft = false,
     ) {
         const previewMethod = operation === "menus.config.save"
             ? "menus.config.preview" as const
@@ -1312,7 +1879,7 @@ export class MenuConfigService {
             }),
             work: async ({ transaction, state, now }) => {
                 const reader = new MenuScopeReader(this.repository, this.schemes, state, transaction.session);
-                const prepared = await this.planChangeSet(reader, changes, now, previewMethod, transaction.session);
+                const prepared = await this.planChangeSet(reader, changes, now, previewMethod, allowEmptyDraft, transaction.session);
                 validateMenuExecution({ tokens: this.tokens, prepared, options, now });
                 const changed = prepared.configInserts.length > 0
                     || prepared.configUpdates.length > 0

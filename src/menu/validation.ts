@@ -302,8 +302,8 @@ function normalizedFieldArray(value: unknown, field: string) {
 }
 
 function normalizeMenuBusinessResponseFieldSelection(value: unknown, field: string) {
-    const input = exactMenuRecord(value, ["apiResource", "fields"], field);
-    if (Object.keys(input).length !== 2) {
+    const input = exactMenuRecord(value, ["apiResource", "target", "fields"], field);
+    if (!Object.hasOwn(input, "apiResource") || !Object.hasOwn(input, "fields")) {
         throw validationError("INVALID_ARGUMENT", field, "requires apiResource and fields");
     }
     const fields = normalizedFieldArray(input.fields, `${field}.fields`);
@@ -312,6 +312,7 @@ function normalizeMenuBusinessResponseFieldSelection(value: unknown, field: stri
     }
     return deepFreeze({
         apiResource: normalizeApiResource(input.apiResource, `${field}.apiResource`),
+        ...(Object.hasOwn(input, "target") ? { target: normalizeResponseFieldPath(input.target, `${field}.target`) } : {}),
         fields,
     });
 }
@@ -362,7 +363,8 @@ export function normalizeMenuBusinessPermissionSelection(
     const responseFields = Object.hasOwn(input, "responseFields")
         ? Object.freeze(denseMenuArray(input.responseFields, `${field}.responseFields`, MAX_MENU_SELECTION_ITEMS)
             .map((entry, index) => normalizeMenuBusinessResponseFieldSelection(entry, `${field}.responseFields[${index}]`))
-            .sort((left, right) => compareUtf8(left.apiResource, right.apiResource)))
+            .sort((left, right) => compareUtf8(left.apiResource, right.apiResource)
+                || compareUtf8(left.target ?? "", right.target ?? "")))
         : undefined;
     const include = Object.hasOwn(input, "include")
         ? normalizeMenuBusinessInclude(input.include, `${field}.include`)

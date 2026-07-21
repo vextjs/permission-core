@@ -4,40 +4,50 @@ function collectIds(nodes) {
     return nodes.flatMap((node) => [node.id, ...collectIds(node.children)]);
 }
 
-const menuConfig = {
-    configId: "admin",
-    title: "Admin console",
-    menus: [{
-        id: "orders",
-        title: "Orders",
-        icon: "shopping-cart",
-        views: [{
+function changed(summary) {
+    return summary.inserted + summary.updated + summary.deleted > 0;
+}
+
+const menuChanges = [
+    { operation: "config.create", input: { configId: "admin", title: "Admin console" } },
+    { operation: "menu.create", input: { id: "orders", title: "Orders", icon: "shopping-cart" } },
+    {
+        operation: "view.create",
+        menuId: "orders",
+        input: {
             id: "orders-list",
             type: "page",
             title: "Orders",
             path: "/orders",
             component: "OrdersPage",
-            load: [{
-                resource: "api:GET:/api/orders",
-                response: {
-                    target: "items",
-                    preserve: ["total"],
-                    fields: [
-                        { field: "orderNo", title: "Order number" },
-                        { field: "status", title: "Status" },
-                        { field: "amount", title: "Amount" },
-                    ],
-                },
-            }],
-            actions: [{
-                id: "export",
-                title: "Export orders",
-                resource: "api:POST:/api/orders/export",
-                response: [{ field: "downloadUrl", title: "Download URL" }],
-            }],
-        }],
-    }],
-};
+        },
+    },
+    { operation: "loadApi.add", viewId: "orders-list", input: { resource: "api:GET:/api/orders" } },
+    {
+        operation: "response.set",
+        input: {
+            owner: { ownerType: "load", viewId: "orders-list", resource: "api:GET:/api/orders" },
+            response: {
+                target: "items",
+                preserve: ["total"],
+                fields: [
+                    { field: "orderNo", title: "Order number" },
+                    { field: "status", title: "Status" },
+                    { field: "amount", title: "Amount" },
+                ],
+            },
+        },
+    },
+    {
+        operation: "action.create",
+        viewId: "orders-list",
+        input: {
+            id: "export",
+            title: "Export orders",
+            resource: "api:POST:/api/orders/export",
+        },
+    },
+];
 
 // docs:menu-admin:start
 const runtime = await startExampleCore("menu-admin");
@@ -45,15 +55,15 @@ const scope = { tenantId: "acme", appId: "admin" };
 const scoped = runtime.core.scope(scope);
 
 try {
-    const configPreview = await scoped.menus.config.preview(menuConfig, { actorId: "admin" });
+    const configPreview = await scoped.menus.management.previewChanges("admin", menuChanges, { actorId: "admin" });
     if (!configPreview.executable) {
         throw new Error(`menu config is not executable: ${configPreview.conflicts.items.map((item) => item.code).join(",")}`);
     }
-    const savedConfig = await scoped.menus.config.save(menuConfig, {
+    const savedConfig = await scoped.menus.management.applyChanges("admin", menuChanges, {
         ...configPreview.expected,
         previewToken: configPreview.previewToken,
         actorId: "admin",
-        idempotencyKey: "example-menu-config-save",
+        idempotencyKey: "example-menu-config-incremental-save",
     });
 
     await scoped.roles.create({ id: "order-operator", label: "Order operator" });
@@ -62,6 +72,7 @@ try {
         views: ["orders-list"],
         responseFields: [{
             apiResource: "api:GET:/api/orders",
+            target: "items",
             fields: ["orderNo", "status"],
         }],
         include: { loads: true, actions: true, responseFields: "none" },
@@ -98,7 +109,7 @@ try {
         config: {
             id: savedConfig.data.config.configId,
             menuCount: savedConfig.data.config.menus.length,
-            manifestChanged: savedConfig.data.manifestOperations.total > 0,
+            manifestChanged: changed(savedConfig.data.manifestOperations),
         },
         roleGrant: {
             generatedSources: granted.data.generatedSources,

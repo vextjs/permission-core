@@ -7,7 +7,7 @@
 前置条件：
 
 - 角色已存在。
-- 菜单配置已通过 `scoped.menus.config.save()` 保存。
+- 菜单配置已通过 `scoped.menus.management.applyChanges()`、`scoped.menus.configs/items/views/loadApis/actions/responses.*()` 或 `scoped.menus.config.save()` 保存。
 - 写入前先调用 `preview()`，执行时传回同一输入、`expected` 和 `previewToken`。
 
 ## 我想做什么
@@ -51,7 +51,7 @@ roles.menuPermissions.getAuthorizationTree(roleId: string, options: { configId: 
 | `actions` | `string[]` | 可选 | 精确选择 action ID。 |
 | `responseFields` | `MenuBusinessResponseFieldSelection[]` | 可选 | 为指定接口选择可返回字段。 |
 | `include.descendants` | `boolean` | 默认 `false` | 选择菜单时是否包含后代菜单和视图。 |
-| `include.loads` | `boolean` | 默认 `false` | 选择视图时是否自动包含加载接口。 |
+| `include.loads` | `boolean` | 默认 `true` | 选择视图时是否自动包含加载接口。 |
 | `include.actions` | `boolean` | 默认 `false` | 选择视图时是否自动包含操作按钮。 |
 | `include.responseFields` | `'none' \| 'all'` | 默认 `'none'` | 是否自动包含所选接口的全部响应字段。 |
 
@@ -60,11 +60,12 @@ roles.menuPermissions.getAuthorizationTree(roleId: string, options: { configId: 
 ```ts
 {
   apiResource: 'api:GET:/api/orders',
+  target: 'items',
   fields: ['orderNo', 'status'],
 }
 ```
 
-`fields` 必须来自菜单配置中该接口已经声明的字段。要授权所有字段，可以使用 `include.responseFields: 'all'`；要精确控制字段，使用 `'none'` 加显式 `responseFields`。
+`fields` 必须来自菜单配置中该接口已经声明的字段。分页响应建议写 `target`，例如 `items` 或 `data.items`；同一接口存在多个响应目标时，不写 `target` 会因为目标不明确而被拒绝。要授权所有字段，可以使用 `include.responseFields: 'all'`；要精确控制字段，使用 `'none'` 加显式 `responseFields`。
 
 <!-- docs:params owner=MenuBusinessPermissionChange locale=zh -->
 
@@ -207,6 +208,7 @@ const selection = {
   views: ['orders-list'],
   responseFields: [{
     apiResource: 'api:GET:/api/orders',
+    target: 'items',
     fields: ['orderNo', 'status'],
   }],
   include: { loads: true, actions: true, responseFields: 'none' },

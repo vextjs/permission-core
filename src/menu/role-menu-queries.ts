@@ -1,6 +1,7 @@
 import { types as utilTypes } from "node:util";
 import type {
     AuthorizationTreeNode,
+    ApiResource,
     CursorQuery,
     DirectMenuGrantSnapshot,
     DirectMenuPermissionSnapshot,
@@ -64,7 +65,7 @@ import {
     type RoleMenuInventoryView,
     type RoleMenuRoleResolution,
 } from "./role-menu-resolution";
-import { compileMenuConfigSnapshot } from "./config-compiler";
+import { compileMenuConfigSnapshot, type CompiledResponseDefinition } from "./config-compiler";
 import { readScopedMenuConfigDocument } from "./config-service";
 import { validateMenuGraph } from "./queries";
 import {
@@ -905,12 +906,16 @@ export class RoleMenuPermissionQueryService {
         const compiled = compileMenuConfigSnapshot(config.config, this.schemes);
         const grants = this.effectiveGrantStates(loaded.resolutions, authorization.roles)
             .filter((entry) => entry.grant.document.snapshot.business?.configId === configId);
-        const responseByApi = new Map(compiled.responseDefinitions.map((response) => [response.apiResource, response] as const));
+        const responsesByApi = new Map<ApiResource, CompiledResponseDefinition[]>();
+        for (const response of compiled.responseDefinitions) {
+            const group = responsesByApi.get(response.apiResource) ?? [];
+            group.push(response);
+            responsesByApi.set(response.apiResource, group);
+        }
 
         const responseFieldNodes = (apiResource: `api:${string}`): readonly MenuBusinessAuthorizationTreeNode[] => {
-        const response = responseByApi.get(apiResource);
-            if (response === undefined) return Object.freeze([]);
-            return Object.freeze(response.fields.map((field) => {
+            const responses = responsesByApi.get(apiResource) ?? [];
+            return Object.freeze(responses.flatMap((response) => response.fields.map((field) => {
                 const ref = deepFreeze({
                     apiResource: response.apiResource,
                     targetDigest: response.targetDigest,
@@ -928,7 +933,7 @@ export class RoleMenuPermissionQueryService {
                     selection: selectionFromState(state, []),
                     children: Object.freeze([]),
                 });
-            }));
+            })));
         };
 
         const viewNode = (view: MenuConfigMenuSnapshot["views"][number]): MenuBusinessAuthorizationTreeNode => {

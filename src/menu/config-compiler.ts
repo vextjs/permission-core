@@ -128,6 +128,8 @@ export interface MenuConfigSnapshotOptions {
     readonly revision?: number;
     readonly createdAt?: number;
     readonly updatedAt?: number;
+    readonly allowEmptyMenus?: boolean;
+    readonly allowEmptyContainers?: boolean;
 }
 
 function stableId(prefix: string, ...parts: readonly string[]) {
@@ -368,6 +370,7 @@ interface NormalizeContext {
     readonly menuIds: Set<string>;
     readonly viewIds: Set<string>;
     readonly actionKeys: Set<string>;
+    readonly allowEmptyContainers: boolean;
     viewCount: number;
     actionCount: number;
 }
@@ -482,7 +485,10 @@ function normalizeMenu(value: unknown, field: string, depth: number, context: No
     context.menuIds.add(menuId);
     const hasChildren = Object.hasOwn(input, "children");
     const hasViews = Object.hasOwn(input, "views");
-    if (hasChildren === hasViews) {
+    if (hasChildren && hasViews) {
+        throw validationError("INVALID_ARGUMENT", field, "must define exactly one of children or views");
+    }
+    if (!hasChildren && !hasViews && !context.allowEmptyContainers) {
         throw validationError("INVALID_ARGUMENT", field, "must define exactly one of children or views");
     }
     const children = hasChildren
@@ -493,7 +499,7 @@ function normalizeMenu(value: unknown, field: string, depth: number, context: No
         ? denseMenuArray(input.views, `${field}.views`, MAX_CONFIG_VIEWS)
             .map((entry, index) => normalizeView(entry, `${field}.views[${index}]`, menuId, context))
         : [];
-    if ((hasChildren && children.length === 0) || (hasViews && views.length === 0)) {
+    if (!context.allowEmptyContainers && ((hasChildren && children.length === 0) || (hasViews && views.length === 0))) {
         throw validationError("INVALID_ARGUMENT", field, "children or views must be non-empty");
     }
     return deepFreeze({
@@ -542,12 +548,13 @@ export function normalizeMenuConfigInput(
         menuIds: new Set(),
         viewIds: new Set(),
         actionKeys: new Set(),
+        allowEmptyContainers: options.allowEmptyContainers === true,
         viewCount: 0,
         actionCount: 0,
     };
     const menus = denseMenuArray(input.menus, "config.menus", MAX_CONFIG_MENUS)
         .map((entry, index) => normalizeMenu(entry, `config.menus[${index}]`, 1, context));
-    if (menus.length === 0) {
+    if (menus.length === 0 && options.allowEmptyMenus !== true) {
         throw validationError("INVALID_ARGUMENT", "config.menus", "must contain at least one menu");
     }
     assertOpenTargets(menus, context.viewIds);

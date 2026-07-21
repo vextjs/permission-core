@@ -2,11 +2,11 @@
 
 ## 用途与前置条件
 
-本页说明 `MenuConfigInput` 中的接口和响应字段配置。公开 API 不再要求业务方直接创建接口绑定；你在菜单配置里声明 `load`、`actions` 和 `response`，`menus.config.save()` 会自动编译出内部接口契约。
+本页说明菜单中的接口和响应字段配置。后台页面可以用 `menus.loadApis/actions/responses` 逐项维护；配置即代码可以在 `MenuConfigInput` 中声明 `load`、`actions` 和 `response`。公开 API 不再要求业务方直接创建接口绑定，保存时 permission-core 会自动编译出内部接口契约。
 
 前置条件：
 
-- 已有一份 `MenuConfigInput`。
+- 已有一套菜单配置；可以来自 `menus.configs.create()` 空配置，也可以来自完整 `MenuConfigInput`。
 - 接口资源统一使用 `ApiResource`，格式是 `api:METHOD:/path`。
 - 需要裁剪响应字段时，先在配置里声明字段，再通过角色菜单授权分配字段。
 
@@ -14,9 +14,9 @@
 
 | 目标 | 字段或 API | 说明 |
 |---|---|---|
-| 声明加载接口 | `MenuConfigInput.load` | 使用 `load.resource`；系统自动按 `invoke` 处理。 |
-| 声明操作接口 | `MenuConfigInput.actions` | 使用 `actions[].resource`；`api:*` 操作也可以声明 `response`。 |
-| 声明响应字段 | `response` / `ResponseProjectionConfigInput` | 对象或数组直接用数组形式；分页响应用 `{ target, preserve, fields }`。 |
+| 声明加载接口 | `menus.loadApis.add()` / `MenuConfigInput.load` | 使用 `resource`；系统自动按 `invoke` 处理。 |
+| 声明操作接口 | `menus.actions.create()` / `MenuConfigInput.actions` | 使用 `resource`；`api:*` 操作也可以声明 `response`。 |
+| 声明响应字段 | `menus.responses.set()` / `response` | 对象或数组直接用数组形式；分页响应用 `{ target, preserve, fields }`。 |
 | 运行时校验 | `subject.assert()` / `subject.menus.filterResponse()` | 先守住接口调用，再按已授权字段裁剪响应。 |
 | 常见错误 | 校验错误和权限错误 | 检查资源格式、字段路径冲突、缺少字段授权和默认拒绝。 |
 
@@ -33,6 +33,10 @@ actions[].response?: ResponseProjectionInput
 
 MenuConfigInput.response?: ResponseProjectionConfigInput
 response?: ResponseProjectionConfigInput
+
+menus.loadApis.add(configId: string, viewId: string, input: MenuLoadApiAddInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.actions.create(configId: string, viewId: string, input: MenuActionCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.responses.set(configId: string, input: MenuResponseSetInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
 ```
 
 关键参数标记：`load.resource: ApiResource`，`actions[].resource: ApiResource | UiResource`，`response?: ResponseProjectionConfigInput`。
@@ -162,6 +166,7 @@ response: {
 
 | 操作 | 结果 |
 |---|---|
+| `menus.loadApis.add()` / `menus.responses.set()` | 逐项保存接口和响应字段，并返回 `MenuManagementResult`。 |
 | `menus.config.preview(config)` | 预览配置是否合法、会生成哪些内部资产。 |
 | `menus.config.save(config, options)` | 保存配置并返回 `MenuConfigSaveResult`。 |
 | `roles.menuPermissions.preview/grant` | 选择 load、action、responseFields 并生成角色来源。 |
@@ -192,6 +197,7 @@ const selection = {
   views: ['orders-list'],
   responseFields: [{
     apiResource: 'api:GET:/api/orders',
+    target: 'items',
     fields: ['orderNo', 'status'],
   }],
   include: { loads: true, actions: true, responseFields: 'none' },

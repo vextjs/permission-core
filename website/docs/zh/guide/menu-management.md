@@ -1,26 +1,99 @@
 # 管理菜单
 
-菜单管理只需要从一份 `MenuConfigInput` 开始：你声明菜单、页面、页面加载接口、按钮接口和接口响应字段，permission-core 会在保存时编译成内部库存。多数后台系统不需要手动维护底层节点或接口绑定。
+菜单管理的推荐用法是按后台页面的操作顺序来：先创建一套菜单配置，再创建菜单、页面、页面默认接口、按钮和响应字段。permission-core 会把这些操作编译成内部菜单节点、接口权限和字段库存；你不需要手动维护 `nodes`、`apiBindings` 或 owner 关系。
 
 最小心智模型是：
 
 ```mermaid
 flowchart TD
   accTitle: 菜单配置生命周期
-  accDescr: MenuConfigInput 经过预览和保存后，角色菜单授权分配其中能力，用户绑定角色后，subject runtime 投影前端状态和响应字段。
-  A["写一份 MenuConfigInput"] --> B["menus.config.preview 预览影响"]
-  B --> C["menus.config.save 保存配置"]
+  accDescr: 管理端逐项创建配置、菜单、页面、接口和响应字段后，角色菜单授权分配其中能力，用户绑定角色后，subject runtime 投影前端状态和响应字段。
+  A["menus.configs.create 创建空配置"] --> B["menus.items / views 创建菜单和页面"]
+  B --> C["menus.loadApis / actions / responses 配接口、按钮和字段"]
   C --> D["roles.menuPermissions.grant 给角色分配菜单能力"]
   D --> E["userRoles.assign 把角色给用户"]
   E --> F["subject.menus.getViewTree / getActionMap 投影前端状态"]
   F --> G["subject.menus.filterResponse 裁剪接口响应字段"]
 ```
 
-<p className="pc-diagram-text" id="pc-diagram-menu-config-lifecycle-zh-text" data-diagram-id="menu-config-lifecycle"><strong>文字等价说明。</strong>后端先编写 MenuConfigInput，预览影响并保存为后台菜单库存；角色菜单授权再分配其中的页面、加载接口、操作和响应字段；用户绑定该角色后，subject 菜单运行时会投影可见导航、操作状态、页面状态和裁剪后的接口响应。</p>
+<p className="pc-diagram-text" id="pc-diagram-menu-config-lifecycle-zh-text" data-diagram-id="menu-config-lifecycle"><strong>文字等价说明。</strong>管理端先创建空配置，再逐项创建菜单、页面、加载接口、按钮和响应字段；角色菜单授权再分配其中的页面、加载接口、操作和响应字段；用户绑定该角色后，subject 菜单运行时会投影可见导航、操作状态、页面状态和裁剪后的接口响应。</p>
 
 保存菜单不是授权用户。它只是把“系统有哪些菜单和接口”登记清楚；用户能看到什么、能调用什么，仍由角色授权决定。
 
-## 一份完整配置
+## 推荐后台页面做法
+
+后台管理系统通常有多个表单：菜单表单、页面表单、接口表单、按钮表单、字段表单。对应到 permission-core，就是下面这些对象方法。
+
+```ts
+const scoped = pc.scope({ tenantId: 'acme', appId: 'admin' });
+
+const preview = await scoped.menus.management.previewChanges('admin', [
+  { operation: 'config.create', input: { configId: 'admin', title: 'Admin console' } },
+  { operation: 'menu.create', input: { id: 'orders', title: '订单中心', icon: 'shopping-cart' } },
+  {
+    operation: 'view.create',
+    menuId: 'orders',
+    input: {
+      id: 'orders-list',
+      type: 'page',
+      title: '订单列表',
+      path: '/orders',
+      component: 'OrdersPage',
+    },
+  },
+  { operation: 'loadApi.add', viewId: 'orders-list', input: { resource: 'api:GET:/api/orders' } },
+  { operation: 'action.create', viewId: 'orders-list', input: { id: 'export', title: '导出订单', resource: 'api:POST:/api/orders/export' } },
+  {
+    operation: 'response.set',
+    input: {
+      owner: { ownerType: 'load', viewId: 'orders-list', resource: 'api:GET:/api/orders' },
+      response: {
+        target: 'items',
+        preserve: ['total'],
+        fields: [
+          { field: 'orderNo', title: '订单号' },
+          { field: 'status', title: '状态' },
+        ],
+      },
+    },
+  },
+]);
+
+if (!preview.executable) {
+  throw new Error('菜单变更存在冲突，需要先处理');
+}
+
+await scoped.menus.management.applyChanges('admin', [
+  { operation: 'config.create', input: { configId: 'admin', title: 'Admin console' } },
+  { operation: 'menu.create', input: { id: 'orders', title: '订单中心', icon: 'shopping-cart' } },
+  { operation: 'view.create', menuId: 'orders', input: { id: 'orders-list', type: 'page', title: '订单列表', path: '/orders', component: 'OrdersPage' } },
+  { operation: 'loadApi.add', viewId: 'orders-list', input: { resource: 'api:GET:/api/orders' } },
+  { operation: 'action.create', viewId: 'orders-list', input: { id: 'export', title: '导出订单', resource: 'api:POST:/api/orders/export' } },
+  { operation: 'response.set', input: { owner: { ownerType: 'load', viewId: 'orders-list', resource: 'api:GET:/api/orders' }, response: { target: 'items', preserve: ['total'], fields: [{ field: 'orderNo', title: '订单号' }, { field: 'status', title: '状态' }] } } },
+], {
+  ...preview.expected,
+  previewToken: preview.previewToken,
+  actorId: 'admin',
+  idempotencyKey: 'admin-menu-bootstrap-v1',
+});
+```
+
+每个写操作都要先 preview，再 execute。上面用 `management.previewChanges/applyChanges` 一次提交多个表单变更；如果你的页面是单项保存，也可以用对象方法：
+
+| 管理端动作 | 方法 |
+|---|---|
+| 创建一套空配置 | `menus.configs.previewCreate()` / `menus.configs.create()` |
+| 创建、改名、删除菜单 | `menus.items.previewCreate()` / `create()` / `previewUpdate()` / `update()` / `previewRemove()` / `remove()` |
+| 创建、更新、删除页面 | `menus.views.*` |
+| 添加页面默认接口 | `menus.loadApis.previewAdd()` / `add()` |
+| 添加按钮或操作 | `menus.actions.previewCreate()` / `create()` |
+| 配置接口响应字段 | `menus.responses.previewSet()` / `set()` |
+
+`menus.configs.create()` 可以创建空配置，便于后台先建菜单树再慢慢补页面；但 `menus.config.save({ menus: [] })` 仍然会失败，因为批量入口表示“完整配置覆盖”，空数组很容易误删整套菜单。
+
+## 配置即代码和批量导入
+
+如果你从插件、CI/CD 或配置文件一次性导入完整菜单，仍然可以使用 `MenuConfigInput`：
 
 ```ts
 const menuConfig = {
@@ -186,6 +259,7 @@ const selection = {
   views: ['orders-list'],
   responseFields: [{
     apiResource: 'api:GET:/api/orders',
+    target: 'items',
     fields: ['orderNo', 'status'],
   }],
   include: {
@@ -209,7 +283,7 @@ const granted = await scoped.roles.menuPermissions.grant(
 );
 ```
 
-`views` 是管理员勾选的页面。`include.loads: true` 会把页面加载接口一起授权；`include.actions: true` 会把页面按钮或操作一起授权；`responseFields` 明确允许哪些响应字段。`include.responseFields: 'none'` 表示不要自动全选字段，只使用 `responseFields` 中列出的字段。
+`views` 是管理员勾选的页面。默认会包含页面的加载接口，不会自动包含按钮，也不会自动全选响应字段。`include.loads: true` 会把页面加载接口一起授权；`include.actions: true` 会把页面按钮或操作一起授权；`responseFields` 明确允许哪些响应字段。分页响应使用 `target: 'items'` 指明裁剪哪一层数组；`include.responseFields: 'none'` 表示不要自动全选字段，只使用 `responseFields` 中列出的字段。
 
 完整授权规则见[角色菜单授权](/zh/guide/role-menu-authorization)。
 
@@ -254,6 +328,7 @@ const response = await subjectMenus.filterResponse('api:GET:/api/orders', {
 | 保存菜单后用户就有权限 | 保存只是登记系统能力；还要 `roles.menuPermissions.grant` 和 `userRoles.assign`。 |
 | `load` 里还要写 `action: 'invoke'` | 不需要。`load.resource` 使用 `api:` 资源时系统自动补成 `invoke`。 |
 | 响应字段只支持一层字段 | 支持点路径，也支持 `{ target, preserve, fields }` 处理分页响应。 |
+| 选中页面会自动拥有全部响应字段 | 不会。默认只给页面加载接口，不给字段；要么显式写 `responseFields`，要么主动设置 `include.responseFields: 'all'`。 |
 | `filterResponse()` 可以替代接口鉴权 | 不能。它会做接口权限检查，但业务接口仍应使用 `subject.assert()` 或 Vext guard 保护入口。 |
 
 可运行完整示例见[菜单管理示例](/zh/examples/menu-admin)，精确签名见[菜单 API](/zh/api/menus)和[配置接口与响应字段](/zh/api/api-bindings)。

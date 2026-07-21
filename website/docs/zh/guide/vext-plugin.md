@@ -7,7 +7,7 @@
 - Node.js `>=20.19.0`，这是 Vext 0.3.26 的运行要求。
 - 安装 `permission-core`、`monsqlize@3.1.0` 和 `vextjs@0.3.26`。
 - 认证插件先运行，并写入可信 `req.auth`。
-- 如果要自动响应字段投影，先用 `menus.config.save()` 保存对应 `api:` 资源和字段配置。
+- 如果要自动响应字段投影，先用 `menus.responses.set()` 或 `menus.config.save()` 保存对应 `api:` 资源和字段配置。
 
 ## 注册插件
 

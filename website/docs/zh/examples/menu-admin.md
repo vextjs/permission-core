@@ -2,7 +2,7 @@
 
 ## 场景
 
-该示例演示后台菜单从配置到运行时的完整路径：先保存一份 `MenuConfigInput`，再给角色分配页面、接口、按钮和响应字段，最后以用户身份读取菜单状态并裁剪接口响应。
+该示例演示后台菜单从配置到运行时的完整路径：先用增量 API 创建配置、菜单、页面、接口、按钮和响应字段，再给角色分配页面、接口、按钮和响应字段，最后以用户身份读取菜单状态并裁剪接口响应。
 
 ## 运行
 
@@ -23,12 +23,12 @@ const runtime = await startExampleCore("menu-admin");
 const scope = { tenantId: "acme", appId: "admin" };
 const scoped = runtime.core.scope(scope);
 
-const configPreview = await scoped.menus.config.preview(menuConfig, { actorId: "admin" });
-const savedConfig = await scoped.menus.config.save(menuConfig, {
+const configPreview = await scoped.menus.management.previewChanges("admin", menuChanges, { actorId: "admin" });
+const savedConfig = await scoped.menus.management.applyChanges("admin", menuChanges, {
   ...configPreview.expected,
   previewToken: configPreview.previewToken,
   actorId: "admin",
-  idempotencyKey: "example-menu-config-save",
+  idempotencyKey: "example-menu-config-incremental-save",
 });
 
 await scoped.roles.create({ id: "order-operator", label: "Order operator" });
@@ -37,6 +37,7 @@ const selection = {
   views: ["orders-list"],
   responseFields: [{
     apiResource: "api:GET:/api/orders",
+    target: "items",
     fields: ["orderNo", "status"],
   }],
   include: { loads: true, actions: true, responseFields: "none" },
@@ -62,19 +63,19 @@ const projected = await subjectMenus.filterResponse("api:GET:/api/orders", rawOr
 const directGrant = await scoped.roles.menuPermissions.getDirect("order-operator");
 ```
 
-这段代码省略了 `menuConfig` 和 `rawOrders` 的定义；完整文件中 `menuConfig` 声明了 `orders-list` 页面、`api:GET:/api/orders` 加载接口、`export` 操作和响应字段。
+这段代码省略了 `menuChanges` 和 `rawOrders` 的定义；完整文件中 `menuChanges` 逐项创建了 `admin` 配置、`orders` 菜单、`orders-list` 页面、`api:GET:/api/orders` 加载接口、`export` 操作和响应字段。
 
 ### 1. 预览并保存菜单配置
 
-<!-- docs:operation id=menu-model calls=menus.config.preview,menus.config.save outputs=config -->
+<!-- docs:operation id=menu-model calls=menus.management.previewChanges,menus.management.applyChanges outputs=config -->
 
-**目的与目标。** `menus.config.preview` 先验证 `menuConfig`，告诉管理员保存后会产生哪些内部菜单、接口和响应字段资产；`menus.config.save` 使用同一份配置、`expected` 和 `previewToken` 执行写入。本步骤产出 `config`，它表示配置是否保存成功以及内部 manifest 是否发生变化。
+**目的与目标。** `menus.management.previewChanges` 先验证 `menuChanges`，告诉管理员保存后会产生哪些内部菜单、接口和响应字段资产；`menus.management.applyChanges` 使用同一组变更、`expected` 和 `previewToken` 执行写入。本步骤产出 `config`，它表示配置是否保存成功以及内部 manifest 是否发生变化。
 
-**状态、参数与结果。** `menuConfig.configId` 是后续授权和运行时读取的主键；`load.resource` 使用 `api:GET:/api/orders`，不需要再写 `action: 'invoke'`；`response` 声明订单接口可分配字段。保存返回 `MutationResult<MenuConfigSaveResult>`，`savedConfig.data.config` 是快照，`savedConfig.data.manifestOperations` 是内部同步摘要。
+**状态、参数与结果。** `configId: "admin"` 是后续授权和运行时读取的主键；`loadApi.add` 的 `resource` 使用 `api:GET:/api/orders`，不需要再写 `action: 'invoke'`；`response.set` 声明订单接口可分配字段。保存返回 `MutationResult<MenuManagementResult>`，`savedConfig.data.config` 是快照，`savedConfig.data.manifestOperations` 是内部同步摘要。
 
 **失败与下一步。** 如果预览不可执行，说明配置冲突、资源格式错误或会破坏已有授权来源；应先展示 `conflicts` 并重新预览。不要跳过 preview 直接保存，也不要把旧 token 用在改过的配置上。
 
-**API 参考。** 参见[菜单 API](/zh/api/menus)，了解 `MenuConfigInput`、preview/save 的签名、响应 envelope 和错误边界。
+**API 参考。** 参见[菜单 API](/zh/api/menus)，了解 `menus.management`、`menus.items/views/loadApis/actions/responses` 的签名、响应 envelope 和错误边界。
 
 ### 2. 创建工作流使用的角色身份
 
@@ -94,7 +95,7 @@ const directGrant = await scoped.roles.menuPermissions.getDirect("order-operator
 
 **目的与目标。** `menuPermissions.preview` 把 `selection` 展开为页面、加载接口、按钮操作和响应字段；`menuPermissions.grant` 按预览提交 allow 授权；`menuPermissions.getDirect` 读取保存后的 grant 和字段来源。本步骤产出 `roleGrant`。
 
-**状态、参数与结果。** `selection.configId` 指向 `admin` 配置，`views` 选择 `orders-list`，`include.loads/actions` 自动包含页面加载接口和导出操作，`responseFields` 只给 `api:GET:/api/orders` 分配 `orderNo/status`。授权返回 `generatedSources`、`generatedResponseFields` 和 `grantIds`，直接读取返回 `responseFields.total`。
+**状态、参数与结果。** `selection.configId` 指向 `admin` 配置，`views` 选择 `orders-list`，`include.loads/actions` 自动包含页面加载接口和导出操作，`responseFields` 通过 `target: "items"` 只给 `api:GET:/api/orders` 的列表行分配 `orderNo/status`。授权返回 `generatedSources`、`generatedResponseFields` 和 `grantIds`，直接读取返回 `responseFields.total`。
 
 **失败与下一步。** 如果选择了不存在的 view、action 或字段，preview 会拒绝。revision 或 token 过期时 grant 会失败。正确做法是刷新配置和角色状态，重新 preview，再提交新的 token。
 
@@ -146,7 +147,7 @@ const directGrant = await scoped.roles.menuPermissions.getDirect("order-operator
 
 <!-- docs:output group=config producer=menu-model -->
 
-**`config` 来源。** `menus.config.save` 返回保存后的配置快照和内部同步摘要。示例只打印 `configId`、菜单数量和是否发生内部变更，原始响应仍保留完整 revision、auditId 和 cache 结果。
+**`config` 来源。** `menus.management.applyChanges` 返回保存后的配置快照和内部同步摘要。示例只打印 `configId`、菜单数量和是否发生内部变更，原始响应仍保留完整 revision、auditId 和 cache 结果。
 
 <!-- docs:output group=roleGrant producer=menu-grant -->
 

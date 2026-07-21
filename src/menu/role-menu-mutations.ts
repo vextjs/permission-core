@@ -857,28 +857,33 @@ function responseFieldRefs(
 ): readonly MenuBusinessResponseFieldRef[] {
     const refs: MenuBusinessResponseFieldRef[] = [];
     const addAllForApi = (apiResource: ApiResource) => {
-        const response = compiled.responseDefinitions.find((definition) => definition.apiResource === apiResource);
-        if (response === undefined) return;
-        for (const field of response.fields) {
-            refs.push(deepFreeze({
-                apiResource,
-                targetDigest: response.targetDigest,
-                field: field.field,
-                fieldId: field.fieldId,
-                title: field.title,
-                ownerViewIds: Object.freeze([...new Set(field.owners.map((owner) => owner.viewId))].sort(compareUtf8)),
-            }));
+        const responses = compiled.responseDefinitions.filter((definition) => definition.apiResource === apiResource);
+        for (const response of responses) {
+            for (const field of response.fields) {
+                refs.push(deepFreeze({
+                    apiResource,
+                    targetDigest: response.targetDigest,
+                    field: field.field,
+                    fieldId: field.fieldId,
+                    title: field.title,
+                    ownerViewIds: Object.freeze([...new Set(field.owners.map((owner) => owner.viewId))].sort(compareUtf8)),
+                }));
+            }
         }
     };
-    if (selection.include?.responseFields !== "none") {
+    if (selection.include?.responseFields === "all") {
         for (const apiResource of [...selectedApiResources].sort(compareUtf8)) addAllForApi(apiResource);
     }
     for (const explicit of selection.responseFields ?? []) {
         selectedApiResources.add(explicit.apiResource);
-        const response = compiled.responseDefinitions.find((definition) => definition.apiResource === explicit.apiResource);
+        const responses = compiled.responseDefinitions.filter((definition) => definition.apiResource === explicit.apiResource);
+        const targetDigest = explicit.target === undefined ? undefined : digestCanonical({ target: explicit.target });
+        const response = targetDigest === undefined
+            ? (responses.length === 1 ? responses[0] : undefined)
+            : responses.find((definition) => definition.targetDigest === targetDigest);
         if (response === undefined) {
-            throw new PermissionCoreError("MENU_NOT_FOUND", `Response definition for ${explicit.apiResource} was not found.`, {
-                details: { kind: "validation", field: "selection.responseFields", reason: "API response fields are not declared in the selected config" },
+            throw new PermissionCoreError("MENU_NOT_FOUND", `Response definition for ${explicit.apiResource} was not found or requires an explicit target.`, {
+                details: { kind: "validation", field: "selection.responseFields", reason: "API response fields are not declared in the selected config or target is ambiguous" },
             });
         }
         for (const fieldName of explicit.fields) {
@@ -921,7 +926,7 @@ function planBusinessSelection(input: {
     readonly nodes: readonly Readonly<InternalMenuNodeDocument>[];
     readonly bindings: readonly Readonly<InternalApiBindingDocument>[];
 }): PlannedBusinessRoleMenuGrant {
-    const includeDescendants = input.selection.include?.descendants ?? true;
+    const includeDescendants = input.selection.include?.descendants ?? false;
     const includeLoads = input.selection.include?.loads ?? true;
     const includeActions = input.selection.include?.actions ?? false;
     const includeNavigationAncestors = input.effect === "allow";

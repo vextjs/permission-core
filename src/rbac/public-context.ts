@@ -243,7 +243,68 @@ export function createScopedPermissionContext(
         applyChanges: (changes, options) => run(() => services.menuManagement.config.applyChanges(scope, changes, options)),
     };
     Object.freeze(config);
-    const menus = Object.freeze({ config });
+    const management: ScopedPermissionContext["menus"]["management"] = {
+        previewChanges: (configId, changes, options) => query(() =>
+            services.menuManagement.config.previewManagementChanges(scope, configId, changes, options)),
+        applyChanges: (configId, changes, options) => run(() =>
+            services.menuManagement.config.applyManagementChanges(scope, configId, changes, options)),
+    };
+    Object.freeze(management);
+    const configs: ScopedPermissionContext["menus"]["configs"] = {
+        previewCreate: (input, options) => management.previewChanges(input.configId, [{ operation: "config.create", input }], options),
+        create: (input, options) => management.applyChanges(input.configId, [{ operation: "config.create", input }], options),
+        previewUpdate: (configId, patch, options) => management.previewChanges(configId, [{ operation: "config.update", patch }], options),
+        update: (configId, patch, options) => management.applyChanges(configId, [{ operation: "config.update", patch }], options),
+        get: (configId) => config.get(configId),
+        list: (options) => config.list(options),
+        previewRemove: (configId, input, options) => management.previewChanges(configId, [{ operation: "config.remove", ...(input === undefined ? {} : { input }) }], options),
+        remove: (configId, input, options) => management.applyChanges(configId, [{ operation: "config.remove", ...(input === undefined ? {} : { input }) }], options),
+    };
+    Object.freeze(configs);
+    const items: ScopedPermissionContext["menus"]["items"] = {
+        previewCreate: (configId, input, options) => management.previewChanges(configId, [{ operation: "menu.create", input }], options),
+        create: (configId, input, options) => management.applyChanges(configId, [{ operation: "menu.create", input }], options),
+        previewUpdate: (configId, menuId, patch, options) => management.previewChanges(configId, [{ operation: "menu.update", menuId, patch }], options),
+        update: (configId, menuId, patch, options) => management.applyChanges(configId, [{ operation: "menu.update", menuId, patch }], options),
+        previewRemove: (configId, menuId, input, options) => management.previewChanges(configId, [{ operation: "menu.remove", menuId, ...(input === undefined ? {} : { input }) }], options),
+        remove: (configId, menuId, input, options) => management.applyChanges(configId, [{ operation: "menu.remove", menuId, ...(input === undefined ? {} : { input }) }], options),
+    };
+    Object.freeze(items);
+    const views: ScopedPermissionContext["menus"]["views"] = {
+        previewCreate: (configId, menuId, input, options) => management.previewChanges(configId, [{ operation: "view.create", menuId, input }], options),
+        create: (configId, menuId, input, options) => management.applyChanges(configId, [{ operation: "view.create", menuId, input }], options),
+        previewUpdate: (configId, viewId, patch, options) => management.previewChanges(configId, [{ operation: "view.update", viewId, patch }], options),
+        update: (configId, viewId, patch, options) => management.applyChanges(configId, [{ operation: "view.update", viewId, patch }], options),
+        previewRemove: (configId, viewId, input, options) => management.previewChanges(configId, [{ operation: "view.remove", viewId, ...(input === undefined ? {} : { input }) }], options),
+        remove: (configId, viewId, input, options) => management.applyChanges(configId, [{ operation: "view.remove", viewId, ...(input === undefined ? {} : { input }) }], options),
+    };
+    Object.freeze(views);
+    const loadApis: ScopedPermissionContext["menus"]["loadApis"] = {
+        previewAdd: (configId, viewId, input, options) => management.previewChanges(configId, [{ operation: "loadApi.add", viewId, input }], options),
+        add: (configId, viewId, input, options) => management.applyChanges(configId, [{ operation: "loadApi.add", viewId, input }], options),
+        previewUpdate: (configId, viewId, resource, patch, options) => management.previewChanges(configId, [{ operation: "loadApi.update", viewId, resource, patch }], options),
+        update: (configId, viewId, resource, patch, options) => management.applyChanges(configId, [{ operation: "loadApi.update", viewId, resource, patch }], options),
+        previewRemove: (configId, viewId, resource, input, options) => management.previewChanges(configId, [{ operation: "loadApi.remove", viewId, resource, ...(input === undefined ? {} : { input }) }], options),
+        remove: (configId, viewId, resource, input, options) => management.applyChanges(configId, [{ operation: "loadApi.remove", viewId, resource, ...(input === undefined ? {} : { input }) }], options),
+    };
+    Object.freeze(loadApis);
+    const actions: ScopedPermissionContext["menus"]["actions"] = {
+        previewCreate: (configId, viewId, input, options) => management.previewChanges(configId, [{ operation: "action.create", viewId, input }], options),
+        create: (configId, viewId, input, options) => management.applyChanges(configId, [{ operation: "action.create", viewId, input }], options),
+        previewUpdate: (configId, viewId, actionId, patch, options) => management.previewChanges(configId, [{ operation: "action.update", viewId, actionId, patch }], options),
+        update: (configId, viewId, actionId, patch, options) => management.applyChanges(configId, [{ operation: "action.update", viewId, actionId, patch }], options),
+        previewRemove: (configId, viewId, actionId, input, options) => management.previewChanges(configId, [{ operation: "action.remove", viewId, actionId, ...(input === undefined ? {} : { input }) }], options),
+        remove: (configId, viewId, actionId, input, options) => management.applyChanges(configId, [{ operation: "action.remove", viewId, actionId, ...(input === undefined ? {} : { input }) }], options),
+    };
+    Object.freeze(actions);
+    const responses: ScopedPermissionContext["menus"]["responses"] = {
+        previewSet: (configId, input, options) => management.previewChanges(configId, [{ operation: "response.set", input }], options),
+        set: (configId, input, options) => management.applyChanges(configId, [{ operation: "response.set", input }], options),
+        previewRemove: (configId, input, options) => management.previewChanges(configId, [{ operation: "response.remove", input }], options),
+        remove: (configId, input, options) => management.applyChanges(configId, [{ operation: "response.remove", input }], options),
+    };
+    Object.freeze(responses);
+    const menus = Object.freeze({ config, management, configs, items, views, loadApis, actions, responses });
     return Object.freeze({ roles, userRoles, menus });
 }
 

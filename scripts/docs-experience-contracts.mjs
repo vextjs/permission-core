@@ -87,7 +87,7 @@ export const diagramContracts = [
             },
             zh: {
                 title: "菜单配置生命周期",
-                description: "MenuConfigInput 经过预览和保存后，角色菜单授权分配其中能力，用户绑定角色后，subject runtime 投影前端状态和响应字段。",
+                description: "管理端逐项创建配置、菜单、页面、接口和响应字段后，角色菜单授权分配其中能力，用户绑定角色后，subject runtime 投影前端状态和响应字段。",
             },
         },
     },
@@ -243,6 +243,9 @@ export const operationPageContracts = [
                 id: "menu-model",
                 headings: { en: "1. Preview and save the menu config", zh: "1. 预览并保存菜单配置" },
                 calls: ["menus.config.preview", "menus.config.save"],
+                callsByLocale: {
+                    zh: ["menus.management.previewChanges", "menus.management.applyChanges"],
+                },
                 outputs: ["config"],
                 apiPaths: ["/api/menus"],
             },
@@ -269,7 +272,7 @@ export const operationPageContracts = [
             },
         ],
         outputGroups: [
-            { group: "config", producer: "menu-model", producerToken: "menus.config.save" },
+            { group: "config", producer: "menu-model", producerToken: "menus.config.save", producerTokenByLocale: { zh: "menus.management.applyChanges" } },
             { group: "roleGrant", producer: "menu-grant", producerToken: "menuPermissions.grant" },
             { group: "subjectRuntime", producer: "menu-subject", producerToken: "filterResponse" },
         ],

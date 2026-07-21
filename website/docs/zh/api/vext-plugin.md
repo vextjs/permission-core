@@ -9,7 +9,7 @@
 - Node.js `>=20.19.0`。
 - 宿主提供已连接的 MonSQLize 3.1 实例。
 - 认证插件先运行，并把可信用户身份写入 `req.auth`。
-- 菜单响应字段投影需要先通过 `menus.config.save()` 保存对应 `api:` 资源和字段配置。
+- 菜单响应字段投影需要先通过 `menus.responses.set()` 或 `menus.config.save()` 保存对应 `api:` 资源和字段配置。
 
 ## 签名
 

@@ -61,7 +61,7 @@ interface SubjectMenuSnapshot {
     readonly nodesByPath: ReadonlyMap<string, Readonly<InternalMenuNodeDocument>>;
     readonly bindingsByOwner: ReadonlyMap<string, readonly Readonly<InternalApiBindingDocument>[]>;
     readonly configById: ReadonlyMap<string, CompiledMenuConfig>;
-    readonly responseByApi: ReadonlyMap<ApiResource, CompiledResponseDefinition>;
+    readonly responsesByApi: ReadonlyMap<ApiResource, readonly CompiledResponseDefinition[]>;
 }
 
 interface BusinessGrantFieldState {
@@ -172,6 +172,23 @@ function clonePreserved(payload: unknown, preserve: readonly string[]) {
     return output;
 }
 
+function mergeProjected(target: Record<string, unknown>, patch: unknown) {
+    if (!isPlainRecord(patch)) return;
+    for (const [key, value] of Object.entries(patch)) target[key] = value;
+}
+
+function projectResponseTarget(
+    payload: unknown,
+    response: CompiledResponseDefinition,
+    allowed: ReadonlySet<string>,
+) {
+    if (response.target === undefined) return pickFields(payload, allowed);
+    const output = clonePreserved(payload, response.preserve);
+    const targetValue = getPath(payload, response.target);
+    setPath(output, response.target, pickFields(targetValue, allowed));
+    return output;
+}
+
 function runtimeOwnerType(node: Readonly<InternalMenuNodeDocument>): RuntimeOwnerType | null {
     return node.type === "menu" || node.type === "page" || node.type === "button"
         ? node.type
@@ -243,9 +260,20 @@ export class SubjectMenuAuthorizationRuntime {
                 }
                 const configDocuments = await readScopedMenuConfigDocuments(this.repository, this.schemes, reader, this.rbacReader.databaseSession());
                 const compiledConfigs = configDocuments.map((document) => compileMenuConfigSnapshot(document.config, this.schemes));
-                const responseByApi = compiledConfigs.length === 0
-                    ? new Map<ApiResource, CompiledResponseDefinition>()
-                    : aggregateCompiledMenuConfigs(compiledConfigs, this.schemes).responseCatalog;
+                const responseDefinitions = compiledConfigs.length === 0
+                    ? []
+                    : aggregateCompiledMenuConfigs(compiledConfigs, this.schemes).responseDefinitions;
+                const mutableResponsesByApi = new Map<ApiResource, CompiledResponseDefinition[]>();
+                for (const response of responseDefinitions) {
+                    const group = mutableResponsesByApi.get(response.apiResource) ?? [];
+                    group.push(response);
+                    mutableResponsesByApi.set(response.apiResource, group);
+                }
+                const responsesByApi = new Map<ApiResource, readonly CompiledResponseDefinition[]>();
+                for (const [apiResource, responses] of mutableResponsesByApi) {
+                    responses.sort((left, right) => compareUtf8(left.targetDigest, right.targetDigest));
+                    responsesByApi.set(apiResource, Object.freeze(responses));
+                }
                 const graph = validateMenuGraph(inventory.nodes);
                 const nodesByPath = new Map<string, Readonly<InternalMenuNodeDocument>>();
                 for (const node of inventory.nodes) {
@@ -274,7 +302,7 @@ export class SubjectMenuAuthorizationRuntime {
                     nodesByPath,
                     bindingsByOwner,
                     configById: new Map(compiledConfigs.map((config) => [config.configId, config] as const)),
-                    responseByApi,
+                    responsesByApi,
                 });
             })();
         }
@@ -652,34 +680,42 @@ export class SubjectMenuAuthorizationRuntime {
         const apiResource = apiResourceInput;
         await this.authorization.assert("invoke", apiResource);
         const snapshot = await this.loadSnapshot();
-        const response = snapshot.responseByApi.get(apiResource);
-        if (response === undefined) {
-            const result = deepFreeze({ data: payload, detailBudget: new DetailBudgetAllocator().finish({ apiResource, mode: "unconfigured" }) });
+        const responses = snapshot.responsesByApi.get(apiResource) ?? [];
+        const fields = await this.loadBusinessFieldState();
+        const relevantFields = fields.filter((field) => field.apiResource === apiResource);
+        if (responses.length === 0) {
+            const data = relevantFields.length === 0 ? payload : {};
+            const result = deepFreeze({ data, detailBudget: new DetailBudgetAllocator().finish({ apiResource, mode: relevantFields.length === 0 ? "unconfigured" : "stale-response-grants" }) });
             assertAuthorizationResponseBudget(result);
             return result;
         }
-        const fields = await this.loadBusinessFieldState();
-        const denied = new Set(fields
-            .filter((field) => field.effect === "deny" && field.apiResource === apiResource && field.targetDigest === response.targetDigest)
-            .map((field) => field.field));
-        const allowed = new Set(fields
-            .filter((field) => field.effect === "allow" && field.apiResource === apiResource && field.targetDigest === response.targetDigest)
-            .map((field) => field.field)
-            .filter((field) => !denied.has(field)));
-        const filtered = response.target === undefined
-            ? pickFields(payload, allowed)
-            : (() => {
-                const output = clonePreserved(payload, response.preserve);
-                const targetValue = getPath(payload, response.target!);
-                setPath(output, response.target!, pickFields(targetValue, allowed));
-                return output;
-            })();
+        const projected: Record<string, unknown> = {};
+        let rootProjection: unknown;
+        const detailResponses = responses.map((response) => {
+            const configuredFields = new Set(response.fields.map((field) => field.field));
+            const denied = new Set(relevantFields
+                .filter((field) => field.effect === "deny" && field.targetDigest === response.targetDigest)
+                .map((field) => field.field)
+                .filter((field) => configuredFields.has(field)));
+            const allowed = new Set(relevantFields
+                .filter((field) => field.effect === "allow" && field.targetDigest === response.targetDigest)
+                .map((field) => field.field)
+                .filter((field) => configuredFields.has(field) && !denied.has(field)));
+            const partial = projectResponseTarget(payload, response, allowed);
+            if (response.target === undefined && !isPlainRecord(partial)) rootProjection = partial;
+            else mergeProjected(projected, partial);
+            return {
+                targetDigest: response.targetDigest,
+                ...(response.target === undefined ? {} : { target: response.target }),
+                allowed: [...allowed].sort(compareUtf8),
+                denied: [...denied].sort(compareUtf8),
+            };
+        });
+        const filtered = rootProjection === undefined ? projected : rootProjection;
         const data = deepFreeze(filtered);
         const detailBudget = new DetailBudgetAllocator().finish({
             apiResource,
-            targetDigest: response.targetDigest,
-            allowed: [...allowed].sort(compareUtf8),
-            denied: [...denied].sort(compareUtf8),
+            responses: detailResponses,
         });
         const result = deepFreeze({ data, detailBudget });
         assertAuthorizationResponseBudget(result);

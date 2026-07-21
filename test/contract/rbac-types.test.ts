@@ -23,7 +23,7 @@ describe("public RBAC and menu type contract", () => {
             "assign", "revoke", "set", "clear", "getDirect", "getEffective", "listUsersByRole",
         ];
         const menuRootMethods: readonly (keyof MenuConfigRootManager)[] = [
-            "config",
+            "config", "management", "configs", "items", "views", "loadApis", "actions", "responses",
         ];
         const menuConfigMethods: readonly (keyof MenuConfigManager)[] = [
             "preview", "save", "get", "list", "previewRemove", "remove", "previewChanges", "applyChanges",
@@ -40,7 +40,7 @@ describe("public RBAC and menu type contract", () => {
         ];
         expect(roleMethods).toHaveLength(19);
         expect(userRoleMethods).toHaveLength(7);
-        expect(menuRootMethods).toHaveLength(1);
+        expect(menuRootMethods).toHaveLength(8);
         expect(menuConfigMethods).toHaveLength(8);
         expect(scopedKeys).toEqual(["roles", "userRoles", "menus"]);
         expect(subjectMethods).toHaveLength(8);

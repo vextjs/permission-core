@@ -2,7 +2,7 @@
 
 ## 用途与前置条件
 
-`scoped.menus.config` 管理一套后台菜单配置，公开入口是 `MenuConfigInput`。它把菜单、页面、加载接口、按钮接口和响应字段保存为可授权的配置快照。`subject.menus` 是用户运行时入口，用同一套配置投影当前用户可见视图、按钮状态、页面状态和接口响应字段。
+`scoped.menus` 管理后台菜单配置。后台页面优先使用 `configs/items/views/loadApis/actions/responses` 逐项创建菜单、页面、接口、按钮和响应字段；配置即代码或插件安装可以继续使用 `menus.config.*` 批量保存完整 `MenuConfigInput`。`subject.menus` 是用户运行时入口，用同一套配置投影当前用户可见视图、按钮状态、页面状态和接口响应字段。
 
 使用前需要完成：
 
@@ -14,6 +14,9 @@
 
 | 目标 | 首选 API | 说明 |
 |---|---|---|
+| 创建空配置 | `menus.configs.previewCreate(input)` / `menus.configs.create(input, options)` | 后台先创建一套菜单配置，再逐项添加菜单和页面。 |
+| 创建菜单、页面、接口、按钮、字段 | `menus.items.*`、`menus.views.*`、`menus.loadApis.*`、`menus.actions.*`、`menus.responses.*` | 面向后台管理页面的低心智对象方法。 |
+| 一次提交多个菜单变更 | `menus.management.previewChanges(configId, changes)` / `applyChanges(configId, changes, options)` | 一个表单保存多个变更时使用。 |
 | 预览菜单配置 | `menus.config.preview(config, options?)` | 保存前校验菜单、页面、接口、响应字段、容量和冲突。 |
 | 保存菜单配置 | `menus.config.save(config, options)` | 用预览返回的 `expected` 和 `previewToken` 提交配置。 |
 | 读取配置 | `menus.config.get(configId)` / `menus.config.list(query?)` | 管理后台详情页和列表页使用。 |
@@ -24,6 +27,29 @@
 ## 签名
 
 ```ts
+menus.management.previewChanges(configId: string, changes: NonEmptyMenuManagementChangeArray, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>
+menus.management.applyChanges(configId: string, changes: NonEmptyMenuManagementChangeArray, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+
+menus.configs.previewCreate(input: MenuConfigCreateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>
+menus.configs.create(input: MenuConfigCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.configs.previewUpdate(configId: string, patch: MenuConfigUpdateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>
+menus.configs.update(configId: string, patch: MenuConfigUpdateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.configs.get(configId: string): Promise<VersionedResult<MenuConfigSnapshot>>
+menus.configs.list(query?: MenuConfigListQuery): Promise<PageResult<MenuConfigSummary>>
+menus.configs.previewRemove(configId: string, input?: MenuManagementRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>
+menus.configs.remove(configId: string, input: MenuManagementRemoveInput | undefined, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+
+menus.items.previewCreate(configId: string, input: MenuItemCreateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>
+menus.items.create(configId: string, input: MenuItemCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.views.previewCreate(configId: string, menuId: string, input: MenuViewCreateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>
+menus.views.create(configId: string, menuId: string, input: MenuViewCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.loadApis.previewAdd(configId: string, viewId: string, input: MenuLoadApiAddInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>
+menus.loadApis.add(configId: string, viewId: string, input: MenuLoadApiAddInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.actions.previewCreate(configId: string, viewId: string, input: MenuActionCreateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>
+menus.actions.create(configId: string, viewId: string, input: MenuActionCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.responses.previewSet(configId: string, input: MenuResponseSetInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>
+menus.responses.set(configId: string, input: MenuResponseSetInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+
 menus.config.preview(config: MenuConfigInput, options?: MenuConfigPreviewOptions): Promise<ImpactPreview<MenuConfigPlan>>
 menus.config.save(config: MenuConfigInput, options: MenuConfigSaveOptions): Promise<MutationResult<MenuConfigSaveResult>>
 menus.config.get(configId: string): Promise<VersionedResult<MenuConfigSnapshot>>
@@ -39,11 +65,35 @@ subject.menus.getViewState(input: { configId: string; viewId: string } | { path:
 subject.menus.filterResponse(apiResource: ApiResource, payload: unknown): Promise<SubjectRuntimeResult<unknown>>
 ```
 
-关键参数标记：`config: MenuConfigInput`，`options: MenuConfigSaveOptions`，`changes: NonEmptyMenuConfigChangeArray`。
+关键参数标记：`configId` 定位一套菜单配置；`changes: NonEmptyMenuManagementChangeArray` 是增量变更；`config: MenuConfigInput` 是批量完整配置；所有 execute options 都必须带 preview 返回的 `expected` 和 `previewToken`。
+
+对象方法还有对应的 `previewUpdate/update/previewRemove/remove`，签名与 `previewCreate/create` 一致，只是多了要更新或删除的 `menuId/viewId/resource/actionId`。
 
 ## 参数对象
 
 <!-- docs:params owner=MenuConfigInput locale=zh -->
+
+### 增量管理参数
+
+| 类型 | 必填字段 | 说明 |
+|---|---|---|
+| `MenuConfigCreateInput` | `configId` | 创建一套空菜单配置；可选 `title/meta`。 |
+| `MenuItemCreateInput` | `id/title` | 创建菜单；可选 `parentId/icon/navigation/enabled/meta`。不传 `parentId` 表示顶层菜单。 |
+| `MenuViewCreateInput` | `id/type/title`，页面还需要 `path/component` | 创建页面、抽屉、弹窗、tab、iframe 或外链视图。 |
+| `MenuLoadApiAddInput` | `resource` | 给页面添加默认加载接口；格式是 `api:METHOD:/path`，系统自动使用 `invoke`。 |
+| `MenuActionCreateInput` | `title/resource` | 给页面添加按钮或操作；`resource` 可为 `api:*` 或 `ui:button:*`。 |
+| `MenuResponseSetInput` | `owner/response` | 给 load 或 api action 配置响应字段；`owner` 指向字段属于哪个接口来源。 |
+| `MenuManagementExecuteOptions` | `expectedRevisions/previewToken` | 执行参数；来自 preview，同时建议传 `actorId/idempotencyKey`。 |
+
+`MenuResponseSetInput.owner` 有三种写法：
+
+```ts
+{ ownerType: 'load', viewId: 'orders-list', resource: 'api:GET:/api/orders' }
+{ ownerType: 'action', viewId: 'orders-list', actionId: 'export' }
+{ ownerType: 'api', apiResource: 'api:GET:/api/orders' }
+```
+
+`ownerType: 'api'` 会匹配当前配置中声明了这个 API 的 load 或 api action。后台页面能定位到具体页面时，更推荐使用 `load` 或 `action`，错误更容易排查。
 
 ### `MenuConfigInput`
 
@@ -128,10 +178,10 @@ subject.menus.filterResponse(apiResource: ApiResource, payload: unknown): Promis
 
 <!-- docs:method name=menus.config.previewRemove locale=zh -->
 
-- **用途**：预览删除一套菜单配置会移除哪些资产和角色授权。
+- **用途**：预览删除一套菜单配置会移除哪些配置资产。
 - **参数**：`configId` 和可选预览上下文。
 - **状态影响**：只读，不删除。
-- **原始返回**：`ImpactPreview<MenuConfigRemovePlan>`；重点检查 `removedAssets`、`revokedGrants`、`affectedRoles` 和 `affectedUsers`。
+- **原始返回**：`ImpactPreview<MenuConfigRemovePlan>`；重点检查 `removedAssets`。当前配置快照删除不会自动改写角色菜单授权，历史授权可通过角色菜单读取和 stale 修复链路处理。
 
 <span id="menus-config-remove"></span>
 ### `menus.config.remove(configId, options)`
@@ -140,7 +190,7 @@ subject.menus.filterResponse(apiResource: ApiResource, payload: unknown): Promis
 
 - **用途**：执行已预览的配置删除。
 - **参数**：`configId` 必须与预览一致；`options` 带 `expected/previewToken`。
-- **状态影响**：删除配置快照、同步移除内部资产，并撤销依赖该配置的菜单授权。
+- **状态影响**：删除配置快照并同步移除内部菜单/API 资产；不会自动撤销角色菜单授权。
 - **原始返回**：`MutationResult<MenuConfigRemoveResult>`。
 
 <span id="menus-config-preview-changes"></span>

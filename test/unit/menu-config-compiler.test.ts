@@ -152,22 +152,32 @@ describe("menu config compiler", () => {
         expect(response.fields.find((field) => field.field === "orderNo")!.owners).toHaveLength(2);
     });
 
-    it("rejects incompatible response definitions for the same endpoint", () => {
-        const incompatible = ordersConfig("other");
-        incompatible.menus[0]!.views![0]!.path = "/other/orders";
-        incompatible.menus[0]!.views![0]!.load = [{
+    it("allows distinct response targets for the same endpoint and rejects incompatible same-target definitions", () => {
+        const distinctTarget = ordersConfig("other");
+        distinctTarget.menus[0]!.views![0]!.path = "/other/orders";
+        distinctTarget.menus[0]!.views![0]!.load = [{
             resource: "api:GET:/api/orders",
             response: [{ field: "orderNo", title: "Order No." }],
         }];
 
-        expect(() => aggregateCompiledMenuConfigs([
+        const target = aggregateCompiledMenuConfigs([
             compileMenuConfigInput(ordersConfig()),
-            compileMenuConfigInput(incompatible),
-        ])).toThrow();
+            compileMenuConfigInput(distinctTarget),
+        ]);
+        expect(target.responseDefinitions.filter((response) => response.apiResource === "api:GET:/api/orders"))
+            .toHaveLength(2);
+
+        const incompatible = ordersConfig("other-conflict");
+        incompatible.menus[0]!.views![0]!.path = "/other-conflict/orders";
+        incompatible.menus[0]!.views![0]!.load![0]!.response = {
+            target: "items",
+            preserve: ["total"],
+            fields: [{ field: "orderNo", title: "Order number changed" }],
+        };
         expectPermissionError(() => aggregateCompiledMenuConfigs([
             compileMenuConfigInput(ordersConfig()),
             compileMenuConfigInput(incompatible),
-        ]), "INVALID_ARGUMENT", "response.api:GET:/api/orders.target");
+        ]), "INVALID_ARGUMENT");
     });
 
     it("compiles auxiliary views to hidden private pages and rejects manual navigation", () => {

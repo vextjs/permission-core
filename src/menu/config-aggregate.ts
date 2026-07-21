@@ -41,6 +41,7 @@ export interface CompiledScopeMenuTarget {
     readonly manifest: MenuManifestInput & { readonly schemaVersion: 2; readonly mode: "replace" };
     readonly apiCatalog: ReadonlyMap<ApiResource, CompiledApiBindingRef>;
     readonly responseCatalog: ReadonlyMap<ApiResource, CompiledResponseDefinition>;
+    readonly responseDefinitions: readonly CompiledResponseDefinition[];
     readonly configIndexes: ReadonlyMap<string, CompiledConfigIndex>;
     readonly metrics: {
         readonly menuConfigCount: number;
@@ -99,16 +100,16 @@ function responseFieldSignature(field: CompiledResponseDefinition["fields"][numb
     return canonicalString(definition);
 }
 
-function mergeResponses(apiResourceKey: ApiResource, responses: readonly CompiledResponseDefinition[]) {
+function mergeResponses(apiResourceKey: ApiResource, targetDigest: string, responses: readonly CompiledResponseDefinition[]) {
     const first = responses[0]!;
     const targetKey = first.target ?? "";
     const preserveKey = canonicalString(first.preserve);
     for (const response of responses) {
         if ((response.target ?? "") !== targetKey) {
-            throw validationError("INVALID_ARGUMENT", `response.${apiResourceKey}.target`, "must be compatible across all owners");
+                throw validationError("INVALID_ARGUMENT", `response.${apiResourceKey}.${targetDigest}.target`, "must be compatible across all owners");
         }
         if (canonicalString(response.preserve) !== preserveKey) {
-            throw validationError("INVALID_ARGUMENT", `response.${apiResourceKey}.preserve`, "must be compatible across all owners");
+            throw validationError("INVALID_ARGUMENT", `response.${apiResourceKey}.${targetDigest}.preserve`, "must be compatible across all owners");
         }
     }
     const owners = new Map<string, CompiledResponseDefinition["owners"][number]>();
@@ -122,7 +123,7 @@ function mergeResponses(apiResourceKey: ApiResource, responses: readonly Compile
             const { owners: fieldOwners, ...definition } = field;
             const existing = fields.get(field.field);
             if (existing !== undefined && responseFieldSignature(field) !== canonicalString(existing.definition)) {
-                throw validationError("INVALID_ARGUMENT", `response.${apiResourceKey}.${field.field}`, "must use one field title/i18n/meta definition");
+                throw validationError("INVALID_ARGUMENT", `response.${apiResourceKey}.${targetDigest}.${field.field}`, "must use one field title/i18n/meta definition");
             }
             const entry = existing ?? { definition, owners: new Map<string, CompiledResponseDefinition["owners"][number]>() };
             for (const owner of fieldOwners) entry.owners.set(canonicalString(owner), owner);
@@ -199,21 +200,33 @@ export function aggregateCompiledMenuConfigs(
         })),
     }, schemes) as MenuManifestInput & { schemaVersion: 2; mode: "replace" };
 
-    const responseGroups = new Map<ApiResource, CompiledResponseDefinition[]>();
+    const responseGroups = new Map<string, {
+        readonly apiResource: ApiResource;
+        readonly targetDigest: string;
+        readonly responses: CompiledResponseDefinition[];
+    }>();
     for (const response of configs.flatMap((config) => config.responseDefinitions)) {
-        const group = responseGroups.get(response.apiResource) ?? [];
-        group.push(response);
-        responseGroups.set(response.apiResource, group);
+        const key = canonicalString([response.apiResource, response.targetDigest]);
+        const group = responseGroups.get(key) ?? {
+            apiResource: response.apiResource,
+            targetDigest: response.targetDigest,
+            responses: [],
+        };
+        group.responses.push(response);
+        responseGroups.set(key, group);
     }
     const responseCatalog = new Map<ApiResource, CompiledResponseDefinition>();
-    for (const [key, group] of [...responseGroups.entries()].sort(([left], [right]) => compareUtf8(left, right))) {
-        responseCatalog.set(key, mergeResponses(key, group));
+    const responseDefinitions: CompiledResponseDefinition[] = [];
+    for (const group of [...responseGroups.values()].sort((left, right) =>
+        compareUtf8(canonicalString([left.apiResource, left.targetDigest]), canonicalString([right.apiResource, right.targetDigest])))) {
+        const merged = mergeResponses(group.apiResource, group.targetDigest, group.responses);
+        responseDefinitions.push(merged);
+        if (!responseCatalog.has(group.apiResource)) responseCatalog.set(group.apiResource, merged);
     }
     const apiCatalog = new Map<ApiResource, CompiledApiBindingRef>();
     for (const binding of apiBindings) apiCatalog.set(apiResource(binding.method, binding.path), binding);
     const configIndexes = new Map<string, CompiledConfigIndex>();
     for (const config of configs) configIndexes.set(config.configId, config.index);
-    const responseDefinitions = [...responseCatalog.values()];
     const aggregateDigest = digestCanonical({
         codecVersion: MENU_CONFIG_CODEC_VERSION,
         configs: configs.map((config) => ({ configId: config.configId, digest: config.configDigest })),
@@ -225,6 +238,7 @@ export function aggregateCompiledMenuConfigs(
         manifest,
         apiCatalog,
         responseCatalog,
+        responseDefinitions: Object.freeze(responseDefinitions),
         configIndexes,
         metrics: {
             menuConfigCount: configs.length,

@@ -386,13 +386,22 @@ function verifyOperationSourceContracts() {
     }
 }
 
+function localizedOperationCalls(operation, locale) {
+    return operation.callsByLocale?.[locale] ?? operation.calls;
+}
+
+function localizedProducerToken(output, locale) {
+    return output.producerTokenByLocale?.[locale] ?? output.producerToken;
+}
+
 function collectOperationSourceFailures(content, contract, locale) {
     const findings = [];
     const expectedOperationMarkers = [];
     const expectedOutputMarkers = [];
 
     for (const operation of contract.operations) {
-        const marker = `<!-- docs:operation id=${operation.id} calls=${operation.calls.join(",")} outputs=${operation.outputs.join(",")} -->`;
+        const calls = localizedOperationCalls(operation, locale);
+        const marker = `<!-- docs:operation id=${operation.id} calls=${calls.join(",")} outputs=${operation.outputs.join(",")} -->`;
         expectedOperationMarkers.push(marker);
         if (count(content, new RegExp(escapeRegExp(marker), "gu")) !== 1) {
             findings.push(`operation ${operation.id} is missing its exact contract marker`);
@@ -429,7 +438,7 @@ function collectOperationSourceFailures(content, contract, locale) {
             }
         }
 
-        for (const call of operation.calls) {
+        for (const call of calls) {
             if (!visible.includes(`\`${call}\``)) {
                 findings.push(`operation ${operation.id} method is not visible: ${call}`);
             }
@@ -469,8 +478,9 @@ function collectOperationSourceFailures(content, contract, locale) {
         if (!visible.includes(label)) {
             findings.push(`output ${output.group} is missing its visible provenance label`);
         }
-        if (!visible.includes(`\`${output.producerToken}\``)) {
-            findings.push(`output ${output.group} does not name producer token ${output.producerToken}`);
+        const producerToken = localizedProducerToken(output, locale);
+        if (!visible.includes(`\`${producerToken}\``)) {
+            findings.push(`output ${output.group} does not name producer token ${producerToken}`);
         }
         const explanation = stripMarkdown(visible);
         const minimum = locale === "zh" ? 35 : 70;
@@ -1080,7 +1090,7 @@ function collectDisplayedExampleCallFailures(content, contract, locale) {
     }
 
     for (const operation of contract.operations) {
-        for (const call of operation.calls) {
+        for (const call of localizedOperationCalls(operation, locale)) {
             if (!displayedExampleContainsCall(displayedCode, call)) {
                 findings.push(`operation ${operation.id} displayed source is missing call: ${call}`);
             }

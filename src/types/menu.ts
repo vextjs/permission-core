@@ -204,6 +204,139 @@ export type MenuConfigChange =
     | { operation: "save"; config: MenuConfigInput }
     | { operation: "remove"; configId: string };
 
+export interface MenuConfigCreateInput {
+    configId: string;
+    title?: string;
+    meta?: Readonly<Record<string, PolicyValue>>;
+}
+
+export interface MenuConfigUpdateInput {
+    title?: string | null;
+    meta?: Readonly<Record<string, PolicyValue>> | null;
+}
+
+export type MenuManagementRemoveInput = {
+    cascade?: boolean;
+    revokeGrants?: boolean;
+};
+
+export interface MenuItemCreateInput extends Omit<MenuConfigMenuInput, "children" | "views"> {
+    parentId?: string | null;
+}
+
+export interface MenuItemUpdateInput {
+    title?: string;
+    navigation?: boolean;
+    enabled?: boolean;
+    icon?: string | null;
+    i18nKey?: string | null;
+    meta?: Readonly<Record<string, PolicyValue>> | null;
+}
+
+export type MenuViewCreateInput = MenuViewInput;
+
+export interface MenuViewUpdateInput {
+    type?: MenuViewType;
+    title?: string;
+    path?: string | null;
+    component?: string | null;
+    url?: string | null;
+    navigation?: boolean;
+    enabled?: boolean;
+    i18nKey?: string | null;
+    meta?: Readonly<Record<string, PolicyValue>> | null;
+}
+
+export type MenuLoadApiAddInput = MenuLoadInput;
+
+export interface MenuLoadApiUpdateInput {
+    response?: ResponseProjectionInput | null;
+    meta?: Readonly<Record<string, PolicyValue>> | null;
+}
+
+export type MenuActionCreateInput = MenuActionInput;
+
+export interface MenuActionUpdateInput {
+    id?: string;
+    title?: string;
+    resource?: MenuActionResource;
+    opens?: string | null;
+    response?: ResponseProjectionInput | null;
+    enabled?: boolean;
+    i18nKey?: string | null;
+    meta?: Readonly<Record<string, PolicyValue>> | null;
+}
+
+export type MenuResponseOwnerRef =
+    | { ownerType: "load"; viewId: string; resource: ApiResource }
+    | { ownerType: "action"; viewId: string; actionId: string }
+    | { ownerType: "api"; apiResource: ApiResource };
+
+export interface MenuResponseSetInput {
+    owner: MenuResponseOwnerRef;
+    response: ResponseProjectionConfigInput;
+}
+
+export interface MenuResponseRemoveInput {
+    owner: MenuResponseOwnerRef;
+    target?: string;
+    fields?: readonly string[];
+    revokeGrants?: boolean;
+}
+
+export type MenuManagementChange =
+    | { operation: "config.create"; input: MenuConfigCreateInput }
+    | { operation: "config.update"; patch: MenuConfigUpdateInput }
+    | { operation: "config.remove"; input?: MenuManagementRemoveInput }
+    | { operation: "menu.create"; input: MenuItemCreateInput }
+    | { operation: "menu.update"; menuId: string; patch: MenuItemUpdateInput }
+    | { operation: "menu.remove"; menuId: string; input?: MenuManagementRemoveInput }
+    | { operation: "view.create"; menuId: string; input: MenuViewCreateInput }
+    | { operation: "view.update"; viewId: string; patch: MenuViewUpdateInput }
+    | { operation: "view.remove"; viewId: string; input?: MenuManagementRemoveInput }
+    | { operation: "loadApi.add"; viewId: string; input: MenuLoadApiAddInput }
+    | { operation: "loadApi.update"; viewId: string; resource: ApiResource; patch: MenuLoadApiUpdateInput }
+    | { operation: "loadApi.remove"; viewId: string; resource: ApiResource; input?: MenuManagementRemoveInput }
+    | { operation: "action.create"; viewId: string; input: MenuActionCreateInput }
+    | { operation: "action.update"; viewId: string; actionId: string; patch: MenuActionUpdateInput }
+    | { operation: "action.remove"; viewId: string; actionId: string; input?: MenuManagementRemoveInput }
+    | { operation: "response.set"; input: MenuResponseSetInput }
+    | { operation: "response.remove"; input: MenuResponseRemoveInput };
+
+export type NonEmptyMenuManagementChangeArray = readonly [MenuManagementChange, ...MenuManagementChange[]];
+
+export type MenuManagementPreviewOptions = PreviewOptions;
+export type MenuManagementExecuteOptions = RequiredRevisionVectorOptions & PreviewExecutionOptions;
+
+export interface MenuManagementPlannedOperation {
+    operation: MenuManagementChange["operation"];
+    targetId: string;
+    outcome: "created" | "updated" | "removed" | "unchanged";
+}
+
+export interface MenuManagementPlan {
+    configId: string;
+    changeDigest: string;
+    operations: BoundedDetails<MenuManagementPlannedOperation>;
+    before?: MenuConfigSnapshot;
+    after?: MenuConfigSnapshot;
+    manifestOperations: CountSample;
+    affectedRoles: CountSample;
+    affectedUsers: CountSample;
+    responseFieldImpacts: CountSample;
+}
+
+export interface MenuManagementResult {
+    configId: string;
+    config?: MenuConfigSnapshot;
+    operations: BatchMutationSummary;
+    manifestOperations: BatchMutationSummary;
+    retainedGrantCount: number;
+    refreshedGrantCount: number;
+    revokedGrantCount: number;
+    detachedResponseFieldCount: number;
+}
+
 export interface MenuConfigChangeSetPlan {
     changes: BoundedDetails<MenuConfigPlan | MenuConfigRemovePlan>;
     manifestOperations: CountSample;
@@ -227,12 +360,79 @@ export interface MenuConfigManager {
     applyChanges(changes: NonEmptyMenuConfigChangeArray, options: MenuConfigChangeSetOptions): Promise<MutationResult<MenuConfigChangeSetResult>>;
 }
 
+export interface MenuManagementManager {
+    previewChanges(configId: string, changes: NonEmptyMenuManagementChangeArray, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    applyChanges(configId: string, changes: NonEmptyMenuManagementChangeArray, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+}
+
+export interface MenuConfigsManager {
+    previewCreate(input: MenuConfigCreateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    create(input: MenuConfigCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    previewUpdate(configId: string, patch: MenuConfigUpdateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    update(configId: string, patch: MenuConfigUpdateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    get(configId: string): Promise<VersionedResult<MenuConfigSnapshot>>;
+    list(query?: MenuConfigListQuery): Promise<PageResult<MenuConfigSummary>>;
+    previewRemove(configId: string, input?: MenuManagementRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    remove(configId: string, input: MenuManagementRemoveInput | undefined, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+}
+
+export interface MenuItemsManager {
+    previewCreate(configId: string, input: MenuItemCreateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    create(configId: string, input: MenuItemCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    previewUpdate(configId: string, menuId: string, patch: MenuItemUpdateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    update(configId: string, menuId: string, patch: MenuItemUpdateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    previewRemove(configId: string, menuId: string, input?: MenuManagementRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    remove(configId: string, menuId: string, input: MenuManagementRemoveInput | undefined, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+}
+
+export interface MenuViewsManager {
+    previewCreate(configId: string, menuId: string, input: MenuViewCreateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    create(configId: string, menuId: string, input: MenuViewCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    previewUpdate(configId: string, viewId: string, patch: MenuViewUpdateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    update(configId: string, viewId: string, patch: MenuViewUpdateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    previewRemove(configId: string, viewId: string, input?: MenuManagementRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    remove(configId: string, viewId: string, input: MenuManagementRemoveInput | undefined, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+}
+
+export interface MenuLoadApisManager {
+    previewAdd(configId: string, viewId: string, input: MenuLoadApiAddInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    add(configId: string, viewId: string, input: MenuLoadApiAddInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    previewUpdate(configId: string, viewId: string, resource: ApiResource, patch: MenuLoadApiUpdateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    update(configId: string, viewId: string, resource: ApiResource, patch: MenuLoadApiUpdateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    previewRemove(configId: string, viewId: string, resource: ApiResource, input?: MenuManagementRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    remove(configId: string, viewId: string, resource: ApiResource, input: MenuManagementRemoveInput | undefined, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+}
+
+export interface MenuActionsManager {
+    previewCreate(configId: string, viewId: string, input: MenuActionCreateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    create(configId: string, viewId: string, input: MenuActionCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    previewUpdate(configId: string, viewId: string, actionId: string, patch: MenuActionUpdateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    update(configId: string, viewId: string, actionId: string, patch: MenuActionUpdateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    previewRemove(configId: string, viewId: string, actionId: string, input?: MenuManagementRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    remove(configId: string, viewId: string, actionId: string, input: MenuManagementRemoveInput | undefined, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+}
+
+export interface MenuResponsesManager {
+    previewSet(configId: string, input: MenuResponseSetInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    set(configId: string, input: MenuResponseSetInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    previewRemove(configId: string, input: MenuResponseRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
+    remove(configId: string, input: MenuResponseRemoveInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+}
+
 export interface MenuConfigRootManager {
     readonly config: MenuConfigManager;
+    readonly management: MenuManagementManager;
+    readonly configs: MenuConfigsManager;
+    readonly items: MenuItemsManager;
+    readonly views: MenuViewsManager;
+    readonly loadApis: MenuLoadApisManager;
+    readonly actions: MenuActionsManager;
+    readonly responses: MenuResponsesManager;
 }
 
 export interface MenuBusinessResponseFieldSelection {
     apiResource: ApiResource;
+    target?: string;
     fields: readonly string[];
 }
 

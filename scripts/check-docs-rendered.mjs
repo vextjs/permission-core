@@ -515,7 +515,7 @@ function collectRenderedOperationFailures(locale, page, main, expectedBase) {
                 .filter((node) => node.tagName === "code")
                 .map((node) => normalizeText(textContent(node))),
         );
-        for (const call of operation.calls) {
+        for (const call of localizedOperationCalls(operation, locale)) {
             if (!codeTokens.has(call)) {
                 findings.push(`operation ${operation.id} rendered method is missing: ${call}`);
             }
@@ -554,8 +554,9 @@ function collectRenderedOperationFailures(locale, page, main, expectedBase) {
         if (!codeTokens.has(output.group)) {
             findings.push(`output ${output.group} rendered label does not preserve its group token`);
         }
-        if (!codeTokens.has(output.producerToken)) {
-            findings.push(`output ${output.group} rendered producer is missing: ${output.producerToken}`);
+        const producerToken = localizedProducerToken(output, locale);
+        if (!codeTokens.has(producerToken)) {
+            findings.push(`output ${output.group} rendered producer is missing: ${producerToken}`);
         }
         const minimum = locale === "zh" ? 35 : 70;
         if ([...normalizeText(textContent(matches[0]))].length < minimum) {
@@ -563,6 +564,14 @@ function collectRenderedOperationFailures(locale, page, main, expectedBase) {
         }
     }
     return findings;
+}
+
+function localizedOperationCalls(operation, locale) {
+    return operation.callsByLocale?.[locale] ?? operation.calls;
+}
+
+function localizedProducerToken(output, locale) {
+    return output.producerTokenByLocale?.[locale] ?? output.producerToken;
 }
 
 function verifyPrevNext(route, locale, page, sectionPages, elements, expectedBase, add) {

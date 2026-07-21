@@ -229,6 +229,117 @@ describe("menu config manager on MonSQLize 3.1", () => {
         });
     }, TEST_TIMEOUT);
 
+    it("creates empty configs and builds menus incrementally from user-facing managers", async () => {
+        const targetScope = scope("incremental");
+        const scoped = core.scope(targetScope);
+
+        await expect(scoped.menus.config.preview({ configId: "empty-bulk", menus: [] }, { actorId: "admin" }))
+            .rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+
+        const emptyPreview = await scoped.menus.configs.previewCreate({ configId: "admin", title: "Admin" }, { actorId: "admin" });
+        if (!emptyPreview.executable) throw new Error("expected empty config preview to be executable");
+        await scoped.menus.configs.create({ configId: "admin", title: "Admin" }, {
+            ...emptyPreview.expected,
+            previewToken: emptyPreview.previewToken,
+            actorId: "admin",
+            idempotencyKey: "create-empty-admin-config",
+        });
+        await expect(scoped.menus.config.get("admin")).resolves.toMatchObject({
+            data: { configId: "admin", menus: [] },
+        });
+        await expect(core.forSubject({ userId: "u-empty-menu", scope: targetScope }).menus.getViewTree({ configId: "admin" }))
+            .resolves.toMatchObject({ data: [] });
+
+        const changes = [
+            { operation: "menu.create", input: { id: "orders", title: "Orders" } },
+            { operation: "view.create", menuId: "orders", input: { id: "orders-list", type: "page", title: "Orders", path: "/admin/orders", component: "OrdersPage" } },
+            { operation: "loadApi.add", viewId: "orders-list", input: { resource: "api:GET:/api/orders" } },
+            {
+                operation: "response.set",
+                input: {
+                    owner: { ownerType: "load", viewId: "orders-list", resource: "api:GET:/api/orders" },
+                    response: {
+                        target: "items",
+                        preserve: ["total"],
+                        fields: [
+                            { field: "orderNo", title: "Order number" },
+                            { field: "status", title: "Status" },
+                        ],
+                    },
+                },
+            },
+            { operation: "action.create", viewId: "orders-list", input: { id: "export", title: "Export", resource: "api:POST:/api/orders/export" } },
+        ] as const;
+        const preview = await scoped.menus.management.previewChanges("admin", changes, { actorId: "admin" });
+        if (!preview.executable) throw new Error(`incremental conflicts: ${preview.conflicts.items.map((item) => item.code).join(",")}`);
+        await scoped.menus.management.applyChanges("admin", changes, {
+            ...preview.expected,
+            previewToken: preview.previewToken,
+            actorId: "admin",
+            idempotencyKey: "incremental-admin-menu",
+        });
+        await expect(scoped.menus.config.get("admin")).resolves.toMatchObject({
+            data: {
+                menus: [expect.objectContaining({
+                    id: "orders",
+                    views: [expect.objectContaining({
+                        id: "orders-list",
+                        load: [expect.objectContaining({
+                            resource: "api:GET:/api/orders",
+                            response: expect.objectContaining({ target: "items" }),
+                        })],
+                    })],
+                })],
+            },
+        });
+
+        await scoped.roles.create({ id: "default-reader", label: "Default reader" });
+        const defaultSelection = { configId: "admin", views: ["orders-list"] };
+        const defaultPreview = await scoped.roles.menuPermissions.preview("default-reader", {
+            operation: "grant",
+            selection: defaultSelection,
+        }, { actorId: "admin" });
+        if (!defaultPreview.executable) throw new Error("expected default grant preview to be executable");
+        await scoped.roles.menuPermissions.grant("default-reader", defaultSelection, {
+            ...defaultPreview.expected,
+            previewToken: defaultPreview.previewToken,
+            actorId: "admin",
+            idempotencyKey: "grant-default-reader",
+        });
+        await scoped.userRoles.assign("u-default-reader", "default-reader");
+        await expect(scoped.roles.menuPermissions.getDirect("default-reader"))
+            .resolves.toMatchObject({ data: { grants: [expect.objectContaining({ responseFields: expect.objectContaining({ total: 0 }) })] } });
+        await expect(core.can({ userId: "u-default-reader", scope: targetScope }, "invoke", "api:GET:/api/orders"))
+            .resolves.toBe(true);
+        await expect(core.forSubject({ userId: "u-default-reader", scope: targetScope }).menus.filterResponse("api:GET:/api/orders", {
+            items: [{ orderNo: "O-1", status: "paid", internalCost: 7 }],
+            total: 1,
+        })).resolves.toMatchObject({ data: { items: [{}], total: 1 } });
+
+        await scoped.roles.create({ id: "field-reader", label: "Field reader" });
+        const fieldSelection = {
+            configId: "admin",
+            views: ["orders-list"],
+            responseFields: [{ apiResource: "api:GET:/api/orders", target: "items", fields: ["orderNo"] }],
+        } as const;
+        const fieldPreview = await scoped.roles.menuPermissions.preview("field-reader", {
+            operation: "grant",
+            selection: fieldSelection,
+        }, { actorId: "admin" });
+        if (!fieldPreview.executable) throw new Error("expected field grant preview to be executable");
+        await scoped.roles.menuPermissions.grant("field-reader", fieldSelection, {
+            ...fieldPreview.expected,
+            previewToken: fieldPreview.previewToken,
+            actorId: "admin",
+            idempotencyKey: "grant-field-reader",
+        });
+        await scoped.userRoles.assign("u-field-reader", "field-reader");
+        await expect(core.forSubject({ userId: "u-field-reader", scope: targetScope }).menus.filterResponse("api:GET:/api/orders", {
+            items: [{ orderNo: "O-1", status: "paid", internalCost: 7 }],
+            total: 1,
+        })).resolves.toMatchObject({ data: { items: [{ orderNo: "O-1" }], total: 1 } });
+    }, TEST_TIMEOUT);
+
     it("grants role menu permissions from business config selections and exposes response fields", async () => {
         const targetScope = scope("business-grant");
         const scoped = core.scope(targetScope);
