@@ -262,6 +262,78 @@ describe("permissionPlugin contract", () => {
         }
     });
 
+    it("snapshots subject and protected data facade options", async () => {
+        const stub = createMonSQLizeStub();
+        const resolved = resolvePermissionVextPluginOptions({
+            monsqlize: stub.instance,
+            subject: {
+                resolve: (request) => ({
+                    userId: String(request.headers["x-user-id"] ?? "u-1"),
+                    scope: { tenantId: "t-1" },
+                }),
+            },
+            data: {
+                exposeAs: "monsqlize",
+                scopeFields: { tenantId: "tenantId" },
+                collections: {
+                    order_records: {
+                        resource: "db:orders",
+                        scopeFields: { tenantId: "tenant_id" },
+                    },
+                },
+            },
+        });
+
+        expect(Object.isFrozen(resolved.data)).toBe(true);
+        expect(Object.isFrozen(resolved.data?.scopeFields)).toBe(true);
+        expect(Object.isFrozen(resolved.data?.collections)).toBe(true);
+        expect(Object.isFrozen(resolved.data?.collections.order_records)).toBe(true);
+        expect(resolved.data).toMatchObject({
+            exposeAs: "monsqlize",
+            scopeFields: { tenantId: "tenantId" },
+            collections: {
+                order_records: {
+                    resource: "db:orders",
+                    scopeFields: { tenantId: "tenant_id" },
+                },
+            },
+        });
+        await expect(Promise.resolve(resolved.resolveSubject?.(
+            { isAuthenticated: true },
+            { headers: { "x-user-id": "u-subject" } } as never,
+        ))).resolves.toEqual({ userId: "u-subject", scope: { tenantId: "t-1" } });
+    });
+
+    it("rejects invalid subject and protected data facade options before setup", () => {
+        const stub = createMonSQLizeStub();
+        const symbolCollections = { [Symbol("hidden")]: {} };
+        const accessorScopeFields = {};
+        Object.defineProperty(accessorScopeFields, "tenantId", {
+            enumerable: true,
+            get() {
+                throw new Error("must not execute");
+            },
+        });
+        for (const options of [
+            { monsqlize: stub.instance, subject: {} },
+            { monsqlize: stub.instance, subject: { resolve: "resolver" } },
+            { monsqlize: stub.instance, subject: { resolve: () => ({ userId: "u-1", scope: { tenantId: "t-1" } }) }, resolveSubject: () => ({ userId: "u-1", scope: { tenantId: "t-1" } }) },
+            { monsqlize: stub.instance, data: {} },
+            { monsqlize: stub.instance, data: { exposeAs: "database", scopeFields: { tenantId: "tenantId" } } },
+            { monsqlize: stub.instance, data: { scopeFields: {} } },
+            { monsqlize: stub.instance, data: { scopeFields: accessorScopeFields } },
+            { monsqlize: stub.instance, data: { scopeFields: { tenantId: "tenantId" }, collections: symbolCollections } },
+            { monsqlize: stub.instance, data: { scopeFields: { tenantId: "tenantId" }, collections: { constructor: {} } } },
+            { monsqlize: stub.instance, data: { scopeFields: { tenantId: "tenantId" }, collections: { orders: { resource: "api:GET:/orders" } } } },
+            { monsqlize: stub.instance, data: { scopeFields: { tenantId: "tenantId" }, collections: { orders: { scopeFields: {} } } } },
+            { monsqlize: stub.instance, data: { scopeFields: { tenantId: "tenantId", appId: "tenantId" } } },
+        ]) {
+            expect(() => permissionPlugin(options as never)).toThrowError(expect.objectContaining({
+                code: "INVALID_CONFIGURATION",
+            }));
+        }
+    });
+
     it("checks app.permission and missing/incompatible auto databases before host mutation", async () => {
         const resolver = vi.fn(() => createMonSQLizeStub().instance);
         const occupied = fakeHost();

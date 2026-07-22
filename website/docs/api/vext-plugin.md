@@ -17,6 +17,8 @@ Before using it:
 permissionPlugin(options?: PermissionVextPluginOptions): VextPlugin
 hasPermissionContext(req: VextRequest): req is PermissionVextRequest
 requirePermissionContext(req: VextRequest): Promise<VextRequestPermissionApi>
+req.auth.permission.data?.collection<TDocument extends object, TCreate extends object = Omit<TDocument, '_id'>>(name: string): AuthorizedCollection<TDocument, TCreate>
+req.monsqlize?.collection<TDocument extends object, TCreate extends object = Omit<TDocument, '_id'>>(name: string): AuthorizedCollection<TDocument, TCreate>
 req.auth.permission.filterResponse(apiResource: ApiResource, payload: unknown, context?: PolicyContext): Promise<SubjectRuntimeResult<unknown>>
 appExtensions.permission: PermissionCore
 
@@ -26,6 +28,18 @@ interface PermissionVextPluginOptions {
   databasePlugin?: string;
   authPlugin?: string;
   core?: Omit<PermissionCoreOptions, 'monsqlize'>;
+  subject?: {
+    resolve: (req: VextRequest) => PermissionSubject | Promise<PermissionSubject>;
+  };
+  data?: {
+    exposeAs?: false | 'monsqlize';
+    scopeFields: { tenantId: string; appId?: string; moduleId?: string; namespace?: string };
+    collections?: Readonly<Record<string, {
+      resource?: string;
+      scopeFields?: { tenantId: string; appId?: string; moduleId?: string; namespace?: string };
+    }>>;
+  };
+  /** @deprecated Use subject.resolve(req). */
   resolveSubject?: (auth, req) => PermissionSubject | Promise<PermissionSubject>;
 }
 ```
@@ -46,7 +60,11 @@ interface PermissionVextPluginOptions {
 | `databasePlugin` | Optional | Name of the Vext plugin that provides the database instance, used for plugin ordering. |
 | `authPlugin` | Default `authentication` | Authentication plugin name; it must write trusted `req.auth` first. |
 | `core` | Optional | `PermissionCoreOptions` except `monsqlize`, such as `collectionPrefix/cache/tokenSecret`. |
-| `resolveSubject(auth, req)` | Strict default resolver | Converts auth state to `PermissionSubject`; must not trust client-reported identity. |
+| `subject.resolve(req)` | Strict default resolver | Converts the current Vext request into `PermissionSubject`; use it when the host auth shape is not one of the defaults. |
+| `resolveSubject(auth, req)` | Deprecated | Legacy subject resolver; mutually exclusive with `subject.resolve(req)`. |
+| `data.scopeFields` | Required when `data` is enabled | Maps subject scope into business document fields; `tenantId` is required and paths must not overlap. |
+| `data.collections` | Optional | Configures logical resources or per-collection scope mappings for physical collection names; up to `128` overrides. |
+| `data.exposeAs` | Optional | Use `'monsqlize'` to expose `req.monsqlize`; use `false` or omit it to access only through `req.auth.permission.data`. |
 
 ### `RouteOptions.permission`
 
@@ -88,7 +106,21 @@ interface PermissionVextPluginOptions {
 - **Purpose**: Get the permission API for the current request.
 - **Parameters**: Current Vext request that passed through the permission plugin middleware.
 - **State impact**: Lazily resolves and freezes the subject for this request only; it does not write authorization data.
-- **Raw return**: `Promise<VextRequestPermissionApi>` with `subject`, `can`, `assert`, and `filterResponse`.
+- **Raw return**: `Promise<VextRequestPermissionApi>` with `subject`, `can`, `assert`, optional `data`, and `filterResponse`.
+
+<span id="vext-request-data-collection"></span>
+### `req.auth.permission.data.collection(name)`
+
+<!-- docs:method name=req.auth.permission.data.collection locale=en -->
+
+- **Purpose**: Create a guarded collection facade inside the current Vext request for authorized reads, writes, counts, or pagination.
+- **Parameters**: `name` is the host MonSQLize collection name; resource and scope fields come from `data.collections[name]` or the default `db:${name}` plus `data.scopeFields`.
+- **State impact**: Creating the facade does not access the database; every `find/insert/update/delete` call re-checks the current request owner, subject, scope, row rules, and field permissions.
+- **Raw return**: `AuthorizedCollection<TDocument, TCreate>`; it is not a full MonSQLize collection and does not expose `raw()`.
+
+When `data.exposeAs: 'monsqlize'` is configured, `req.monsqlize.collection(name)` is the same request data facade as a friendly alias. Do not cache it across requests.
+
+`req.monsqlize` is optional in the public type because the alias only exists when `data.exposeAs: 'monsqlize'` is configured. In TypeScript handlers, call `requirePermissionContext(req)` when you want a narrowed permission object and use `req.monsqlize ?? permission.data` to support both the friendly alias and the canonical data entry.
 
 <span id="vext-filter-response"></span>
 ### `req.auth.permission.filterResponse(apiResource, payload, context?)`
@@ -112,20 +144,21 @@ interface PermissionVextPluginOptions {
 
 ## Responses and side effects
 
-Plugin setup initializes PermissionCore, installs route guards, binds `req.auth.permission`, exposes `app.permission`, and registers close hooks. Routes protected by `permission: true` check `invoke + api:METHOD:/path` before the handler. If the handler uses `res.json()`, the plugin projects the response according to response-field config and sets `Cache-Control: private, no-store`.
+Plugin setup initializes PermissionCore, installs route guards, binds `req.auth.permission`, optionally binds `req.monsqlize`, exposes `app.permission`, and registers close hooks. Routes protected by `permission: true` check `invoke + api:METHOD:/path` before the handler. If the handler uses `res.json()`, the plugin projects the response according to response-field config and sets `Cache-Control: private, no-store`.
 
 ```json
 {
   "route": "GET /orders/:id",
   "resource": "api:GET:/orders/:id",
   "guard": "invoke",
+  "requestDataFacade": "req.auth.permission.data",
   "responseProjection": true
 }
 ```
 
 ## Failures and limits
 
-Common errors include `VEXT_MONSQLIZE_REQUIRED`, `VEXT_MONSQLIZE_INCOMPATIBLE`, `VEXT_AUTH_REQUIRED`, `VEXT_APP_EXTENSION_CONFLICT`, `VEXT_AUTH_EXTENSION_CONFLICT`, `VEXT_ROUTE_PERMISSION_INVALID`, and `VEXT_ROUTE_RESTART_REQUIRED`. Route permission requirements are limited to `32`. Route changes after startup require a cold restart. Protected routes with caching enabled refuse startup unless route cache is explicitly disabled.
+Common errors include `VEXT_MONSQLIZE_REQUIRED`, `VEXT_MONSQLIZE_INCOMPATIBLE`, `VEXT_AUTH_REQUIRED`, `VEXT_APP_EXTENSION_CONFLICT`, `VEXT_AUTH_EXTENSION_CONFLICT`, `VEXT_ROUTE_PERMISSION_INVALID`, and `VEXT_ROUTE_RESTART_REQUIRED`. Missing `data.scopeFields.tenantId`, invalid `data.exposeAs`, too many collection overrides, or an occupied `req.monsqlize` alias fail closed during startup. Route permission requirements are limited to `32`. Route changes after startup require a cold restart. Protected routes with caching enabled refuse startup unless route cache is explicitly disabled.
 
 ## Example
 
@@ -136,20 +169,35 @@ export default permissionPlugin({
   monsqlize: msq,
   authPlugin: 'authentication',
   core: { collectionPrefix: 'permission_core' },
+  data: {
+    exposeAs: 'monsqlize',
+    scopeFields: { tenantId: 'tenantId' },
+    collections: {
+      orders: { resource: 'db:orders' },
+    },
+  },
 });
 
-app.get('/orders/:id', { permission: true }, async (req, res) => {
+app.get('/orders', { permission: true }, async (req, res) => {
   const permission = await requirePermissionContext(req);
-  const payload = await loadOrder(req.params.id);
-  const projected = await permission.filterResponse('api:GET:/orders/:id', payload);
-  return res.json(projected.data);
+  const data = req.monsqlize ?? permission.data;
+
+  if (!data) {
+    throw new Error('Vext permission data facade is not enabled');
+  }
+
+  const items = await data.collection('orders').find(
+    { status: 'paid' },
+    { projection: ['orderNo', 'status', 'amount'], limit: 20 },
+  );
+  return res.json({ items, total: items.length });
 });
 ```
 
 ```json
-{ "pluginName": "permission-core", "resource": "api:GET:/orders/:id" }
+{ "pluginName": "permission-core", "resource": "api:GET:/orders", "dataResource": "db:orders" }
 ```
 
 ## Related
 
-See [Vext Plugin](/guide/vext-plugin), [Authentication Boundary](/guide/authentication-boundary), [Configure APIs and Response Fields API](/api/api-bindings), and the runnable [Vext example](/examples/vext).
+See [Vext Plugin](/guide/vext-plugin), [Authentication Boundary](/guide/authentication-boundary), [Authorized Collection API](/api/authorized-collection), [Configure APIs and Response Fields API](/api/api-bindings), and the runnable [Vext example](/examples/vext).

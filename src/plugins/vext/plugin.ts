@@ -104,7 +104,7 @@ async function setupPermissionPlugin(
     try {
         await core.init();
         schemes = new ResourceSchemeRegistry(options.core.resourceSchemes);
-        const requestMiddleware = createPermissionRequestMiddleware(core, options.resolveSubject);
+        const requestMiddleware = createPermissionRequestMiddleware(core, options.resolveSubject, options.data);
         const onRoutesReady: VextHookHandler<"routes:ready"> = ({ count, routes }) => {
             if (disposed) return;
             if (committed || commitPromise) {

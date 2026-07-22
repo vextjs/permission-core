@@ -14,6 +14,11 @@ import {
     type SubjectDataRuntime,
     type SubjectPermissionContext,
 } from "../../src";
+import type {
+    PermissionVextPluginOptions,
+    PermissionVextRequest,
+    VextRequestDataApi,
+} from "../../src/plugins/vext";
 
 describe("B1 public type contract", () => {
     it("keeps the cache union and public surface closed", () => {
@@ -69,6 +74,14 @@ describe("B5 data public type contract", () => {
     });
 });
 
+describe("Vext protected data public type contract", () => {
+    it("exports the request data facade safe subset from the Vext subpath", () => {
+        const dataKeys = ["collection"] as const satisfies readonly (keyof VextRequestDataApi)[];
+        const complete: Exclude<keyof VextRequestDataApi, typeof dataKeys[number]> extends never ? true : false = true;
+        expect(complete).toBe(true);
+    });
+});
+
 if (false) {
     const monsqlize = null as unknown as MonSQLizeInstance;
     const minimal: PermissionCoreOptions = { monsqlize };
@@ -88,6 +101,20 @@ if (false) {
     );
     const detail: PermissionCoreErrorDetails = { kind: "validation", reason: "example" };
     const data = null as unknown as SubjectDataRuntime;
+    const vextData = null as unknown as VextRequestDataApi;
+    const vextRequest = null as unknown as PermissionVextRequest;
+    const vextPluginOptions: PermissionVextPluginOptions = {
+        subject: {
+            resolve: () => ({ userId: "u-vext", scope: { tenantId: "tenant-a" } }),
+        },
+        data: {
+            exposeAs: "monsqlize",
+            scopeFields: { tenantId: "tenantId" },
+            collections: {
+                order_records: { resource: "db:orders", scopeFields: { tenantId: "tenant_id" } },
+            },
+        },
+    };
     const menuManagement = null as unknown as MenuConfigRootManager["management"];
     const menuManagementChanges = [{ operation: "menu.create", input: { id: "orders", title: "Orders" } }] as const;
     const orders = data.collection<
@@ -95,6 +122,9 @@ if (false) {
         { amount: number }
     >("orders", { resource: "db:orders", scopeFields: { tenantId: "tenantId" } });
     void orders.insertOne({ amount: 10 });
+    void vextData.collection<{ orderNo: string }>("orders").find({ orderNo: "O-1" });
+    void vextRequest.monsqlize?.collection<{ orderNo: string }>("orders").find();
+    void vextRequest.auth.permission.data?.collection("orders").count();
     void scopedWithDefaults.withDefaults({ actorId: "ops" }).roles.create({ id: "operator", label: "Operator" });
     void scopedWithDefaults.menus.management.applyChanges("admin", menuManagementChanges);
     void scopedWithDefaults.menus.items.create("admin", { id: "orders", title: "Orders" });
@@ -111,7 +141,21 @@ if (false) {
         expectedRevisions: { global: 0, menu: 0, entities: [] },
         previewToken: "preview-token",
     });
-    void [minimal, disabled, enabled, health, subject, scopedWithDefaults, detail, data, orders, menuManagement];
+    void [
+        minimal,
+        disabled,
+        enabled,
+        health,
+        subject,
+        scopedWithDefaults,
+        detail,
+        data,
+        orders,
+        vextData,
+        vextRequest,
+        vextPluginOptions,
+        menuManagement,
+    ];
 
     // @ts-expect-error Empty cache objects are not a third configuration state.
     new PermissionCore({ monsqlize, cache: {} });
@@ -129,8 +173,12 @@ if (false) {
     void orders.insertOne({ _id: "caller", tenantId: "tenant", amount: 10 });
     // @ts-expect-error Collection creation does not accept a second policy context.
     void data.collection("orders", { resource: "db:orders", scopeFields: { tenantId: "tenantId" } }, {});
+    // @ts-expect-error Vext request data facade does not accept per-call collection options.
+    void vextData.collection("orders", { resource: "db:orders", scopeFields: { tenantId: "tenantId" } });
     // @ts-expect-error Raw Mongo handles are not part of the protected surface.
     void orders.raw();
+    // @ts-expect-error Raw Mongo handles are not part of the Vext protected facade.
+    void vextData.collection("orders").raw();
     // @ts-expect-error Preview tokens must be paired with expectedRevisions.
     void menuManagement.applyChanges("admin", menuManagementChanges, { actorId: "admin", previewToken: "preview-token" });
     // @ts-expect-error Menu management execution no longer accepts the old scalar expectedRevision option.

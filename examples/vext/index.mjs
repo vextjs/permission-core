@@ -33,6 +33,13 @@ try {
             await permissionPlugin({
                 monsqlize: database.monsqlize,
                 core: { collectionPrefix: "pc_vext_example" },
+                data: {
+                    exposeAs: "monsqlize",
+                    scopeFields: { tenantId: "tenantId" },
+                    collections: {
+                        vext_orders: { resource: "db:orders" },
+                    },
+                },
             }).setup(app);
         },
     });
@@ -45,12 +52,19 @@ try {
     const scoped = testApp.app.permission.scope(scope);
     await scoped.roles.create({ id: "route-reader", label: "Route reader" });
     await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders/:id" });
+    await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders-data" });
+    await scoped.roles.allow("route-reader", { action: "read", resource: "db:orders" });
     await scoped.userRoles.assign("u-vext", "route-reader");
+    await database.monsqlize.collection("vext_orders").raw().insertMany([
+        { tenantId: scope.tenantId, orderNo: "O-1", status: "paid", amount: 12 },
+        { tenantId: "other-tenant", orderNo: "O-2", status: "paid", amount: 99 },
+    ]);
 
     const publicResponse = await testApp.request.get("/public");
     const missingAuth = await testApp.request.get("/orders/42");
     const denied = await testApp.request.get("/orders/42").set("x-example-user", "u-denied");
     const allowed = await testApp.request.get("/orders/42").set("x-example-user", "u-vext");
+    const dataAllowed = await testApp.request.get("/orders-data").set("x-example-user", "u-vext");
 
     await testApp.app.hooks.emit("routes:ready", { count: 0, routes: [] });
     const restartRequired = await testApp.request.get("/public");
@@ -64,9 +78,11 @@ try {
             missingAuthentication: missingAuth.status,
             permissionDenied: denied.status,
             permissionAllowed: allowed.status,
+            requestDataAllowed: dataAllowed.status,
             routeReloadRequiresRestart: restartRequired.status,
         },
         allowedBody: allowed.body.data,
+        requestDataBody: dataAllowed.body.data,
         lifecycle: {
             permissionCoreClosedByPlugin: true,
             hostDatabaseStillConnected: hostDatabase.status === "up" && hostDatabase.connected,

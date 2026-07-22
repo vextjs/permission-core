@@ -26,6 +26,18 @@ export default defineRoutes((app) => {
         });
     });
 
+    app.get("/orders-data", { permission: true }, async (req, res) => {
+        const items = await req.monsqlize.collection("vext_orders").find({}, {
+            projection: ["orderNo", "status", "amount", "internalCost"],
+            sort: { orderNo: 1 },
+        });
+        res.json({
+            items,
+            total: items.length,
+            debug: true,
+        });
+    });
+
     app.get("/permissions/any", {
         permission: {
             mode: "any",

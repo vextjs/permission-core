@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { types as utilTypes } from "node:util";
 import type {
     ApiResource,
+    AuthorizedCollection,
+    AuthorizedCollectionOptions,
     PermissionAction,
     PermissionSubject,
     PolicyContext,
@@ -26,12 +28,15 @@ import {
 } from "./errors";
 import type {
     PermissionVextRequest,
+    VextRequestDataApi,
     VextRequestPermissionApi,
 } from "./types";
+import type { ResolvedPermissionVextDataOptions } from "./options";
 
 const REQUEST_PERMISSION_STATE = Symbol("permission-core.vext.request-state");
 const permissionStates = new WeakSet<object>();
 const permissionApiOwners = new WeakMap<object, VextRequest>();
+const permissionDataApiOwners = new WeakMap<object, VextRequest>();
 const responseProjectionOwners = new WeakMap<object, VextRequest>();
 const activeRequests = new WeakSet<object>();
 const requestContext = new AsyncLocalStorage<VextRequest>();
@@ -82,11 +87,17 @@ function scopeConflict(reason: string) {
     });
 }
 
-function extensionConflict(reason: string, cause?: unknown) {
+function extensionConflict(reason: string, cause?: unknown, field = "req.auth.permission") {
     return new PermissionCoreError("VEXT_AUTH_EXTENSION_CONFLICT", "The request auth permission extension is unavailable.", {
-        details: { kind: "validation", field: "req.auth.permission", reason },
+        details: { kind: "validation", field, reason },
         ...(cause === undefined ? {} : { cause }),
     });
+}
+
+function weakMapKey(value: unknown): object | undefined {
+    return value !== null && (typeof value === "object" || typeof value === "function")
+        ? value
+        : undefined;
 }
 
 function requestIdOf(req: VextRequest) {
@@ -266,19 +277,159 @@ async function resolvePermissionSubject(
 function readExistingPermission(auth: Record<string, unknown>, req: VextRequest) {
     const descriptor = Object.getOwnPropertyDescriptor(auth, "permission");
     if (!descriptor) return undefined;
+    const ownerKey = "value" in descriptor ? weakMapKey(descriptor.value) : undefined;
     if (
         !("value" in descriptor)
-        || permissionApiOwners.get(descriptor.value as object) !== req
+        || ownerKey === undefined
+        || permissionApiOwners.get(ownerKey) !== req
     ) {
         throw extensionConflict("is already occupied by another extension");
     }
     return descriptor.value as VextRequestPermissionApi;
 }
 
+function readExistingDataAlias(req: VextRequest) {
+    const descriptor = Object.getOwnPropertyDescriptor(req, "monsqlize");
+    if (!descriptor) return undefined;
+    const ownerKey = "value" in descriptor ? weakMapKey(descriptor.value) : undefined;
+    if (
+        !("value" in descriptor)
+        || ownerKey === undefined
+        || permissionDataApiOwners.get(ownerKey) !== req
+    ) {
+        throw extensionConflict("is already occupied by another extension", undefined, "req.monsqlize");
+    }
+    return descriptor.value as VextRequestDataApi;
+}
+
+function installDataAlias(
+    req: VextRequest,
+    data: VextRequestDataApi,
+    dataOptions?: ResolvedPermissionVextDataOptions,
+) {
+    if (dataOptions?.exposeAs !== "monsqlize") return;
+    const existing = readExistingDataAlias(req);
+    if (existing) return;
+    try {
+        Object.defineProperty(req, "monsqlize", {
+            value: data,
+            enumerable: true,
+            writable: false,
+            configurable: false,
+        });
+    } catch (cause) {
+        throw extensionConflict("cannot be defined on req", cause, "req.monsqlize");
+    }
+}
+
+function collectionOptionsFor(
+    name: string,
+    dataOptions: ResolvedPermissionVextDataOptions,
+): AuthorizedCollectionOptions {
+    const configured = dataOptions.collections[name];
+    return Object.freeze({
+        resource: configured?.resource ?? `db:${name}`,
+        scopeFields: configured?.scopeFields ?? dataOptions.scopeFields,
+    });
+}
+
+function wrapAuthorizedCollection<
+    TDocument extends object,
+    TCreate extends object = Omit<TDocument, "_id">,
+>(
+    collection: AuthorizedCollection<TDocument, TCreate>,
+    req: VextRequest,
+    assertOwner: () => void,
+    execute: <T>(operation: () => Promise<T>) => Promise<T>,
+): AuthorizedCollection<TDocument, TCreate> {
+    const wrapped = Object.freeze({
+        find: (filter, options) =>
+            execute(() => {
+                assertOwner();
+                return collection.find(filter, options);
+            }),
+        findOne: (filter, options) =>
+            execute(() => {
+                assertOwner();
+                return collection.findOne(filter, options);
+            }),
+        count: (filter, options) =>
+            execute(() => {
+                assertOwner();
+                return collection.count(filter, options);
+            }),
+        findAndCount: (filter, options) =>
+            execute(() => {
+                assertOwner();
+                return collection.findAndCount(filter, options);
+            }),
+        findPage: (query) =>
+            execute(() => {
+                assertOwner();
+                return collection.findPage(query);
+            }),
+        insertOne: (document, options) =>
+            execute(() => {
+                assertOwner();
+                return collection.insertOne(document, options);
+            }),
+        updateOne: (filter, update, options) =>
+            execute(() => {
+                assertOwner();
+                return collection.updateOne(filter, update, options);
+            }),
+        updateMany: (filter, update, options) =>
+            execute(() => {
+                assertOwner();
+                return collection.updateMany(filter, update, options);
+            }),
+        deleteOne: (filter, options) =>
+            execute(() => {
+                assertOwner();
+                return collection.deleteOne(filter, options);
+            }),
+        deleteMany: (filter, options) =>
+            execute(() => {
+                assertOwner();
+                return collection.deleteMany(filter, options);
+            }),
+    } satisfies AuthorizedCollection<TDocument, TCreate>);
+    return wrapped;
+}
+
+function createProtectedDataApi(
+    req: VextRequest,
+    dataOptions: ResolvedPermissionVextDataOptions,
+    contextFor: (context?: PolicyContext) => SubjectPermissionContext,
+    assertOwner: () => void,
+    execute: <T>(operation: () => Promise<T>) => Promise<T>,
+): VextRequestDataApi {
+    const data = Object.freeze({
+        collection<
+            TDocument extends object,
+            TCreate extends object = Omit<TDocument, "_id">,
+        >(name: string) {
+            try {
+                assertOwner();
+                const collection = contextFor().data.collection<TDocument, TCreate>(
+                    name,
+                    collectionOptionsFor(name, dataOptions),
+                );
+                return wrapAuthorizedCollection(collection, req, assertOwner, execute);
+            } catch (error) {
+                return throwVextPermissionError(req.app, error);
+            }
+        },
+    } satisfies VextRequestDataApi);
+    permissionDataApiOwners.set(data, req);
+    return data;
+}
+
 function createPermissionApi(
     core: PermissionCore,
     subject: Readonly<PermissionSubject>,
     req: VextRequest,
+    dataOptions?: ResolvedPermissionVextDataOptions,
 ): VextRequestPermissionApi {
     const base = core.forSubject(subject);
     const contexts = new Map<string, SubjectPermissionContext>();
@@ -304,8 +455,12 @@ function createPermissionApi(
             throw extensionConflict("was used outside its owning request");
         }
     };
+    const data = dataOptions === undefined
+        ? undefined
+        : createProtectedDataApi(req, dataOptions, contextFor, assertOwner, execute);
     return Object.freeze({
         subject,
+        ...(data === undefined ? {} : { data }),
         can: (action: PermissionAction, resource: string, context?: PolicyContext) =>
             execute(() => {
                 assertOwner();
@@ -328,6 +483,7 @@ async function installPermissionApi(
     core: PermissionCore,
     req: VextRequest,
     resolver?: SubjectResolver,
+    dataOptions?: ResolvedPermissionVextDataOptions,
     onSubject?: (subject: Readonly<PermissionSubject>) => void,
 ) {
     const authValue = requestDataProperty(req, "auth");
@@ -344,7 +500,11 @@ async function installPermissionApi(
     if (Object.getOwnPropertyDescriptor(auth, "permission")) {
         throw extensionConflict("was occupied while resolving the permission subject");
     }
-    const api = createPermissionApi(core, subject, req);
+    if (dataOptions?.exposeAs === "monsqlize") {
+        readExistingDataAlias(req);
+    }
+    const api = createPermissionApi(core, subject, req, dataOptions);
+    permissionApiOwners.set(api, req);
     try {
         Object.defineProperty(auth, "permission", {
             value: api,
@@ -355,8 +515,10 @@ async function installPermissionApi(
     } catch (cause) {
         throw extensionConflict("cannot be defined on req.auth", cause);
     }
+    if (api.data) {
+        installDataAlias(req, api.data, dataOptions);
+    }
     onSubject?.(subject);
-    permissionApiOwners.set(api, req);
     return api;
 }
 
@@ -408,6 +570,7 @@ function installResponseProjection(
 export function createPermissionRequestMiddleware(
     core: PermissionCore,
     resolver?: SubjectResolver,
+    dataOptions?: ResolvedPermissionVextDataOptions,
 ): VextMiddleware {
     return async (req, res, next) => {
         const runNext = async () => {
@@ -432,7 +595,7 @@ export function createPermissionRequestMiddleware(
         let route: ResponseProjectionRoute | undefined;
         const state: RequestPermissionState = Object.freeze({
             resolve() {
-                pending ??= installPermissionApi(core, req, resolver, (subject) => {
+                pending ??= installPermissionApi(core, req, resolver, dataOptions, (subject) => {
                     resolvedSubject = subject;
                 });
                 return pending;
@@ -483,10 +646,12 @@ export function hasPermissionContext(req: VextRequest): req is PermissionVextReq
         const auth = requestDataProperty(req, "auth");
         if (auth === null || typeof auth !== "object" || utilTypes.isProxy(auth)) return false;
         const descriptor = Object.getOwnPropertyDescriptor(auth, "permission");
+        const ownerKey = descriptor && "value" in descriptor ? weakMapKey(descriptor.value) : undefined;
         return Boolean(
             descriptor
             && "value" in descriptor
-            && permissionApiOwners.get(descriptor.value as object) === req,
+            && ownerKey !== undefined
+            && permissionApiOwners.get(ownerKey) === req,
         );
     } catch {
         return false;

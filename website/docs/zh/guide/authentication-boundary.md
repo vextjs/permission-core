@@ -54,15 +54,20 @@ req.auth = {
 ```ts
 permissionPlugin({
   monsqlize: msq,
-  resolveSubject: async (auth, req) => ({
-    userId: String(auth.accountId),
-    scope: await trustedTenantResolver(auth.sessionId, req),
-    claims: { merchantId: String(auth.merchantId) },
-  }),
+  subject: {
+    resolve: async (req) => {
+      const auth = req.auth;
+      return {
+        userId: String(auth.accountId),
+        scope: await trustedTenantResolver(auth.sessionId, req),
+        claims: { merchantId: String(auth.merchantId) },
+      };
+    },
+  },
 });
 ```
 
-`permissionPlugin(options)` 同步返回 Vext plugin；`resolveSubject` 则在受保护请求首次需要权限上下文时调用，可同步或异步返回 `PermissionSubject`。resolver 的参数 `auth` 来自认证插件，`req` 只用于访问可信服务端状态；它的返回值不是 HTTP response。
+`permissionPlugin(options)` 同步返回 Vext plugin；`subject.resolve(req)` 则在受保护请求首次需要权限上下文时调用，可同步或异步返回 `PermissionSubject`。resolver 只能读取可信认证对象和服务端上下文；它的返回值不是 HTTP response。旧 `resolveSubject(auth, req)` 仍兼容，但已废弃，不能和 `subject.resolve(req)` 同时配置。
 
 如果 `req.auth` 同时携带规范化 `permissionSubject` 或 `userId + scope`，resolver 结果必须指向同一用户和完整 scope。不一致时返回 `SCOPE_CONFLICT`，插件不会静默选择其中一个。claims 可以提供策略值，但客户端请求头/请求体中的值不会因为被复制到 `claims` 就自动变可信。
 
@@ -73,13 +78,15 @@ permissionPlugin({
 ```ts
 const allowed = await req.auth.permission.can('read', 'db:orders');
 await req.auth.permission.assert('invoke', 'api:POST:/api/orders/export');
+const orders = req.auth.permission.data?.collection('orders');
 ```
 
 | 方法 | 参数 | 原始返回/失败 |
 |---|---|---|
 | `req.auth.permission.can(action, resource, context?)` | 当前请求 action/resource 与可选策略 context | `Promise<boolean>`；默认拒绝也返回 false，不抛 403 |
 | `req.auth.permission.assert(...)` | 与 can 相同 | 允许时 `Promise<void>`；拒绝时抛 `PermissionCoreError`，Vext 映射 403 |
-| `requirePermissionContext(req)` | 已经过 permission middleware 的 Vext request | 惰性返回 `{ subject, can, assert }`；认证缺失时映射 401 |
+| `req.auth.permission.data?.collection(name)` | 当前请求内的受保护数据集合名 | 返回 `AuthorizedCollection`；每次读写都会按 scope、行规则和字段权限授权 |
+| `requirePermissionContext(req)` | 已经过 permission middleware 的 Vext request | 惰性返回 `{ subject, can, assert, data?, filterResponse }`；认证缺失时映射 401 |
 | `hasPermissionContext(req)` | 当前 request | 只返回 boolean 类型守卫，不触发惰性解析 |
 
 `can` 返回布尔值。`assert` 成功时返回 `void`，拒绝时映射为 `403`。这个 API 归原请求所有；把它保留给任务、队列或后续请求会 fail closed。

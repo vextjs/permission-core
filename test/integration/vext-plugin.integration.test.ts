@@ -20,6 +20,10 @@ interface FixtureMetrics {
     handler: number;
 }
 
+interface RawCollection {
+    insertMany(documents: readonly Record<string, unknown>[]): Promise<unknown>;
+}
+
 interface InternalTestHooks {
     emit<K extends "routes:ready" | "server:beforeListen">(
         name: K,
@@ -45,25 +49,46 @@ function vextOrdersConfig(): MenuConfigInput {
         menus: [{
             id: "orders",
             title: "Orders",
-            views: [{
-                id: "orders-with-fields",
-                type: "page",
-                title: "Orders",
-                path: "/vext/orders",
-                component: "OrdersPage",
-                load: [{
-                    resource: "api:GET:/orders-with-fields",
-                    response: {
-                        target: "items",
-                        preserve: ["total"],
-                        fields: [
-                            { field: "orderNo", title: "Order number" },
-                            { field: "status", title: "Status" },
-                            { field: "amount", title: "Amount" },
-                        ],
-                    },
-                }],
-            }],
+            views: [
+                {
+                    id: "orders-with-fields",
+                    type: "page",
+                    title: "Orders",
+                    path: "/vext/orders",
+                    component: "OrdersPage",
+                    load: [{
+                        resource: "api:GET:/orders-with-fields",
+                        response: {
+                            target: "items",
+                            preserve: ["total"],
+                            fields: [
+                                { field: "orderNo", title: "Order number" },
+                                { field: "status", title: "Status" },
+                                { field: "amount", title: "Amount" },
+                            ],
+                        },
+                    }],
+                },
+                {
+                    id: "orders-data",
+                    type: "page",
+                    title: "Order data",
+                    path: "/vext/orders-data",
+                    component: "OrdersDataPage",
+                    load: [{
+                        resource: "api:GET:/orders-data",
+                        response: {
+                            target: "items",
+                            preserve: ["total"],
+                            fields: [
+                                { field: "orderNo", title: "Order number" },
+                                { field: "status", title: "Status" },
+                                { field: "amount", title: "Amount" },
+                            ],
+                        },
+                    }],
+                },
+            ],
         }],
     };
 }
@@ -106,6 +131,13 @@ describe("permissionPlugin with a real Vext host", () => {
                     await permissionPlugin({
                         monsqlize: mongo.monsqlize,
                         core: { collectionPrefix: "pc_vext_host" },
+                        data: {
+                            exposeAs: "monsqlize",
+                            scopeFields: { tenantId: "tenantId" },
+                            collections: {
+                                vext_orders: { resource: "db:orders" },
+                            },
+                        },
                     }).setup(app);
                 },
             });
@@ -120,6 +152,11 @@ describe("permissionPlugin with a real Vext host", () => {
             await scoped.roles.create({ id: "route-reader", label: "Route reader" });
             await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders/:id" });
             await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/capabilities/one" });
+            await scoped.roles.allow("route-reader", { action: "read", resource: "db:orders" });
+            await (mongo.monsqlize.collection("vext_orders").raw() as RawCollection).insertMany([
+                { tenantId: SCOPE.tenantId, orderNo: "O-1", status: "paid", amount: 12, internalCost: 7 },
+                { tenantId: "other-tenant", orderNo: "O-2", status: "paid", amount: 99, internalCost: 1 },
+            ]);
             const responseConfigPreview = await scoped.menus.config.preview(vextOrdersConfig(), { actorId: "admin" });
             if (!responseConfigPreview.executable) throw new Error("expected Vext response config preview to be executable");
             await scoped.menus.config.save(vextOrdersConfig(), {
@@ -130,9 +167,12 @@ describe("permissionPlugin with a real Vext host", () => {
             });
             const responseGrantSelection: MenuBusinessPermissionSelection = {
                 configId: "vext-admin",
-                views: ["orders-with-fields"],
+                views: ["orders-with-fields", "orders-data"],
                 responseFields: [{
                     apiResource: "api:GET:/orders-with-fields",
+                    fields: ["orderNo", "status"],
+                }, {
+                    apiResource: "api:GET:/orders-data",
                     fields: ["orderNo", "status"],
                 }],
                 include: { loads: true, actions: false, responseFields: "none" as const },
@@ -190,6 +230,19 @@ describe("permissionPlugin with a real Vext host", () => {
             expect(projected.body.data.items[0]).not.toHaveProperty("amount");
             expect(projected.body.data.items[0]).not.toHaveProperty("internalCost");
             expect(projected.body.data).not.toHaveProperty("debug");
+            const dataAuthorized = await testApp.request.get("/orders-data").set("x-test-auth", "valid");
+            expect(dataAuthorized.status).toBe(200);
+            expect(dataAuthorized.headers["cache-control"]).toBe("private, no-store");
+            expect(dataAuthorized.body).toMatchObject({
+                data: {
+                    items: [{ orderNo: "O-1", status: "paid" }],
+                    total: 1,
+                },
+            });
+            expect(dataAuthorized.body.data.items).toHaveLength(1);
+            expect(dataAuthorized.body.data.items[0]).not.toHaveProperty("amount");
+            expect(dataAuthorized.body.data.items[0]).not.toHaveProperty("internalCost");
+            expect(dataAuthorized.body.data).not.toHaveProperty("debug");
 
             const anyAllowed = await testApp.request.get("/permissions/any").set("x-test-auth", "valid");
             expect(anyAllowed.status).toBe(200);

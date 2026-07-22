@@ -300,15 +300,22 @@ export const operationPageContracts = [
                 apiPaths: ["/api/vext-plugin"],
             },
             {
+                id: "vext-request-data",
+                headings: { en: "4. Read protected data through the request facade", zh: "4. 通过请求门面读取受保护数据" },
+                calls: ["req.monsqlize.collection"],
+                outputs: ["requestDataBody"],
+                apiPaths: ["/api/vext-plugin"],
+            },
+            {
                 id: "vext-reload",
-                headings: { en: "4. Reject hot route reload", zh: "4. 拒绝热路由重载" },
+                headings: { en: "5. Reject hot route reload", zh: "5. 拒绝热路由重载" },
                 calls: ["routes:ready", "request.get"],
                 outputs: ["responses.routeReloadRequiresRestart"],
                 apiPaths: ["/api/vext-plugin"],
             },
             {
                 id: "vext-close",
-                headings: { en: "5. Close only plugin-owned state", zh: "5. 只关闭插件拥有的状态" },
+                headings: { en: "6. Close only plugin-owned state", zh: "6. 只关闭插件拥有的状态" },
                 calls: ["testApp.close", "monsqlize.health"],
                 outputs: ["lifecycle"],
                 apiPaths: ["/api/vext-plugin", "/api/core-and-contexts"],
@@ -317,6 +324,7 @@ export const operationPageContracts = [
         outputGroups: [
             { group: "responses", producer: "vext-requests", producerToken: "request.get" },
             { group: "allowedBody", producer: "vext-requests", producerToken: "request.get" },
+            { group: "requestDataBody", producer: "vext-request-data", producerToken: "req.monsqlize.collection" },
             { group: "lifecycle", producer: "vext-close", producerToken: "testApp.close" },
         ],
     },
@@ -401,7 +409,7 @@ export const apiMethodContracts = [
         path: "api/vext-plugin.md",
         methods: [
             "permissionPlugin", "hasPermissionContext", "requirePermissionContext",
-            "req.auth.permission.filterResponse", "appExtensions.permission",
+            "req.auth.permission.data.collection", "req.auth.permission.filterResponse", "appExtensions.permission",
         ],
     },
 ];

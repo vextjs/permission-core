@@ -1,13 +1,17 @@
 import { types as utilTypes } from "node:util";
 import type { MonSQLizeInstance } from "monsqlize";
 import MonSQLize from "monsqlize";
-import type { PermissionCoreOptions } from "../../types";
+import type { AuthorizedCollectionOptions, PermissionCoreOptions } from "../../types";
 import {
     isPermissionCoreError,
     PermissionCoreError,
 } from "../../core/errors";
+import { normalizeDataPath, pathsOverlap } from "../../data/path";
 import type { VextPluginContext } from "vextjs";
-import type { PermissionVextPluginOptions } from "./types";
+import type {
+    PermissionVextDataOptions,
+    PermissionVextPluginOptions,
+} from "./types";
 
 const OPTION_KEYS = [
     "monsqlize",
@@ -15,8 +19,14 @@ const OPTION_KEYS = [
     "databasePlugin",
     "authPlugin",
     "core",
+    "subject",
+    "data",
     "resolveSubject",
 ] as const;
+const SUBJECT_OPTION_KEYS = ["resolve"] as const;
+const DATA_OPTION_KEYS = ["exposeAs", "scopeFields", "collections"] as const;
+const DATA_COLLECTION_OPTION_KEYS = ["resource", "scopeFields"] as const;
+const SCOPE_FIELD_KEYS = ["tenantId", "appId", "moduleId", "namespace"] as const;
 const CORE_OPTION_KEYS = [
     "collectionPrefix",
     "cache",
@@ -33,6 +43,8 @@ const MONSQLIZE_CAPABILITIES = [
     "withTransaction",
 ] as const;
 const PLUGIN_NAME = /^[A-Za-z][A-Za-z0-9._-]{0,127}$/u;
+const DB_RESOURCE = /^db:[A-Za-z_-][A-Za-z0-9_-]{0,63}$/u;
+const MAX_DATA_COLLECTION_OVERRIDES = 128;
 
 export interface ResolvedPermissionVextPluginOptions {
     readonly monsqlize?: MonSQLizeInstance;
@@ -42,6 +54,18 @@ export interface ResolvedPermissionVextPluginOptions {
     readonly dependencies: readonly string[];
     readonly core: Omit<PermissionCoreOptions, "monsqlize">;
     readonly resolveSubject?: NonNullable<PermissionVextPluginOptions["resolveSubject"]>;
+    readonly data?: ResolvedPermissionVextDataOptions;
+}
+
+export interface ResolvedPermissionVextDataCollectionOptions {
+    readonly resource?: string;
+    readonly scopeFields?: AuthorizedCollectionOptions["scopeFields"];
+}
+
+export interface ResolvedPermissionVextDataOptions {
+    readonly exposeAs?: false | "monsqlize";
+    readonly scopeFields: AuthorizedCollectionOptions["scopeFields"];
+    readonly collections: Readonly<Record<string, ResolvedPermissionVextDataCollectionOptions>>;
 }
 
 function configurationError(field: string, reason: string, cause?: unknown) {
@@ -117,6 +141,90 @@ function pluginName(value: unknown, field: string) {
     return value;
 }
 
+function assertNoScopePathOverlap(scopeFields: AuthorizedCollectionOptions["scopeFields"], field: string) {
+    const paths = Object.values(scopeFields);
+    for (let left = 0; left < paths.length; left += 1) {
+        for (let right = left + 1; right < paths.length; right += 1) {
+            if (pathsOverlap(paths[left], paths[right])) {
+                throw configurationError(field, `contains overlapping paths ${paths[left]} and ${paths[right]}`);
+            }
+        }
+    }
+}
+
+function snapshotScopeFields(value: unknown, field: string): AuthorizedCollectionOptions["scopeFields"] {
+    const input = exactRecord(value, SCOPE_FIELD_KEYS, field);
+    if (!Object.hasOwn(input, "tenantId")) {
+        throw configurationError(`${field}.tenantId`, "is required");
+    }
+    const output: Partial<Record<typeof SCOPE_FIELD_KEYS[number], string>> = {};
+    for (const key of SCOPE_FIELD_KEYS) {
+        if (!Object.hasOwn(input, key)) continue;
+        try {
+            output[key] = normalizeDataPath(input[key], `${field}.${key}`);
+        } catch (cause) {
+            throw configurationError(`${field}.${key}`, "must be a safe data path", cause);
+        }
+    }
+    const frozen = Object.freeze(output) as AuthorizedCollectionOptions["scopeFields"];
+    assertNoScopePathOverlap(frozen, field);
+    return frozen;
+}
+
+function snapshotDataCollectionOptions(
+    value: unknown,
+    field: string,
+): ResolvedPermissionVextDataCollectionOptions {
+    const input = exactRecord(value, DATA_COLLECTION_OPTION_KEYS, field);
+    const copy: {
+        resource?: string;
+        scopeFields?: AuthorizedCollectionOptions["scopeFields"];
+    } = {};
+    if (Object.hasOwn(input, "resource")) {
+        if (typeof input.resource !== "string" || !DB_RESOURCE.test(input.resource)) {
+            throw configurationError(`${field}.resource`, "must be an exact built-in db:<logical-resource> base resource");
+        }
+        copy.resource = input.resource;
+    }
+    if (Object.hasOwn(input, "scopeFields")) {
+        copy.scopeFields = snapshotScopeFields(input.scopeFields, `${field}.scopeFields`);
+    }
+    return Object.freeze(copy);
+}
+
+function snapshotDataOptions(value: unknown): ResolvedPermissionVextDataOptions {
+    const input = exactRecord(value, DATA_OPTION_KEYS, "options.data");
+    if (!Object.hasOwn(input, "scopeFields")) {
+        throw configurationError("options.data.scopeFields", "is required when data is enabled");
+    }
+    const exposeAs = Object.hasOwn(input, "exposeAs") ? input.exposeAs : undefined;
+    if (exposeAs !== undefined && exposeAs !== false && exposeAs !== "monsqlize") {
+        throw configurationError("options.data.exposeAs", "must be false or 'monsqlize'");
+    }
+    const collections: Record<string, ResolvedPermissionVextDataCollectionOptions> = {};
+    if (Object.hasOwn(input, "collections")) {
+        const collectionInput = dataRecord(input.collections, "options.data.collections");
+        const names = Object.keys(collectionInput);
+        if (names.length > MAX_DATA_COLLECTION_OVERRIDES) {
+            throw configurationError("options.data.collections", `must contain at most ${MAX_DATA_COLLECTION_OVERRIDES} entries`);
+        }
+        for (const name of names) {
+            if (name === "__proto__" || name === "prototype" || name === "constructor") {
+                throw configurationError("options.data.collections", `contains unsupported key ${name}`);
+            }
+            collections[name] = snapshotDataCollectionOptions(
+                collectionInput[name],
+                `options.data.collections.${name}`,
+            );
+        }
+    }
+    return Object.freeze({
+        ...(exposeAs === undefined ? {} : { exposeAs: exposeAs as false | "monsqlize" }),
+        scopeFields: snapshotScopeFields(input.scopeFields, "options.data.scopeFields"),
+        collections: Object.freeze(collections),
+    });
+}
+
 function snapshotCoreOptions(value: unknown): Omit<PermissionCoreOptions, "monsqlize"> {
     const input = exactRecord(value, CORE_OPTION_KEYS, "options.core");
     const copy: Record<string, unknown> = { ...input };
@@ -162,6 +270,9 @@ export function resolvePermissionVextPluginOptions(
     if (Object.hasOwn(input, "monsqlize") && Object.hasOwn(input, "resolveMonSQLize")) {
         throw configurationError("options", "monsqlize and resolveMonSQLize are mutually exclusive");
     }
+    if (Object.hasOwn(input, "subject") && Object.hasOwn(input, "resolveSubject")) {
+        throw configurationError("options", "subject.resolve and resolveSubject are mutually exclusive");
+    }
     if (
         Object.hasOwn(input, "monsqlize")
         && (input.monsqlize === null || (typeof input.monsqlize !== "object" && typeof input.monsqlize !== "function"))
@@ -175,6 +286,17 @@ export function resolvePermissionVextPluginOptions(
         if (Object.hasOwn(input, key) && typeof input[key] !== "function") {
             throw configurationError(`options.${key}`, "must be a function");
         }
+    }
+    let subjectResolver: PermissionVextPluginOptions["resolveSubject"];
+    if (Object.hasOwn(input, "subject")) {
+        const subject = exactRecord(input.subject, SUBJECT_OPTION_KEYS, "options.subject");
+        if (typeof subject.resolve !== "function") {
+            throw configurationError("options.subject.resolve", "must be a function");
+        }
+        const resolve = subject.resolve as NonNullable<PermissionVextPluginOptions["subject"]>["resolve"];
+        subjectResolver = (_auth, req) => resolve(req);
+    } else if (Object.hasOwn(input, "resolveSubject")) {
+        subjectResolver = input.resolveSubject as NonNullable<PermissionVextPluginOptions["resolveSubject"]>;
     }
     const databasePlugin = Object.hasOwn(input, "databasePlugin")
         ? pluginName(input.databasePlugin, "options.databasePlugin")
@@ -195,9 +317,8 @@ export function resolvePermissionVextPluginOptions(
         authPlugin,
         dependencies,
         core: Object.hasOwn(input, "core") ? snapshotCoreOptions(input.core) : Object.freeze({}),
-        ...(Object.hasOwn(input, "resolveSubject")
-            ? { resolveSubject: input.resolveSubject as NonNullable<PermissionVextPluginOptions["resolveSubject"]> }
-            : {}),
+        ...(subjectResolver === undefined ? {} : { resolveSubject: subjectResolver }),
+        ...(Object.hasOwn(input, "data") ? { data: snapshotDataOptions(input.data) } : {}),
     });
 }
 

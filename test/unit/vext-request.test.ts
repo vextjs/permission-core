@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
+    AuthorizedCollection,
+    AuthorizedCollectionOptions,
     PermissionCoreErrorCode,
     PermissionCoreErrorDetails,
     PermissionSubject,
@@ -17,6 +19,7 @@ import {
     hasPermissionContext,
     requirePermissionContext,
 } from "../../src/plugins/vext/request";
+import type { ResolvedPermissionVextDataOptions } from "../../src/plugins/vext/options";
 import type { VextRequest } from "vextjs";
 
 class TestHttpError extends Error {
@@ -45,8 +48,28 @@ function request(auth?: unknown) {
     } as unknown as VextRequest;
 }
 
+function fakeAuthorizedCollection(): AuthorizedCollection<Record<string, unknown>> {
+    return {
+        find: vi.fn(async () => [{ orderNo: "O-1", status: "paid" }]),
+        findOne: vi.fn(async () => ({ orderNo: "O-1" })),
+        count: vi.fn(async () => 1),
+        findAndCount: vi.fn(async () => ({ data: [{ orderNo: "O-1" }], total: 1 })),
+        findPage: vi.fn(async () => ({
+            items: [{ orderNo: "O-1" }],
+            pageInfo: { hasNext: false, hasPrev: false, startCursor: null, endCursor: null },
+        })),
+        insertOne: vi.fn(async () => ({ acknowledged: true as const, insertedId: "id-1" })),
+        updateOne: vi.fn(async () => ({ acknowledged: true as const, matchedCount: 1, modifiedCount: 1 })),
+        updateMany: vi.fn(async () => ({ acknowledged: true as const, matchedCount: 1, modifiedCount: 1 })),
+        deleteOne: vi.fn(async () => ({ acknowledged: true as const, deletedCount: 1 })),
+        deleteMany: vi.fn(async () => ({ acknowledged: true as const, deletedCount: 1 })),
+    };
+}
+
 function fakeCore(can: (action: string, resource: string) => boolean | Promise<boolean> = () => true) {
     const calls: Array<{ subject: PermissionSubject; context: unknown }> = [];
+    const dataCalls: Array<{ name: string; options: AuthorizedCollectionOptions }> = [];
+    const collections: AuthorizedCollection<Record<string, unknown>>[] = [];
     const core = {
         forSubject(subject: PermissionSubject, context?: unknown): SubjectPermissionContext {
             calls.push({ subject, context });
@@ -58,10 +81,18 @@ function fakeCore(can: (action: string, resource: string) => boolean | Promise<b
                         throw new PermissionCoreError("PERMISSION_DENIED", "denied");
                     }
                 },
+                data: {
+                    collection(name, options) {
+                        dataCalls.push({ name, options });
+                        const collection = fakeAuthorizedCollection();
+                        collections.push(collection);
+                        return collection;
+                    },
+                },
             } as SubjectPermissionContext;
         },
     } as unknown as PermissionCore;
-    return { core, calls };
+    return { core, calls, dataCalls, collections };
 }
 
 async function runMiddleware(
@@ -69,10 +100,21 @@ async function runMiddleware(
     core: PermissionCore,
     operation: () => Promise<void> | void,
     resolver?: Parameters<typeof createPermissionRequestMiddleware>[1],
+    dataOptions?: ResolvedPermissionVextDataOptions,
 ) {
-    const middleware = createPermissionRequestMiddleware(core, resolver);
+    const middleware = createPermissionRequestMiddleware(core, resolver, dataOptions);
     await middleware(req, {} as never, async () => {
         await operation();
+    });
+}
+
+function dataOptions(
+    input?: Partial<ResolvedPermissionVextDataOptions>,
+): ResolvedPermissionVextDataOptions {
+    return Object.freeze({
+        scopeFields: Object.freeze({ tenantId: "tenantId" }),
+        collections: Object.freeze({}),
+        ...input,
     });
 }
 
@@ -130,6 +172,76 @@ describe("Vext lazy permission request context", () => {
             });
             expect(calls).toHaveLength(1);
         }
+    });
+
+    it("installs a protected data facade and optional req.monsqlize alias", async () => {
+        const req = request({ isAuthenticated: true, userId: "u-1", scope: { tenantId: "t-1" } });
+        const { core, dataCalls, collections } = fakeCore();
+        await runMiddleware(req, core, async () => {
+            const permission = await requirePermissionContext(req);
+            expect(permission.data).toBeDefined();
+            expect(Object.isFrozen(permission.data)).toBe(true);
+            expect((req as never as { monsqlize: unknown }).monsqlize).toBe(permission.data);
+
+            const orders = permission.data!.collection("orders");
+            expect(Object.isFrozen(orders)).toBe(true);
+            await expect(orders.find({ status: "paid" })).resolves.toEqual([{ orderNo: "O-1", status: "paid" }]);
+            expect(dataCalls).toEqual([{
+                name: "orders",
+                options: { resource: "db:orders", scopeFields: { tenantId: "tenantId" } },
+            }]);
+            expect(collections[0]?.find).toHaveBeenCalledWith({ status: "paid" }, undefined);
+        }, undefined, dataOptions({ exposeAs: "monsqlize" }));
+    });
+
+    it("keeps req.monsqlize optional while exposing canonical permission.data", async () => {
+        const req = request({ isAuthenticated: true, userId: "u-1", scope: { tenantId: "t-1" } });
+        const { core } = fakeCore();
+        await runMiddleware(req, core, async () => {
+            const permission = await requirePermissionContext(req);
+            expect(permission.data).toBeDefined();
+            expect(req).not.toHaveProperty("monsqlize");
+        }, undefined, dataOptions());
+    });
+
+    it("uses configured data collection overrides", async () => {
+        const req = request({ isAuthenticated: true, userId: "u-1", scope: { tenantId: "t-1" } });
+        const { core, dataCalls } = fakeCore();
+        await runMiddleware(req, core, async () => {
+            const permission = await requirePermissionContext(req);
+            await permission.data!.collection("order_records").find();
+        }, undefined, dataOptions({
+            collections: Object.freeze({
+                order_records: Object.freeze({
+                    resource: "db:orders",
+                    scopeFields: Object.freeze({ tenantId: "tenant_id" }),
+                }),
+            }),
+        }));
+
+        expect(dataCalls).toEqual([{
+            name: "order_records",
+            options: { resource: "db:orders", scopeFields: { tenantId: "tenant_id" } },
+        }]);
+    });
+
+    it("rejects occupied data aliases and collection reuse outside the owning request", async () => {
+        const occupied = request({ isAuthenticated: true, userId: "u-1", scope: { tenantId: "t-1" } });
+        Object.defineProperty(occupied, "monsqlize", { value: { forged: true }, enumerable: true });
+        await expect(runMiddleware(occupied, fakeCore().core, async () => {
+            await requirePermissionContext(occupied);
+        }, undefined, dataOptions({ exposeAs: "monsqlize" })))
+            .rejects.toMatchObject({ status: 500, code: "VEXT_AUTH_EXTENSION_CONFLICT" });
+
+        const req = request({ isAuthenticated: true, userId: "u-1", scope: { tenantId: "t-1" } });
+        const { core } = fakeCore();
+        let staleCollection: AuthorizedCollection<Record<string, unknown>> | undefined;
+        await runMiddleware(req, core, async () => {
+            staleCollection = (await requirePermissionContext(req)).data!.collection("orders");
+            await staleCollection.find();
+        }, undefined, dataOptions({ exposeAs: "monsqlize" }));
+        await expect(staleCollection!.find())
+            .rejects.toMatchObject({ status: 500, code: "VEXT_AUTH_EXTENSION_CONFLICT" });
     });
 
     it("deduplicates concurrent subject resolution and reuses bounded policy contexts", async () => {

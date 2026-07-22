@@ -2,7 +2,7 @@
 
 ## 场景
 
-该示例加载原生 Vext 插件、保护路由模板，执行公开/未认证/拒绝/允许请求，证明路由重载要求重启，并验证插件关闭不会关闭宿主数据库。
+该示例加载原生 Vext 插件、保护路由模板，通过 `req.monsqlize` 读取当前租户可见的数据，执行公开/未认证/拒绝/允许请求，证明路由重载要求重启，并验证插件关闭不会关闭宿主数据库。
 
 ## 运行
 
@@ -14,7 +14,7 @@ npm run example:vext
 
 ## 先看结果
 
-运行成功先看五个状态码：公开路由 `200`、未认证 `401`、无权限 `403`、有权限 `200`、路由变更后 `503`。再确认 `permissionCoreClosedByPlugin` 和 `hostDatabaseStillConnected` 都为 `true`，证明插件关闭边界正确。
+运行成功先看六个状态码：公开路由 `200`、未认证 `401`、无权限 `403`、普通有权限路由 `200`、数据路由 `200`、路由变更后 `503`。再看 `requestDataBody.items` 只包含当前租户的订单字段，最后确认 `permissionCoreClosedByPlugin` 和 `hostDatabaseStillConnected` 都为 `true`。
 
 ## 源码解读
 
@@ -40,6 +40,13 @@ const testApp = await createTestApp({
     await permissionPlugin({
       monsqlize: database.monsqlize,
       core: { collectionPrefix: 'pc_vext_example' },
+      data: {
+        exposeAs: 'monsqlize',
+        scopeFields: { tenantId: 'tenantId' },
+        collections: {
+          vext_orders: { resource: 'db:orders' },
+        },
+      },
     }).setup(app);
   },
 });
@@ -52,13 +59,25 @@ await scoped.roles.create({ id: 'route-reader', label: 'Route reader' });
 await scoped.roles.allow('route-reader', {
   action: 'invoke', resource: 'api:GET:/orders/:id',
 });
+await scoped.roles.allow('route-reader', {
+  action: 'invoke', resource: 'api:GET:/orders-data',
+});
+await scoped.roles.allow('route-reader', {
+  action: 'read', resource: 'db:orders',
+});
 await scoped.userRoles.assign('u-vext', 'route-reader');
+await database.monsqlize.collection('vext_orders').raw().insertMany([
+  { tenantId: scope.tenantId, orderNo: 'O-1', status: 'paid', amount: 12 },
+  { tenantId: 'other-tenant', orderNo: 'O-2', status: 'paid', amount: 99 },
+]);
 
 const publicResponse = await testApp.request.get('/public');
 const missingAuth = await testApp.request.get('/orders/42');
 const denied = await testApp.request.get('/orders/42')
   .set('x-example-user', 'u-denied');
 const allowed = await testApp.request.get('/orders/42')
+  .set('x-example-user', 'u-vext');
+const dataAllowed = await testApp.request.get('/orders-data')
   .set('x-example-user', 'u-vext');
 
 await testApp.app.hooks.emit('routes:ready', { count: 0, routes: [] });
@@ -74,9 +93,16 @@ app.get('/public', {}, publicHandler);
 app.get('/orders/:id', { permission: true }, async (req, res) => {
   res.json({ orderId: req.params.id, userId: req.auth.permission.subject.userId });
 });
+app.get('/orders-data', { permission: true }, async (req, res) => {
+  const items = await req.monsqlize.collection('vext_orders').find({}, {
+    projection: ['orderNo', 'status', 'amount'],
+    sort: { orderNo: 1 },
+  });
+  res.json({ items, total: items.length });
+});
 ```
 
-`permission: true` 推导出对 `api:GET:/orders/:id` 的 `invoke`。测试专用 header middleware 提供可重复 `req.auth`；生产环境使用真实认证插件。
+`permission: true` 推导出对路由模板的 `invoke`。`req.monsqlize.collection('vext_orders')` 会检查 `db:orders` 的 `read`，自动把当前 subject 的 `tenantId` 合入查询，并按字段权限裁剪结果。测试专用 header middleware 提供可重复 `req.auth`；生产环境使用真实认证插件。
 
 ### 1. 启动 Vext 测试宿主与插件
 
@@ -110,7 +136,7 @@ app.get('/orders/:id', { permission: true }, async (req, res) => {
 
 <!-- docs:operation id=vext-requests calls=request.get outputs=responses,allowedBody -->
 
-**目的与目标。** 四次 `request.get` 分别访问 public route、没有认证的 protected route、使用无权限身份的同一路由，以及使用 `u-vext` 的同一路由。
+**目的与目标。** 五次 `request.get` 分别访问 public route、没有认证的 protected route、使用无权限身份的同一路由、使用 `u-vext` 的普通路由，以及使用 `u-vext` 的数据路由。
 
 **状态、参数与结果。** Fixture header middleware 只为提供了测试用户的请求创建 `req.auth`。插件把缺少认证的 401 与已认证但被拒绝的 403 区分开；允许的 handler 读取可信 permission subject 并生成 `allowedBody`。
 
@@ -118,9 +144,21 @@ app.get('/orders/:id', { permission: true }, async (req, res) => {
 
 **API 参考。** 参见[Vext 插件](/zh/guide/vext-plugin)了解请求 lifecycle，并参见[Vext 插件 API](/zh/api/vext-plugin)了解 request context helper 与 error mapping。
 
-`testApp.request.get(path)` 返回测试 HTTP response；`.set()` 只在 fixture 中模拟认证插件输入。四个响应分别读取 `status`，允许响应还从 `allowed.body.data` 读取 handler 结果。
+`testApp.request.get(path)` 返回测试 HTTP response；`.set()` 只在 fixture 中模拟认证插件输入。五个响应分别读取 `status`，允许响应还从 `allowed.body.data` 读取 handler 结果。
 
-### 4. 拒绝热路由重载
+### 4. 通过请求门面读取受保护数据
+
+<!-- docs:operation id=vext-request-data calls=req.monsqlize.collection outputs=requestDataBody -->
+
+**目的与目标。** `req.monsqlize.collection` 是 Vext handler 里读取业务数据的低心智入口。它看起来像集合访问，但实际走 permission-core 的授权集合门面，不是裸 MonSQLize collection。
+
+**状态、参数与结果。** `data.collections.vext_orders.resource` 把物理集合映射为逻辑资源 `db:orders`；`scopeFields.tenantId` 把当前 subject 的租户写成查询条件。角色拥有 `read + db:orders` 后，`/orders-data` 返回 200，`requestDataBody` 只包含当前租户和允许字段。
+
+**失败与下一步。** 少了 route `invoke`、少了数据资源 `read`、filter 不安全、没有配置租户字段，都会 fail closed。应修正角色规则或插件 `data` 配置，不要绕回裸数据库查询。
+
+**API 参考。** 参见[Vext 插件 API](/zh/api/vext-plugin)了解请求门面，并参见[授权集合 API](/zh/api/authorized-collection)了解 `find()` 等集合方法。
+
+### 5. 拒绝热路由重载
 
 <!-- docs:operation id=vext-reload calls=routes:ready,request.get outputs=responses.routeReloadRequiresRestart -->
 
@@ -134,7 +172,7 @@ app.get('/orders/:id', { permission: true }, async (req, res) => {
 
 `hooks.emit('routes:ready', ...)` resolve 后把插件置为 restart-required；它不返回业务状态。随后 `request.get('/public')` 的原始 HTTP response status 为 503，证明整个 app fail closed。
 
-### 5. 只关闭插件拥有的状态
+### 6. 只关闭插件拥有的状态
 
 <!-- docs:operation id=vext-close calls=testApp.close,monsqlize.health outputs=lifecycle -->
 
@@ -161,9 +199,14 @@ app.get('/orders/:id', { permission: true }, async (req, res) => {
     "missingAuthentication": 401,
     "permissionDenied": 403,
     "permissionAllowed": 200,
+    "requestDataAllowed": 200,
     "routeReloadRequiresRestart": 503
   },
   "allowedBody": { "orderId": "42", "userId": "u-vext" },
+  "requestDataBody": {
+    "items": [{ "orderNo": "O-1", "status": "paid", "amount": 12 }],
+    "total": 1
+  },
   "lifecycle": {
     "permissionCoreClosedByPlugin": true,
     "hostDatabaseStillConnected": true
@@ -179,13 +222,17 @@ app.get('/orders/:id', { permission: true }, async (req, res) => {
 
 **`allowedBody` 来源。** 只有允许的 `request.get` 会进入 protected-route handler 并输出该 body；其中 route parameter 与 subject user ID 证明 business code 使用可信 request context 前已经完成授权。
 
+<!-- docs:output group=requestDataBody producer=vext-request-data -->
+
+**`requestDataBody` 来源。** 该输出来自 `vext-request-data` 步骤中的 `req.monsqlize.collection`。它是受保护数据路由的 handler 响应，已经经过租户过滤和字段权限处理，不是数据库原始输出。
+
 <!-- docs:output group=lifecycle producer=vext-close -->
 
 **`lifecycle` 来源。** `testApp.close` 证明 PermissionCore 一侧；关闭后的 `monsqlize.health` response 证明 host database 仍为 up 且 connected。
 
 ## 生产边界
 
-`createTestApp`、内存数据库和 `x-example-user` 认证都是 fixture。生产环境在正常 Vext 插件图中注册 `permissionPlugin`，先加载认证，传入/发现宿主 MonSQLize 3.1 实例，并在路由变化后执行冷重启。
+`createTestApp`、内存数据库和 `x-example-user` 认证都是 fixture。生产环境在正常 Vext 插件图中注册 `permissionPlugin`，先加载认证，传入/发现宿主 MonSQLize 3.1 实例，并在路由变化后执行冷重启。用户请求路径中的业务数据读取优先走请求数据门面，裸 MonSQLize 访问留给宿主基础设施。
 
 ## 相关内容
 
