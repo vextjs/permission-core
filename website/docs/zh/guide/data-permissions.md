@@ -6,6 +6,15 @@
 
 它不是 MonSQLize collection 的透明代理，而是 permission-core 定义的受保护数据访问门面。调用方传入的是可审计、可组合、可限制成本的安全查询子集；需要完整 MonSQLize 表达力的场景，应在业务仓储层明确处理，并避免把任意查询对象伪装成授权查询。
 
+先用下面这张表建立心智模型：
+
+| 你写的代码 | 它实际代表什么 | 是否立刻查库 |
+|---|---|---|
+| `pc.forSubject(input)` | 绑定当前用户、租户和可信 claims | 否 |
+| `subject.data.collection(name, options)` | 创建一个受保护集合门面，记录物理集合、授权资源和 scope 字段映射 | 否 |
+| `orders.find(filter, options?)` / `orders.findPage(...)` | 把业务 filter、租户条件、行规则、字段规则组合后查询 | 是 |
+| `orders.count(...)` / `orders.updateOne(...)` / `orders.deleteMany(...)` | 用同一套授权边界做统计、更新或删除 | 是 |
+
 <span id="data-filter-vs-where"></span>
 ## `filter` 与 `where` 职责不同
 

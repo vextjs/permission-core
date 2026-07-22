@@ -1,6 +1,15 @@
 # 检查权限
 
-请求时决策使用 subject context，管理查询使用 scoped context。两者都是同一租户范围授权状态上的不可变门面。
+这页只回答一个问题：**代码里到底该用哪个方法判断权限**。
+
+日常请求里先用 `pc.forSubject(input)` 绑定当前用户，然后用 `can()`、`cannot()` 或 `assert()` 判断某个动作能不能执行。后半部分的角色、规则、快照读取，主要用于管理后台展示和排查问题，不是每个业务请求都要调用。
+
+| 你想做什么 | 用哪个方法 | 返回什么 |
+|---|---|---|
+| 页面或业务分支需要一个布尔值 | `subject.can(action, resource, context?)` | `Promise<boolean>` |
+| 只是想把判断写成“不能做某事” | `subject.cannot(...)` | `Promise<boolean>`，等于 `!can(...)` |
+| 后端接口必须无权限就中断 | `subject.assert(...)` | 允许时无返回值，拒绝时抛 `PERMISSION_DENIED` |
+| 想知道为什么被拒绝 | `subject.explain(...)` | 带原因和命中明细的诊断结果 |
 
 ## 布尔检查与强制执行
 
@@ -66,7 +75,7 @@ const explanation = await subject.explain(
 
 常见原因包括 `allow`、`explicit-deny`、`no-allow`、`policy-unknown`、`role-disabled` 和 `context-missing`。解释轨迹是有界响应；在认定全部来源都已返回前，应检查 `detailBudget`。
 
-## 读取角色及其规则
+## 排查：读取角色及其规则
 
 ```ts
 const scoped = pc.scope({ tenantId: 'acme' });
@@ -98,7 +107,7 @@ const chain = await scoped.roles.getChain('order-reader');
 
 `getOwnRules` 只返回直接挂在这个角色上的规则。`getEffectiveRules` 还包含继承规则、冲突、来源角色 ID 和菜单生成来源。`getChain` 说明单父角色链上的每个角色为何被包含或排除。
 
-## 读取并替换用户角色
+## 排查：读取并替换用户角色
 
 ```ts
 await scoped.userRoles.assign('u-1', 'order-reader');
@@ -130,7 +139,7 @@ const effectiveRoles = await scoped.userRoles.getEffective('u-1');
 
 `assign` 是增量添加，角色已经绑定时保持幂等。`set` 是受 `expectedRevision` 保护的全量替换；列表中缺少的角色会被撤销。管理后台保存完整角色勾选结果时使用 `set`，单个复选框事件不要直接做全量替换。
 
-## 读取用户权限快照
+## 排查：读取用户权限快照
 
 ```ts
 const permissions = await subject.getPermissions();
@@ -198,4 +207,4 @@ const invokeResources = await subject.getResources('invoke');
 
 `getPermissions()` 返回直接角色 ID、有界的有效角色、有效规则和冲突。`getResources(action?)` 返回有效资源模式，并标记带条件的条目。这些方法是诊断快照，不能替代具体操作鉴权；实际请求仍应带策略上下文调用 `can` 或 `assert`。
 
-继承行为请继续阅读[角色继承](/zh/guide/role-inheritance)。精确签名见[核心与上下文](/zh/api/core-and-contexts)、[角色 API](/zh/api/roles)和[用户角色 API](/zh/api/user-roles)。
+下一步继续看[数据权限](/zh/guide/data-permissions)。继承行为请继续阅读[角色继承](/zh/guide/role-inheritance)。精确签名见[核心与上下文](/zh/api/core-and-contexts)、[角色 API](/zh/api/roles)和[用户角色 API](/zh/api/user-roles)。

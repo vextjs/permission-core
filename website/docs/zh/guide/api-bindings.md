@@ -8,18 +8,33 @@
 2. 页面按钮点击时调用哪些接口，或者只是纯前端按钮权限。
 3. 某个接口响应里哪些字段需要按角色授权后才能返回。
 
+如果你只想先知道“我该用哪个方法”，看这张表就够了：
+
+| 要做的事 | 管理端方法 | 记住一句话 |
+|---|---|---|
+| 给页面登记打开时调用的接口 | `menus.loadApis.add()` | 写 `resource: 'api:GET:/api/orders'`，不用写 `action`。 |
+| 给按钮登记权限 | `menus.actions.create()` | 后端按钮用 `api:*`，纯前端按钮用 `ui:button:*`。 |
+| 声明接口响应字段 | `menus.responses.set()` | 字段写在 `response.fields`，这里是响应 DTO 字段，不是数据库字段。 |
+| 给角色分配字段 | `roles.menuPermissions.grant()` | 在 `responseFields` 中选择这个角色实际能看到的字段。 |
+| 后端裁剪响应 | `subject.menus.filterResponse()` | 返回前裁剪响应；接口入口仍建议先用 `subject.assert()`。 |
+
 ## 使用前提
 
 逐项配置接口和字段前，需要先有菜单配置、菜单和页面：
 
 ```ts
-const scoped = pc.scope({ tenantId: 'acme', appId: 'admin' });
+const scoped = pc.scope(
+  { tenantId: 'acme', appId: 'admin' },
+  { actorId: 'admin', requestId: 'req-api-bindings-save' },
+);
 
 // 这里假设已经创建好：
 // configId: 'admin'
 // menuId: 'orders'
 // viewId: 'orders-list'
 ```
+
+`orders-list` 是创建页面时写入的 `view.id`，不是 `loadApis.add()` 临时生成的名字。这个 ID 在同一套菜单配置内必须唯一；创建方式见[管理菜单](/zh/guide/menu-management)里的 `menus.views.create()` 示例。
 
 完整流程通常是：
 
@@ -34,13 +49,15 @@ const scoped = pc.scope({ tenantId: 'acme', appId: 'admin' });
 -> 后端用 assert/filterResponse 或 Vext 保护接口
 ```
 
+如果要让某个用户实际生效，还要在角色授权后通过 `userRoles.assign()` 或 `userRoles.set()` 把角色绑定给用户。
+
 如果配置、页面或按钮还不存在，`menus.loadApis.add()`、`menus.actions.create()`、`menus.responses.set()` 会在预览或执行阶段失败。
 
 ## 页面默认接口
 
 页面默认接口表示：用户打开某个页面时，这个页面需要调用的后端接口。
 
-在配置即代码里，对应字段是 `load.resource`；在后台逐项管理 API 里，对应 `menus.loadApis.add()` 的 `input.resource`。
+逐项配置时，对应 `menus.loadApis.add()` 的 `input.resource`。如果你使用高级的配置即代码入口，同一含义对应 `load.resource`；本页先讲后台逐项管理 API。
 
 例如订单列表页打开时会请求：
 
@@ -53,9 +70,6 @@ GET /api/orders
 ```ts
 const added = await scoped.menus.loadApis.add('admin', 'orders-list', {
   resource: 'api:GET:/api/orders',
-}, {
-  actorId: 'admin',
-  idempotencyKey: 'orders-list-load-add-v1',
 });
 ```
 
@@ -68,33 +82,12 @@ const added = await scoped.menus.loadApis.add('admin', 'orders-list', {
 | 参数 | 说明 |
 |---|---|
 | `'admin'` | 菜单配置 ID，表示修改哪一套后台菜单。 |
-| `'orders-list'` | 页面/view ID，表示接口挂在哪个页面下。 |
+| `'orders-list'` | 页面/view ID，来自创建页面时的 `view.id`；同一菜单配置内唯一。 |
 | `resource` | 接口资源，格式为 `api:METHOD:/path`。 |
-| `actorId` | 当前管理端操作者，用于审计。 |
-| `idempotencyKey` | 幂等键，避免同一次提交被重复执行。 |
 
-保存成功后，配置快照里会出现：
+操作者和请求 ID 已在 `pc.scope(scope, defaults)` 里绑定；单次调用只有在需要覆盖默认值时才传 `options`。
 
-```json
-{
-  "configId": "admin",
-  "config": {
-    "menus": [
-      {
-        "id": "orders",
-        "views": [
-          {
-            "id": "orders-list",
-            "load": [
-              { "resource": "api:GET:/api/orders" }
-            ]
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+保存成功后，你不需要关心内部快照结构；只要理解这条记录会落在 `orders-list` 页面的加载接口里，也就是等价于配置里的 `views[].load[].resource = 'api:GET:/api/orders'`。
 
 这条 load 会影响三处：
 
@@ -123,7 +116,7 @@ const added = await scoped.menus.loadApis.add('admin', 'orders-list', {
 
 按钮或操作表示：用户在页面里点击某个动作，例如导出、审核、删除、打开详情。
 
-在配置即代码里，对应字段是 `actions[].resource`；在后台逐项管理 API 里，对应 `menus.actions.create()` 的 `input.resource`。
+逐项配置时，对应 `menus.actions.create()` 的 `input.resource`。如果你使用高级的配置即代码入口，同一含义对应 `actions[].resource`。
 
 如果按钮会调用后端接口，使用 `api:*`：
 
@@ -132,9 +125,6 @@ await scoped.menus.actions.create('admin', 'orders-list', {
   id: 'export',
   title: '导出订单',
   resource: 'api:POST:/api/orders/export',
-}, {
-  actorId: 'admin',
-  idempotencyKey: 'orders-export-action-v1',
 });
 ```
 
@@ -149,9 +139,6 @@ await scoped.menus.actions.create('admin', 'orders-list', {
   id: 'show-cost-column',
   title: '显示成本列',
   resource: 'ui:button:orders.show-cost-column',
-}, {
-  actorId: 'admin',
-  idempotencyKey: 'orders-show-cost-column-action-v1',
 });
 ```
 
@@ -185,15 +172,15 @@ await scoped.menus.actions.create('admin', 'orders-list', {
 
 也就是说，配置响应字段不等于用户已经能看到字段。角色没有字段授权时，字段仍会被裁剪。
 
-### owner 怎么写
+### 响应字段挂在哪个接口上
 
-`menus.responses.set()` 需要通过 `owner` 指明字段属于哪个接口来源。
+`menus.responses.set()` 里的 `owner` 只是告诉系统：“这组字段属于哪一个接口响应”。新手优先按页面来源选择 `load` 或 `action`，别一开始就用 `api`。
 
 | ownerType | 用途 | 示例 |
 |---|---|---|
 | `load` | 页面默认加载接口的响应字段 | 订单列表页的 `GET /api/orders` |
 | `action` | 按钮接口的响应字段 | 导出按钮的 `POST /api/orders/export` |
-| `api` | 按 API 资源查找来源 | 高级用法，不推荐新手优先使用 |
+| `api` | 按 API 资源查找来源 | 高级用法，通常放到配置即代码或迁移工具里 |
 
 页面默认接口的字段配置：
 
@@ -215,10 +202,7 @@ const responseInput = {
   },
 } as const;
 
-await scoped.menus.responses.set('admin', responseInput, {
-  actorId: 'admin',
-  idempotencyKey: 'orders-response-fields-v1',
-});
+await scoped.menus.responses.set('admin', responseInput);
 ```
 
 这段代码的意思是：
@@ -239,22 +223,7 @@ await scoped.menus.responses.set('admin', responseInput, {
 | `response.fields[].field` | 响应 DTO 字段路径，不是数据库字段路径。 |
 | `response.fields[].title` | 管理后台展示名。 |
 
-保存后，配置快照接近：
-
-```json
-{
-  "resource": "api:GET:/api/orders",
-  "response": {
-    "target": "items",
-    "preserve": ["total"],
-    "fields": [
-      { "field": "orderNo", "title": "订单号" },
-      { "field": "status", "title": "状态" },
-      { "field": "amount", "title": "金额" }
-    ]
-  }
-}
-```
+保存后，这组字段会挂到 `api:GET:/api/orders` 的 `items` 响应目标上。后面给角色授权时，就从这里声明过的 `orderNo/status/amount` 里选择。
 
 ### 数组形式和对象形式
 
@@ -402,44 +371,11 @@ sales-orders   -> api:GET:/api/orders -> target: items
 
 但如果同一个接口在不同页面声明了不同响应结构，例如一个是 `target: 'items'`，另一个是 `target: 'data.rows'`，预览可能会拒绝。遇到这种情况，优先考虑拆成不同 API，或者统一响应结构。
 
-## 配置即代码等价写法
+## 高级：配置即代码与批量导入
 
-如果你从插件、CI/CD 或配置文件一次性导入菜单，也可以把接口和响应字段写在 `MenuConfigInput` 里：
+本页主线是后台逐项管理 API。如果你要从插件、CI/CD 或配置文件一次性导入整套菜单，请看[菜单配置即代码与批量导入](/zh/guide/menu-config-as-code)。
 
-```ts
-const menuConfig = {
-  configId: 'admin',
-  menus: [{
-    id: 'orders',
-    title: '订单中心',
-    views: [{
-      id: 'orders-list',
-      type: 'page',
-      title: '订单列表',
-      path: '/orders',
-      component: 'OrdersPage',
-      load: [{
-        resource: 'api:GET:/api/orders',
-        response: {
-          target: 'items',
-          preserve: ['total'],
-          fields: [
-            { field: 'orderNo', title: '订单号' },
-            { field: 'status', title: '状态' },
-          ],
-        },
-      }],
-      actions: [{
-        id: 'export',
-        title: '导出订单',
-        resource: 'api:POST:/api/orders/export',
-      }],
-    }],
-  }],
-};
-```
-
-这和逐项调用 `menus.loadApis.add()`、`menus.actions.create()`、`menus.responses.set()` 的结果一致，只是入口不同。
+等价关系只有一条：`MenuConfigInput.load[].resource` 对应 `menus.loadApis.add()`，`MenuConfigInput.actions[].resource` 对应 `menus.actions.create()`，`MenuConfigInput.load[].response` 或 `MenuConfigInput.actions[].response` 对应 `menus.responses.set()`。
 
 ## 常见误区
 

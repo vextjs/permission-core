@@ -5,6 +5,15 @@ The supported data boundary is `AuthorizedCollection`. It combines the caller's 
 
 It is not a transparent MonSQLize collection proxy. It is permission-core's protected data facade: callers provide a safe, auditable, cost-bounded query subset. If a workflow needs the full MonSQLize expression surface, keep that work explicit in the application repository layer instead of passing arbitrary query objects through an authorized collection.
 
+Use this mental model first:
+
+| Code you write | What it represents | Touches the database immediately? |
+|---|---|---|
+| `pc.forSubject(input)` | Binds the current user, tenant, and trusted claims | No |
+| `subject.data.collection(name, options)` | Creates a protected collection facade with the physical collection, authorization resource, and scope field mapping | No |
+| `orders.find(filter, options?)` / `orders.findPage(...)` | Combines the business filter, tenant guard, row rules, and field rules before reading | Yes |
+| `orders.count(...)` / `orders.updateOne(...)` / `orders.deleteMany(...)` | Uses the same authorization boundary for counting, updating, or deleting | Yes |
+
 <span id="data-filter-vs-where"></span>
 ## `filter` and `where` Have Different Jobs
 

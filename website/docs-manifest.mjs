@@ -9,14 +9,14 @@ export const docsLocales = ["en", "zh"];
 
 export const docsLocaleContracts = {
     en: {
-        pageCount: 36,
-        guideGroups: { start: 4, tasks: 6, concepts: 4, "integration-ops": 4 },
+        pageCount: 37,
+        guideGroups: { start: 4, tasks: 7, concepts: 4, "integration-ops": 4 },
         apiCount: 12,
         exampleCount: 5,
     },
     zh: {
-        pageCount: 36,
-        guideGroups: { start: 4, tasks: 6, concepts: 4, "integration-ops": 4 },
+        pageCount: 37,
+        guideGroups: { start: 4, tasks: 7, concepts: 4, "integration-ops": 4 },
         apiCount: 12,
         exampleCount: 5,
     },
@@ -79,6 +79,7 @@ export const docsPages = [
     page("check-permission", "guide/check-permission.md", 5, "guide", "tasks", { en: "Check Permissions", zh: "检查权限" }, "how-to", ["src/core/permission-core.ts", "src/types/rbac.ts"], { sourceSymbol: "SubjectPermissionContext", contentOwner: "permission-checks", primaryNext: "guide/data-permissions.md" }),
     page("data-permissions", "guide/data-permissions.md", 6, "guide", "tasks", { en: "Data Permissions", zh: "数据权限" }, "how-to", ["src/data/authorized-collection.ts", "src/types/data.ts"], { sourceSymbol: "AuthorizedCollection", contentOwner: "data-guard", reuseMode: "generated-response", primaryNext: "guide/menu-management.md" }),
     page("menu-management", "guide/menu-management.md", 7, "guide", "tasks", { en: "Manage Menus", zh: "管理菜单" }, "how-to", ["src/menu/config-service.ts", "src/types/menu.ts"], { sourceSymbol: "MenuConfigManager", contentOwner: "menu-workflow", reuseMode: "generated-response", primaryNext: "guide/api-bindings.md" }),
+    page("menu-config-as-code", "guide/menu-config-as-code.md", 7.5, "guide", "tasks", { en: "Menu Config as Code and Batch Imports", zh: "菜单配置即代码与批量导入" }, "how-to", ["src/types/menu.ts", "src/menu/config-service.ts"], { sourceSymbol: "MenuConfigInput", contentOwner: "menu-config-as-code", navLabels: { en: "Advanced Menu Config", zh: "高级菜单配置" }, primaryNext: "guide/api-bindings.md" }),
     page("api-bindings", "guide/api-bindings.md", 8, "guide", "tasks", { en: "Configure APIs and Response Fields", zh: "接口与响应字段" }, "how-to", ["src/menu/config-compiler.ts", "src/types/menu.ts"], { sourceSymbol: "ApiResource", contentOwner: "api-binding-workflow", reuseMode: "generated-response", primaryNext: "guide/role-menu-authorization.md" }),
     page("role-menu-authorization", "guide/role-menu-authorization.md", 9, "guide", "tasks", { en: "Authorize Role Menus", zh: "角色菜单授权" }, "how-to", ["src/menu/role-menu-mutations.ts", "src/types/menu.ts"], { sourceSymbol: "RoleMenuPermissionManager", contentOwner: "role-menu-workflow", reuseMode: "generated-response", primaryNext: "guide/permission-lifecycle.md" }),
     page("permission-lifecycle", "guide/permission-lifecycle.md", 10, "guide", "concepts", { en: "Permission Lifecycle", zh: "权限生命周期" }, "concept", ["src/core/permission-core.ts", "src/rbac/mutation-executor.ts"], { sourceSymbol: "PermissionCore", contentOwner: "lifecycle-model", primaryNext: "guide/resources-and-rules.md" }),

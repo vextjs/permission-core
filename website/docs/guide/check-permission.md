@@ -1,7 +1,16 @@
 # Check Permissions
 <!-- docs:inline-parity `pc.forSubject(input)` `userId` `scope` `claims` `subject.can(action, resource, context?)` `Promise<boolean>` `subject.cannot(...)` `can` `!can(...)` `subject.assert(...)` `Promise<void>` `cannot` `assert` `PERMISSION_DENIED` `api:GET:/orders/:id` `explain()` `SubjectRuntimeResult<PermissionExplanation>` `data` `detailBudget` `can()` `action` `invoke` `resource` `context?` `valueFrom` `can/assert` `allow` `explicit-deny` `no-allow` `policy-unknown` `role-disabled` `context-missing` `roles.get(roleId)` `VersionedResult<Role>` `roles.getOwnRules(roleId)` `VersionedResult<PermissionRuleView[]>` `roles.getEffectiveRules(roleId)` `roles.getChain(roleId)` `getOwnRules` `getEffectiveRules` `getChain` `assign()` `set()` `getDirect/getEffective` `userRoles.assign(userId, roleId, options?)` `UserRoleBindingSet` `userRoles.getDirect(userId)` `set` `userRoles.set(userId, roleIds, options)` `expectedRevision` `userRoles.getEffective(userId)` `assign` `permissions/invokeResources` `subject.getPermissions(options?)` `subject.getResources(action?, options?)` `conditional=true` `getPermissions()` `getResources(action?)` -->
 
-Use a subject context for request-time decisions and a scoped context for management reads. Both facades read the same tenant-scoped authorization state.
+This page answers one practical question: **which method should application code call to check permissions?**
+
+For normal requests, bind the current user with `pc.forSubject(input)`, then call `can()`, `cannot()`, or `assert()` for the operation being performed. The role, rule, and snapshot reads later in this page are for admin screens and diagnostics; they are not required on every business request.
+
+| Goal | Method | Return |
+|---|---|---|
+| Need a boolean for UI or business branching | `subject.can(action, resource, context?)` | `Promise<boolean>` |
+| Want to write the inverse condition naturally | `subject.cannot(...)` | `Promise<boolean>`, equivalent to `!can(...)` |
+| Backend API must stop when unauthorized | `subject.assert(...)` | no value when allowed; throws `PERMISSION_DENIED` when denied |
+| Need to understand why access was denied | `subject.explain(...)` | diagnostic result with reason and bounded match details |
 
 ## Boolean Checks and Enforcement
 
@@ -44,7 +53,7 @@ const explanation = await subject.explain(
   "detailBudget": { "limit": 100, "returned": 0, "truncated": false, "digest": "..." }
 }
 ```
-## Read Roles and Rules
+## Diagnostics: Read Roles and Rules
 
 Use role reads for admin and support screens. `getOwnRules()` shows rules written directly on the role; `getEffectiveRules()` includes inherited rules; `getChain()` explains which parent roles contributed.
 
@@ -65,7 +74,7 @@ const chain = await scoped.roles.getChain('order-reader');
   "chain": [{ "role": { "id": "order-reader" }, "depth": 0, "included": true }]
 }
 ```
-## Read and Replace User Roles
+## Diagnostics: Read and Replace User Roles
 
 Use `assign()` for an additive grant and `set()` for saving the complete direct-role set from an admin form. Read `getDirect()` first and pass `expectedRevision` so stale edits are rejected.
 
@@ -86,7 +95,7 @@ const effectiveRoles = await scoped.userRoles.getEffective('u-1');
   "effective": ["order-reader"]
 }
 ```
-## Read a User Permission Snapshot
+## Diagnostics: Read a User Permission Snapshot
 
 Use these snapshot reads when you need to display the subject's resolved permissions or debug a route guard. Results may be bounded by `detailBudget`, so callers should treat them as diagnostics rather than a replacement for `can()` or `assert()`.
 

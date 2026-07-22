@@ -4,27 +4,62 @@
 
 它不会自动绑定用户。流程是先给角色保存菜单授权，再用 `userRoles.assign()` 或 `userRoles.set()` 把角色交给用户。
 
+## 后台授权页最小流程
+
+如果你正在做一个后台“角色授权”页面，先按这个顺序想：
+
+| 步骤 | 后台动作 | 对应方法 |
+|---|---|---|
+| 1 | 打开角色授权页，读取可勾选的授权树 | `roles.menuPermissions.getAuthorizationTree()` |
+| 2 | 管理员勾选菜单、页面、按钮和字段 | 组装 `selection` 或 `assignments` |
+| 3 | 点击保存前先预览影响 | `roles.menuPermissions.preview()` |
+| 4 | 无冲突时确认保存 | 常用 `roles.menuPermissions.set()`；追加授权可用 `grant()` |
+| 5 | 把角色分给用户 | `userRoles.assign()` 或 `userRoles.set()` |
+| 6 | 用户请求时投影结果 | `subject.menus.getViewTree()` / `getActionMap()` / `filterResponse()` |
+
+普通后台页面最常见的是“保存整棵授权树”，也就是读取 `getAuthorizationTree()`，用户勾选后调用 `preview({ operation: 'set', assignments })`，确认后再调用 `set()`。下面用 `grant()` 演示，是为了让例子更短；如果你做的是完整角色授权表单，优先用 `set()`。
+
 ## 对象怎样连在一起
 
 ```mermaid
-flowchart TD
+flowchart LR
   accTitle: 角色菜单授权关系
   accDescr: 已保存的菜单配置提供可授权的菜单、页面、接口、操作和响应字段，角色菜单授权与用户角色绑定共同决定用户运行时投影。
-  A["MenuConfigInput 菜单配置"] --> B["配置里的 menus / views / load / actions / response"]
-  B --> C["roles.menuPermissions.preview 预览角色选择"]
-  C --> D["grant / deny / set 保存角色菜单授权"]
-  D --> E["角色"]
-  E --> F["用户绑定角色"]
-  F --> G["subject.menus 投影菜单、按钮和响应字段"]
+  A["菜单配置<br/>资源目录"] --> B["角色授权<br/>选择能力"]
+  B --> B1["菜单 / 页面"]
+  B --> B2["加载接口"]
+  B --> B3["按钮 / 操作"]
+  B --> B4["响应字段"]
+  B --> C["preview<br/>只看影响"]
+  C --> D["grant / deny / set<br/>写角色授权"]
+  D --> E["userRoles<br/>绑定给用户"]
+  E --> F["subject.menus<br/>运行时投影"]
+  F --> F1["菜单树"]
+  F --> F2["按钮状态"]
+  F --> F3["响应字段裁剪"]
 ```
 
-<p className="pc-diagram-text" id="pc-diagram-role-menu-relationship-zh-text" data-diagram-id="role-menu-relationship"><strong>文字等价说明。</strong>管理员先保存菜单配置，再在角色授权界面选择配置中的菜单、页面、接口、按钮和响应字段。preview 只展示影响；grant、deny 或 set 才写入角色授权。用户绑定该角色后，subject runtime 会投影用户可见菜单、按钮状态和可返回字段。</p>
+<p className="pc-diagram-text" id="pc-diagram-role-menu-relationship-zh-text" data-diagram-id="role-menu-relationship"><strong>文字等价说明。</strong>菜单配置只是可授权的资源目录；角色授权界面从目录里选择菜单、页面、加载接口、按钮操作和响应字段。preview 只展示影响；grant、deny 或 set 才写入角色授权。通过 userRoles 把角色绑定给用户后，subject.menus 才会投影该用户可见的菜单树、按钮状态和可返回字段。</p>
 
 一条主线是：
 
-`菜单配置 -> 角色菜单授权 -> 用户角色绑定 -> 当前用户运行时投影`
+菜单配置 → 角色菜单授权 → 用户角色绑定 → 当前用户运行时投影
 
 不要把 `MenuConfigInput` 当成“权限结果”。它只是可被授权的资源目录。真正决定用户能不能访问的是角色授权和用户角色绑定。
+
+## 后台勾选如何变成 selection
+
+`selection` 可以理解成“这次后台表单勾了哪些能力”。不用先记住完整类型，先记住这张映射表：
+
+| 后台页面操作 | 写到哪里 | 说明 |
+|---|---|---|
+| 勾选菜单分组 | `menus` | 只选菜单节点本身；如果要包含后代，配合 `include.descendants`。 |
+| 勾选页面 | `views` | 最常见；页面通常再带出默认加载接口。 |
+| 勾选页面默认接口 | `loads` 或 `include.loads` | 精确选某些接口用 `loads`；选中页面后自动带出用 `include.loads: true`。 |
+| 勾选按钮权限 | `actions` 或 `include.actions` | 精确选按钮用 `actions`；选中页面后自动带出所有按钮用 `include.actions: true`。 |
+| 勾选接口响应字段 | `responseFields` | 字段必须已经在“接口与响应字段”里声明过。 |
+| 不想自动给字段 | `include.responseFields: 'none'` | 推荐默认值，避免新增敏感字段后旧角色自动获得。 |
+| 明确全选字段 | `include.responseFields: 'all'` | 只在你确认该角色应获得该页面所有已声明字段时使用。 |
 
 ## 构造选择
 
@@ -65,25 +100,49 @@ const selection = {
 
 ## 预览再提交
 
+和前面创建菜单、页面、接口不同，角色菜单授权会真正改变某个角色的访问范围，可能立刻影响很多用户。因此这里仍然要求显式 preview，再把同一份选择和 preview 凭证交给写入方法。普通管理员不用理解 revision 细节，只要记住：授权页先预览影响，确认后提交。
+
+先预览：
+
 ```ts
+const scoped = pc.scope(
+  { tenantId: 'acme', appId: 'admin' },
+  { actorId: 'admin', requestId: 'req-grant-order-operator-menu' },
+);
+
 const preview = await scoped.roles.menuPermissions.preview(
   'order-operator',
   { operation: 'grant', selection },
-  { actorId: 'admin' },
 );
 
 if (!preview.executable) {
-  throw new Error('角色菜单授权存在冲突，需要先处理');
+  throw new Error('ROLE_MENU_PERMISSION_CONFLICT');
 }
+```
 
+无冲突时，管理端重点看 `executable: true`、影响用户数量和本次会生成的授权内容。返回结构可以理解成这样：
+
+```json
+{
+  "executable": true,
+  "previewToken": "preview_...",
+  "summary": {
+    "affectedUsers": { "total": 1, "sampleIds": ["u-menu"] },
+    "grants": { "total": 1 },
+    "removals": { "total": 0 }
+  }
+}
+```
+
+确认保存时，把同一个 `selection` 和 preview 返回的凭证传给写入方法：
+
+```ts
 const granted = await scoped.roles.menuPermissions.grant(
   'order-operator',
   selection,
   {
     ...preview.expected,
     previewToken: preview.previewToken,
-    actorId: 'admin',
-    idempotencyKey: 'grant-order-operator-menu-v1',
   },
 );
 ```
@@ -107,12 +166,14 @@ const granted = await scoped.roles.menuPermissions.grant(
 
 ## 授权、拒绝、撤销和替换
 
+这四个方法不是平级心智。普通后台授权页面优先使用 `set()` 保存整棵授权树；其他方法更多用于追加、覆盖或精确删除。
+
 | 方法 | 适合场景 | 写入语义 |
 |---|---|---|
+| `set(roleId, assignments, options)` | 保存完整授权树表单 | 用传入 assignments 替换该角色的全部直接菜单授权。 |
 | `grant(roleId, selection, options)` | 追加一组允许菜单能力 | 新增 allow grant，不删除已有菜单授权。 |
 | `deny(roleId, selection, options)` | 明确拒绝一组菜单能力 | 新增 deny grant，用于覆盖继承或其他 allow。 |
 | `revoke(roleId, { grantIds }, options)` | 删除指定授权记录 | 按 `grantId` 精确移除，不影响其他 grant。 |
-| `set(roleId, assignments, options)` | 保存完整授权树表单 | 用传入 assignments 替换该角色的全部直接菜单授权。 |
 
 `set()` 只替换菜单授权，不替换手工 `roles.allow()` / `roles.deny()` 规则，也不修改用户绑定了哪些角色。每个写方法都要先用对应 `operation` 预览。
 
@@ -127,16 +188,20 @@ const tree = await scoped.roles.menuPermissions.getAuthorizationTree(
 );
 ```
 
-| 方法 | 返回 | 用途 |
-|---|---|---|
-| `getDirect(roleId)` | `VersionedResult<MenuBusinessDirectPermissionSnapshot>` | 读取该角色自己保存的菜单 grant。 |
-| `listDirect(roleId, query?)` | `PageResult<MenuBusinessGrantSnapshot>` | 分页读取大量直接授权。 |
-| `getEffective(roleId)` | `VersionedResult<MenuBusinessEffectivePermissionSnapshot>` | 合并父角色继承后的有效菜单授权。 |
-| `getAuthorizationTree(roleId, { configId })` | `VersionedResult<MenuBusinessAuthorizationTree>` | 给后台授权树展示 direct、inherited、conflict、partial 状态。 |
+| 方法 | 什么时候用 |
+|---|---|
+| `getAuthorizationTree(roleId, { configId })` | 打开后台角色授权页时用，渲染可勾选树和 direct、inherited、conflict、partial 状态。 |
+| `getDirect(roleId)` | 排查这个角色自己保存了哪些菜单 grant。 |
+| `getEffective(roleId)` | 排查继承父角色后最终有哪些菜单授权。 |
+| `listDirect(roleId, query?)` | 直接授权记录很多时分页读取。 |
 
-`getAuthorizationTree()` 面向管理员编辑界面，不是用户侧菜单树。用户侧菜单树使用 `subject.menus.getViewTree({ configId })`。
+精确返回类型见[角色菜单权限 API](/zh/api/role-menu-permissions)。这里先记住：`getAuthorizationTree()` 面向管理员编辑界面，不是用户侧菜单树。用户侧菜单树使用 `subject.menus.getViewTree({ configId })`。
 
 ## 用户端运行时结果
+
+### 验收菜单和按钮
+
+授权保存后，如果要验证某个用户最终能看到什么，先把角色绑定给用户，再用用户 subject 读取菜单树和按钮状态：
 
 ```ts
 await scoped.userRoles.assign('u-menu', 'order-operator');
@@ -149,10 +214,18 @@ const menus = pc.forSubject({
 const tree = await menus.getViewTree({ configId: 'admin' });
 const actions = await menus.getActionMap({ configId: 'admin', viewId: 'orders-list' });
 const state = await menus.getViewState({ configId: 'admin', viewId: 'orders-list' });
+```
+
+### 裁剪接口响应
+
+业务接口返回前，用同一个 subject 裁剪响应字段：
+
+```ts
 const projected = await menus.filterResponse('api:GET:/api/orders', {
   items: [{ orderNo: 'O-1001', status: 'paid', amount: 88, internalCost: 51 }],
   total: 1,
 });
+const projectedData = projected.data;
 ```
 
 ```json
@@ -160,14 +233,14 @@ const projected = await menus.filterResponse('api:GET:/api/orders', {
   "tree": [{ "id": "orders", "enabled": true }],
   "actions": { "export": { "visible": true, "enabled": true } },
   "state": { "allowed": true, "navigationReachable": true },
-  "projected": {
+  "projectedData": {
     "items": [{ "orderNo": "O-1001", "status": "paid" }],
     "total": 1
   }
 }
 ```
 
-`filterResponse(apiResource, payload)` 会先检查当前用户是否拥有 `invoke + apiResource`，再根据该用户的响应字段授权裁剪数据。没有授权的字段会被移除；没有接口调用权限时会拒绝，而不是返回未裁剪数据。
+`filterResponse(apiResource, payload)` 会先检查当前用户是否拥有 `invoke + apiResource`，再根据该用户的响应字段授权裁剪数据；裁剪后的业务 payload 在 `projected.data`。没有授权的字段会被移除；没有接口调用权限时会拒绝，而不是返回未裁剪数据。
 
 ## 角色、用户、菜单的边界
 
