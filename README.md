@@ -27,7 +27,10 @@ const pc = new PermissionCore({ monsqlize: msq });
 await pc.init();
 
 const scope = { tenantId: 'acme' };
-const scoped = pc.scope(scope);
+const scoped = pc.scope(scope, {
+  actorId: 'quick-start',
+  requestId: 'req-quick-start',
+});
 await scoped.roles.create({ id: 'order-reader', label: 'Order reader' });
 await scoped.roles.allow('order-reader', {
   action: 'invoke',
@@ -44,6 +47,8 @@ await msq.close();
 ```
 
 `cannot(...)` is the logical negation of `can(...)`; the DELETE result is true because no allow rule exists, not because a blocked permission was assigned.
+
+`pc.scope(scope, defaults)` binds trusted management context once. With `actorId/requestId` defaults present, ordinary writes reuse the same audit context and derive their own idempotency keys; hand-written `idempotencyKey` values are only for advanced gateway or queue integrations.
 
 ## Included capabilities
 

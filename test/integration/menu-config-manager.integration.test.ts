@@ -412,6 +412,86 @@ describe("menu config manager on MonSQLize 3.1", () => {
             },
         });
 
+        await scoped.menus.configs.update("admin", {
+            title: "Admin v2",
+            meta: { owner: "ops" },
+        }, {
+            actorId: "admin",
+            idempotencyKey: "auto-update-admin-config",
+        });
+        await scoped.menus.items.update("admin", "orders", {
+            title: "Orders v2",
+            icon: null,
+            meta: { section: "sales" },
+        }, {
+            actorId: "admin",
+            idempotencyKey: "auto-update-orders-menu",
+        });
+        await scoped.menus.views.update("admin", "orders-list", {
+            title: "Orders list v2",
+            component: "OrdersPageV2",
+            meta: { feature: "orders" },
+        }, {
+            actorId: "admin",
+            idempotencyKey: "auto-update-orders-view",
+        });
+        await scoped.menus.responses.remove("admin", {
+            owner: { ownerType: "load", viewId: "orders-list", resource: "api:GET:/api/orders" },
+            target: "items",
+            fields: ["status"],
+        }, {
+            actorId: "admin",
+            idempotencyKey: "auto-remove-status-response-field",
+        });
+        await scoped.menus.actions.update("admin", "orders-list", "export", {
+            id: "export-csv",
+            title: "Export CSV",
+            meta: { format: "csv" },
+        }, {
+            actorId: "admin",
+            idempotencyKey: "auto-update-export-action",
+        });
+        await scoped.menus.actions.remove("admin", "orders-list", "export-csv", undefined, {
+            actorId: "admin",
+            idempotencyKey: "auto-remove-export-action",
+        });
+        await scoped.menus.views.create("admin", "orders", {
+            id: "orders-archive",
+            type: "page",
+            title: "Orders archive",
+            path: "/admin/orders/archive",
+            component: "OrdersArchivePage",
+            navigation: false,
+        }, {
+            actorId: "admin",
+            idempotencyKey: "auto-create-archive-view",
+        });
+        await scoped.menus.views.remove("admin", "orders-archive", undefined, {
+            actorId: "admin",
+            idempotencyKey: "auto-remove-archive-view",
+        });
+        await expect(scoped.menus.config.get("admin")).resolves.toMatchObject({
+            data: {
+                title: "Admin v2",
+                meta: { owner: "ops" },
+                menus: [expect.objectContaining({
+                    id: "orders",
+                    title: "Orders v2",
+                    views: [expect.objectContaining({
+                        id: "orders-list",
+                        title: "Orders list v2",
+                        component: "OrdersPageV2",
+                        load: [expect.objectContaining({
+                            response: expect.objectContaining({
+                                fields: [expect.objectContaining({ field: "orderNo" })],
+                            }),
+                        })],
+                        actions: [],
+                    })],
+                })],
+            },
+        });
+
         await expect(scoped.menus.items.update("admin", "orders", { title: "Orders v2" }, {
             actorId: "admin",
             previewToken: "token",

@@ -1,15 +1,18 @@
 # Manage Roles and User Assignments
-<!-- docs:inline-parity `pc.init()` `scope` `scoped` `acme` `u-1` `userRoles.assign(userId, roleId)` `userRoles.set(userId, roleIds, options)` `userRoles.getDirect(userId)` `userRoles.getEffective(userId)` `roles.create()` `created.data.id` `created.data.revision` `roles.allow(roleId, rule)` `order-reader` `api:GET:/api/orders` `assign()` `userId` `roleId` `set()` `assign(userId, roleId)` `set(userId, roleIds, options)` `roleIds` `getDirect(userId)` `set/clear` `set('u-1', ['operator'], ...)` `operator` `REVISION_CONFLICT` `getDirect()` `roles.get()` `data.id/label/status/parentId/revision` `roles.getEffectiveRules()` `data.chain/rules/conflicts` `userRoles.getDirect()` `data.roleIds/revision` `userRoles.getEffective()` `data.direct/effective` `expectedRevision` `previewAccessUpdate()` `previewReplaceRules()` `getRemovalImpact()` `ROLE_NOT_FOUND` `tenantId` `can()` `assert()` `explain()` -->
+<!-- docs:inline-parity `pc.init()` `scope` `scoped` `acme` `actorId/requestId` `roles.*` `userRoles.*` `idempotencyKey` `u-1` `userRoles.assign(userId, roleId)` `userRoles.set(userId, roleIds, options)` `userRoles.getDirect(userId)` `userRoles.getEffective(userId)` `roles.create()` `created.data.id` `created.data.revision` `roles.allow(roleId, rule)` `order-reader` `api:GET:/api/orders` `assign()` `userId` `roleId` `set()` `assign(userId, roleId)` `set(userId, roleIds, options)` `roleIds` `getDirect(userId)` `set/clear` `set('u-1', ['operator'], ...)` `operator` `REVISION_CONFLICT` `getDirect()` `roles.get()` `data.id/label/status/parentId/revision` `roles.getEffectiveRules()` `data.chain/rules/conflicts` `userRoles.getDirect()` `data.roleIds/revision` `userRoles.getEffective()` `data.direct/effective` `expectedRevision` `previewAccessUpdate()` `previewReplaceRules()` `getRemovalImpact()` `ROLE_NOT_FOUND` `tenantId` `can()` `assert()` `explain()` -->
 
 This page covers the everyday admin workflow: create a role, add one permission, bind the role to a user, and read direct versus effective authorization state.
 
 ```ts
 const scope = { tenantId: 'acme' };
-const scoped = pc.scope(scope);
+const scoped = pc.scope(scope, {
+  actorId: 'admin',
+  requestId: 'req-role-admin-save',
+});
 ```
 ## Remember Four Methods First
 
-`scoped` manages only data inside the `acme` tenant. permission-core does not create users; `u-1` is a stable ID from the host user system.
+`scoped` manages only data inside the `acme` tenant. Bind `actorId/requestId` here once, and later `roles.*` or `userRoles.*` writes reuse the same audit and idempotency context. Pass `idempotencyKey` manually only when an external gateway or queue already owns the idempotency protocol. permission-core does not create users; `u-1` is a stable ID from the host user system.
 
 ## 1. Create a Role
 

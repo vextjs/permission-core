@@ -195,7 +195,8 @@ describe("menu config compiler", () => {
                 }],
             }],
         };
-        const target = aggregateCompiledMenuConfigs([compileMenuConfigInput(config)]);
+        const compiled = compileMenuConfigInput(config);
+        const target = aggregateCompiledMenuConfigs([compiled]);
         const dialogNode = target.manifest.nodes.find((node) => node.id.startsWith("mc-v-"))!;
 
         expect(dialogNode).toMatchObject({
@@ -219,6 +220,216 @@ describe("menu config compiler", () => {
                 }],
             }],
         }), "INVALID_ARGUMENT");
+    });
+
+    it("compiles optional metadata, disabled states, action opens, and iframe api owners", () => {
+        const config: MenuConfigInput = {
+            configId: "operations",
+            title: "Operations console",
+            meta: { area: "ops" },
+            menus: [{
+                id: "operations",
+                title: "Operations",
+                enabled: false,
+                icon: "dashboard",
+                i18nKey: "menu.operations",
+                meta: { group: "ops" },
+                views: [
+                    {
+                        id: "orders-list",
+                        type: "page",
+                        title: "Orders",
+                        path: "/orders",
+                        component: "OrdersPage",
+                        enabled: false,
+                        i18nKey: "view.orders",
+                        meta: { page: "orders" },
+                        load: [{
+                            resource: "api:GET:/api/orders",
+                            meta: { source: "initial" },
+                            response: {
+                                target: "items",
+                                fields: [
+                                    { field: "orderNo", title: "Order No.", i18nKey: "field.orderNo", meta: { sensitive: false } },
+                                ],
+                            },
+                        }],
+                        actions: [{
+                            title: "Open detail",
+                            resource: "ui:button:orders.detail",
+                            opens: "order-detail",
+                            enabled: false,
+                            i18nKey: "action.orders.detail",
+                            meta: { placement: "row" },
+                        }],
+                    },
+                    {
+                        id: "order-detail",
+                        type: "dialog",
+                        title: "Order detail",
+                        component: "OrderDetailDialog",
+                        load: [{ resource: "api:GET:/api/orders/:id" }],
+                    },
+                    {
+                        id: "operations-report",
+                        type: "iframe",
+                        title: "Report",
+                        path: "/operations/report",
+                        url: "https://example.com/report",
+                        load: [{ resource: "api:GET:/api/reports/orders" }],
+                    },
+                ],
+            }],
+        };
+        const compiled = compileMenuConfigInput(config);
+        const target = aggregateCompiledMenuConfigs([compiled]);
+
+        const menuNode = target.manifest.nodes.find((node) => node.type === "directory")!;
+        const ordersNode = target.manifest.nodes.find((node) => node.type === "page" && node.path === "/orders")!;
+        const actionNode = target.manifest.nodes.find((node) => node.type === "button")!;
+        const iframeNode = target.manifest.nodes.find((node) => node.type === "iframe")!;
+        const iframeOwnerNode = target.manifest.nodes.find((node) => node.meta?.permissionCoreApiOwner === true)!;
+        const actionRef = [...compiled.actionIndex.values()].find((item) => item.resource === "ui:button:orders.detail")!;
+        const response = target.responseCatalog.get("api:GET:/api/orders")!;
+
+        expect(menuNode).toMatchObject({
+            status: "disabled",
+            icon: "dashboard",
+            i18nKey: "menu.operations",
+            meta: { group: "ops" },
+        });
+        expect(ordersNode).toMatchObject({
+            status: "disabled",
+            i18nKey: "view.orders",
+            meta: { page: "orders", permissionCoreViewType: "page" },
+        });
+        expect(actionNode).toMatchObject({
+            status: "disabled",
+            i18nKey: "action.orders.detail",
+            meta: { placement: "row" },
+        });
+        expect(actionRef.opens).toBe("order-detail");
+        expect(iframeNode).toMatchObject({
+            type: "iframe",
+            path: "/operations/report",
+            url: "https://example.com/report",
+        });
+        expect(iframeOwnerNode).toMatchObject({
+            type: "page",
+            hidden: true,
+            component: "PermissionCoreApiOwner",
+        });
+        expect(response.fields[0]).toMatchObject({
+            field: "orderNo",
+            title: "Order No.",
+            i18nKey: "field.orderNo",
+            meta: { sensitive: false },
+        });
+    });
+
+    it("rejects malformed high-level config shapes before compiling sources", () => {
+        const valid = ordersConfig("invalid-shapes");
+        const cases: unknown[] = [
+            {},
+            { configId: "missing-menus" },
+            { configId: "bad-meta", meta: { big: "x".repeat(33 * 1024) }, menus: [] },
+            { configId: "empty-menu", menus: [{ id: "orders", title: "Orders" }] },
+            {
+                configId: "children-and-views",
+                menus: [{
+                    id: "orders",
+                    title: "Orders",
+                    children: [{ id: "child", title: "Child", views: [{ id: "child-view", type: "page", title: "Child", path: "/child", component: "ChildPage" }] }],
+                    views: [{ id: "orders-list", type: "page", title: "Orders", path: "/orders", component: "OrdersPage" }],
+                }],
+            },
+            {
+                ...valid,
+                menus: [{ id: "orders", title: "Orders", views: [{ id: "orders-list", type: "page", title: "Orders", component: "OrdersPage" }] }],
+            },
+            {
+                ...valid,
+                menus: [{ id: "orders", title: "Orders", views: [{ id: "orders-list", type: "external", title: "Orders", url: "https://example.com", component: "OrdersPage" }] }],
+            },
+            {
+                ...valid,
+                menus: [{ id: "orders", title: "Orders", views: [{ id: "orders-list", type: "iframe", title: "Orders", url: "https://example.com" }] }],
+            },
+            {
+                ...valid,
+                menus: [{ id: "orders", title: "Orders", views: [{ id: "orders-list", type: "dialog", title: "Orders", path: "/orders", component: "OrdersDialog" }] }],
+            },
+            {
+                ...valid,
+                menus: [{
+                    id: "orders",
+                    title: "Orders",
+                    views: [{
+                        id: "orders-list",
+                        type: "page",
+                        title: "Orders",
+                        path: "/orders",
+                        component: "OrdersPage",
+                        load: [
+                            { resource: "api:GET:/api/orders" },
+                            { resource: "api:GET:/api/orders" },
+                        ],
+                    }],
+                }],
+            },
+            {
+                ...valid,
+                menus: [{
+                    id: "orders",
+                    title: "Orders",
+                    views: [{
+                        id: "orders-list",
+                        type: "page",
+                        title: "Orders",
+                        path: "/orders",
+                        component: "OrdersPage",
+                        actions: [{ title: "Toggle", resource: "ui:button:orders.toggle", response: [{ field: "ok", title: "OK" }] }],
+                    }],
+                }],
+            },
+            {
+                ...valid,
+                menus: [{
+                    id: "orders",
+                    title: "Orders",
+                    views: [{
+                        id: "orders-list",
+                        type: "page",
+                        title: "Orders",
+                        path: "/orders",
+                        component: "OrdersPage",
+                        load: [{ resource: "api:GET:/api/orders", response: { target: "items" } }],
+                    }],
+                }],
+            },
+            {
+                ...valid,
+                menus: [{
+                    id: "orders",
+                    title: "Orders",
+                    views: [{
+                        id: "orders-list",
+                        type: "page",
+                        title: "Orders",
+                        path: "/orders",
+                        component: "OrdersPage",
+                        load: [{ resource: "api:GET:/api/orders", response: [
+                            { field: "orderNo", title: "Order number" },
+                            { field: "orderNo", title: "Order number duplicate" },
+                        ] }],
+                    }],
+                }],
+            },
+        ];
+
+        for (const value of cases) {
+            expectPermissionError(() => compileMenuConfigInput(value as MenuConfigInput), "INVALID_ARGUMENT");
+        }
     });
 
     it("rejects duplicate identities and same-view resource collisions", () => {

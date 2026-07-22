@@ -152,6 +152,24 @@ interface ManifestPageRecord {
     readonly manifestItemBytes: number;
 }
 
+function advanceManifestCursorProgress(
+    initial: ManifestCursorProgress | undefined,
+    selected: readonly ManifestPageRecord[],
+): ManifestCursorProgress {
+    let menuNodeCount = initial?.menuNodeCount ?? 0;
+    let apiBindingCount = initial?.apiBindingCount ?? 0;
+    let itemBytes = initial?.itemBytes ?? 0;
+    for (const selectedRecord of selected) {
+        if (selectedRecord.record.kind === "node") menuNodeCount += 1;
+        else apiBindingCount += 1;
+        itemBytes += selectedRecord.manifestItemBytes;
+        if (!Number.isSafeInteger(itemBytes) || itemBytes > MAX_REPLACE_MANIFEST_BYTES) {
+            persistedInvalid("manifest page progress contains an invalid item byte total");
+        }
+    }
+    return deepFreeze({ menuNodeCount, apiBindingCount, itemBytes });
+}
+
 function readOptions(session?: MongoSession) {
     return { ...(session === undefined ? {} : { session }), cache: 0, collation: SIMPLE_COLLATION };
 }
@@ -1622,18 +1640,7 @@ export class MenuManifestService {
         const records = await this.readManifestPageRecords(reader, query.kind, cursor, query.first + 1);
         const hasNext = records.length > query.first;
         const selected = records.slice(0, query.first);
-        let menuNodeCount = cursor?.progress.menuNodeCount ?? 0;
-        let apiBindingCount = cursor?.progress.apiBindingCount ?? 0;
-        let itemBytes = cursor?.progress.itemBytes ?? 0;
-        for (const selectedRecord of selected) {
-            if (selectedRecord.record.kind === "node") menuNodeCount += 1;
-            else apiBindingCount += 1;
-            itemBytes += selectedRecord.manifestItemBytes;
-            if (!Number.isSafeInteger(itemBytes) || itemBytes > MAX_REPLACE_MANIFEST_BYTES) {
-                persistedInvalid("manifest page progress contains an invalid item byte total");
-            }
-        }
-        const progress = deepFreeze({ menuNodeCount, apiBindingCount, itemBytes });
+        const progress = advanceManifestCursorProgress(cursor?.progress, selected);
         if (
             progress.menuNodeCount > reader.state.menuNodeCount
             || progress.apiBindingCount > reader.state.apiBindingCount

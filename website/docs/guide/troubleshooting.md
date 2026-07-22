@@ -5,7 +5,7 @@ Start from structured error `code` and `details.kind`, then narrow the problem t
 
 ## Minimal Diagnostic Order
 
-Check health, direct roles, and an explanation before changing state. These reads identify the failing layer without accidentally granting new permissions in diagnostic code. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+Check health, direct roles, and an explanation before changing state. These reads identify the failing layer without accidentally granting new permissions in diagnostic code.
 
 ```ts
 const health = await pc.health();
@@ -34,18 +34,18 @@ const explanation = await subject.explain('invoke', 'api:GET:/api/orders');
 
 ## Installation and Initialization
 
-Most startup failures come from a missing MonSQLize peer, an incompatible runtime, an unavailable database, or a schema contract mismatch. Treat these as readiness failures. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+Most startup failures come from a missing MonSQLize peer, an incompatible runtime, an unavailable database, or a schema contract mismatch. Treat these as readiness failures.
 
 ## Scope, Identity, and Decisions
 
-Subject scope must be complete and trusted. Missing policy context, no matching allow, explicit deny, disabled roles, or unavailable sources all fail closed. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+Subject scope must be complete and trusted. Missing policy context, no matching allow, explicit deny, disabled roles, or unavailable sources all fail closed.
 
 ## Data, Menus, and Concurrency
 
-Data filters, field projection, bulk writes, preview flows, menu availability, and revision conflicts all have explicit failure states. Refresh the current state instead of inventing revisions. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+Data filters, field projection, bulk writes, preview flows, menu availability, and revision conflicts all have explicit failure states. Refresh the current state instead of inventing revisions.
 
 ## Cache and Vext Recovery
 
-Cache incidents degrade health and should be recovered through the host MonSQLize cache backend. Vext routes without trusted authentication return authentication errors, and hot route manifest changes require restart. The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.
+Cache incidents degrade health and should be recovered through the host MonSQLize cache backend. Vext routes without trusted authentication return authentication errors, and hot route manifest changes require restart.
 
 Continue with [Production Operations](/guide/production-operations).

@@ -95,6 +95,30 @@ function normalizeBindingQuery(value?: CursorQuery & ApiBindingFilter) {
     return deepFreeze({ ...page, ...filter });
 }
 
+type NormalizedApiBindingQuery = ReturnType<typeof normalizeBindingQuery>;
+
+function apiBindingListQueryHash(query: NormalizedApiBindingQuery) {
+    return digestCanonical({
+        method: "apiBindings.list",
+        methodFilter: query.method ?? null,
+        path: query.path ?? null,
+        status: query.status ?? null,
+        purpose: query.purpose ?? null,
+        ownerId: query.ownerId ?? null,
+        sortVersion: 1,
+    });
+}
+
+function apiBindingListBaseFilter(scopeKey: string, query: NormalizedApiBindingQuery) {
+    const base: Record<string, unknown> = { scopeKey };
+    if (query.method !== undefined) base.method = query.method;
+    if (query.path !== undefined) base.path = query.path;
+    if (query.status !== undefined) base.status = query.status;
+    if (query.purpose !== undefined) base.purpose = query.purpose;
+    if (query.ownerId !== undefined) base["owners.id"] = query.ownerId;
+    return base;
+}
+
 function cursorInvalid(reason: string): never {
     throw new PermissionCoreError("INVALID_CURSOR", "The cursor is invalid.", {
         details: { kind: "validation", field: "cursor", reason },
@@ -570,24 +594,11 @@ export class MenuQueryService {
     async listApiBindings(scope: PermissionScope, queryInput?: CursorQuery & ApiBindingFilter): Promise<PageResult<ApiBinding>> {
         const query = normalizeBindingQuery(queryInput);
         const reader = await this.open(scope);
-        const queryHash = digestCanonical({
-            method: "apiBindings.list",
-            methodFilter: query.method ?? null,
-            path: query.path ?? null,
-            status: query.status ?? null,
-            purpose: query.purpose ?? null,
-            ownerId: query.ownerId ?? null,
-            sortVersion: 1,
-        });
+        const queryHash = apiBindingListQueryHash(query);
         const cursor = this.readCursor(query.after, "apiBindings.list", reader, queryHash) as ApiBindingCursorAnchor | undefined;
         let after = cursor;
         const matches: Array<{ readonly view: ApiBinding; readonly anchor: ApiBindingCursorAnchor }> = [];
-        const base: Record<string, unknown> = { scopeKey: reader.state.scopeKey };
-        if (query.method !== undefined) base.method = query.method;
-        if (query.path !== undefined) base.path = query.path;
-        if (query.status !== undefined) base.status = query.status;
-        if (query.purpose !== undefined) base.purpose = query.purpose;
-        if (query.ownerId !== undefined) base["owners.id"] = query.ownerId;
+        const base = apiBindingListBaseFilter(reader.state.scopeKey, query);
         const pageSize = Math.min(PAGE_MAX, this.repository.findMaxLimit);
         while (matches.length < query.first + 1) {
             const filter = after === undefined ? base : { $and: [base, apiBindingAfterFilter(after)] };

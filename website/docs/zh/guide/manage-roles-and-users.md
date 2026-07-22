@@ -4,10 +4,13 @@
 
 ```ts
 const scope = { tenantId: 'acme' };
-const scoped = pc.scope(scope);
+const scoped = pc.scope(scope, {
+  actorId: 'admin',
+  requestId: 'req-role-admin-save',
+});
 ```
 
-`scoped` 只管理 `acme` 租户内的数据。permission-core 不创建用户；示例里的 `u-1` 是宿主用户系统提供的稳定 ID。
+`scoped` 只管理 `acme` 租户内的数据。`actorId/requestId` 在这里绑定一次，后续 `roles.*`、`userRoles.*` 管理写入会自动复用这份审计与幂等上下文；只有外部网关或队列已经有自己的幂等协议时，才需要单独传 `idempotencyKey`。permission-core 不创建用户；示例里的 `u-1` 是宿主用户系统提供的稳定 ID。
 
 ## 先记住四个方法
 

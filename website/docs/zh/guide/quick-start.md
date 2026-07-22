@@ -40,7 +40,10 @@ try {
   await pc.init();
 
   const scope = { tenantId: 'acme' };
-  const scoped = pc.scope(scope);
+  const scoped = pc.scope(scope, {
+    actorId: 'quick-start',
+    requestId: 'req-quick-start-first-success',
+  });
 
   await scoped.roles.create({
     id: 'order-reader',
@@ -76,7 +79,7 @@ try {
 | `roles.allow(roleId, rule)` | 第一个参数选角色；`action/resource` 表示允许调用哪个接口 | 给角色追加一条 allow 规则 | `MutationResult<PermissionRuleView>` |
 | `userRoles.assign(userId, roleId)` | `u-1` 来自宿主用户系统；第二个参数是已存在角色 | 给用户增量添加一个直接角色 | `MutationResult<UserRoleBindingSet>` |
 
-`pc.scope({ tenantId: 'acme' })` 让这些管理操作只发生在 `acme` 租户。它本身不写数据库。permission-core 不创建或登录 `u-1`，只保存这个用户 ID 与角色的关系。
+`pc.scope(scope, defaults)` 让这些管理操作只发生在 `acme` 租户。它本身不写数据库；`actorId/requestId` 会作为后续管理写入的默认审计与幂等上下文，所以普通代码不需要每个 `roles.create()`、`roles.allow()`、`userRoles.assign()` 都手动传一遍。permission-core 不创建或登录 `u-1`，只保存这个用户 ID 与角色的关系。
 
 ## 4. 验证允许与默认拒绝
 

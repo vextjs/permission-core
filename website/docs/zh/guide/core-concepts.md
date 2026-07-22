@@ -14,7 +14,7 @@
 
 | 术语 | 通俗解释 | 在代码里怎么看 |
 |---|---|---|
-| scope | 一块互相隔离的权限空间，至少有 `tenantId` | `pc.scope({ tenantId: 'acme' })` |
+| scope | 一块互相隔离的权限空间，至少有 `tenantId` | `pc.scope(scope, defaults?)` |
 | subject | 当前要判断权限的用户，包含 `userId` 和 `scope` | `pc.forSubject({ userId: 'u-1', scope })` |
 | role | 一组权限的名字，例如“订单只读” | `scoped.roles.create(...)` |
 | rule | 角色允许或拒绝的一个动作与资源组合 | `{ action: 'invoke', resource: 'api:GET:/api/orders' }` |
@@ -34,11 +34,14 @@
 
 ```ts
 const scope = { tenantId: 'acme' };
-const scoped = pc.scope(scope); // 管理 acme 租户的权限数据
+const scoped = pc.scope(scope, {
+  actorId: 'admin',
+  requestId: 'req-admin',
+}); // 管理 acme 租户的权限数据
 const subject = pc.forSubject({ userId: 'u-1', scope }); // 判断 u-1 的权限
 ```
 
-`scope()` 和 `forSubject()` 都只创建上下文，不会写数据库。真正的读取或写入发生在后续 `roles.*`、`userRoles.*`、`subject.can()` 等调用中。
+`scope()` 和 `forSubject()` 都只创建上下文，不会写数据库。管理写入建议在 `scope(scope, defaults)` 里一次绑定 `actorId/requestId`；真正的读取或写入发生在后续 `roles.*`、`userRoles.*`、`subject.can()` 等调用中。
 
 ## direct 和 effective 怎么选
 

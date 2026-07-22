@@ -516,7 +516,7 @@ function verifyOperationNegativeFixtures() {
         {
             name: "broad operation explanation",
             content: valid.replace(
-                /\*\*Purpose and target\.\*\*[\s\S]*?(?=\n\n\*\*State, arguments, and result\.\*\*)/u,
+                /\*\*Purpose and target\.\*\*[\s\S]*?(?=\r?\n\r?\n\*\*State, arguments, and result\.\*\*)/u,
                 "**Purpose and target.** Works.",
             ),
             expected: "Purpose and target. explanation is too short",

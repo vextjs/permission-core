@@ -1,5 +1,5 @@
 # Quick Start
-<!-- docs:inline-parity `quick-start.mjs` `msq.connect()` `pc.init()` `roles.create(input)` `id` `label` `tenantId` `MutationResult<Role>` `data` `roles.allow(roleId, rule)` `action/resource` `MutationResult<PermissionRuleView>` `userRoles.assign(userId, roleId)` `u-1` `MutationResult<UserRoleBindingSet>` `pc.scope({ tenantId: 'acme' })` `acme` `pc.forSubject({ userId, scope })` `subject.can(action, resource)` `allowed: true` `invoke + api:GET:/api/orders` `deleteAllowed: false` `api:DELETE:/api/orders` `false` `can()` `MONGODB_URI` `pc.close()` `msq.close()` `finally` `scope` `subject` -->
+<!-- docs:inline-parity `quick-start.mjs` `msq.connect()` `pc.init()` `roles.create(input)` `id` `label` `tenantId` `MutationResult<Role>` `data` `roles.allow(roleId, rule)` `action/resource` `MutationResult<PermissionRuleView>` `userRoles.assign(userId, roleId)` `u-1` `MutationResult<UserRoleBindingSet>` `pc.scope(scope, defaults)` `acme` `actorId/requestId` `roles.create()` `roles.allow()` `userRoles.assign()` `pc.forSubject({ userId, scope })` `subject.can(action, resource)` `allowed: true` `invoke + api:GET:/api/orders` `deleteAllowed: false` `api:DELETE:/api/orders` `false` `can()` `MONGODB_URI` `pc.close()` `msq.close()` `finally` `scope` `subject` -->
 
 This page does one thing: create a role, give the user permission to read the orders API, and show one allowed result plus one default-denied result. After this first path works, continue to the role admin, menu, or data-permission guides.
 
@@ -41,7 +41,10 @@ try {
   await pc.init();
 
   const scope = { tenantId: 'acme' };
-  const scoped = pc.scope(scope);
+  const scoped = pc.scope(scope, {
+    actorId: 'quick-start',
+    requestId: 'req-quick-start-first-success',
+  });
 
   await scoped.roles.create({
     id: 'order-reader',
@@ -77,7 +80,7 @@ The three write methods in the middle of the code create the smallest useful aut
 | `roles.allow(roleId, rule)` | The first argument selects the role; `action/resource` describes the allowed operation | Adds one allow rule to the role | `MutationResult<PermissionRuleView>` |
 | `userRoles.assign(userId, roleId)` | `u-1` comes from the host user system; the second argument is an existing role | Adds one direct role to the user | `MutationResult<UserRoleBindingSet>` |
 
-`pc.scope({ tenantId: 'acme' })` keeps these management operations inside the `acme` tenant. It does not write to the database by itself. permission-core does not create or log in `u-1`; it stores only the relationship between that user ID and the role.
+`pc.scope(scope, defaults)` keeps these management operations inside the `acme` tenant. It does not write to the database by itself. The `actorId/requestId` defaults are reused by later management writes for audit and idempotency context, so normal code does not pass `actorId` or `idempotencyKey` to every `roles.create()`, `roles.allow()`, or `userRoles.assign()` call. permission-core does not create or log in `u-1`; it stores only the relationship between that user ID and the role.
 
 ## 4. Verify Allow and Default Deny
 

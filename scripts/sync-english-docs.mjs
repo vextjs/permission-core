@@ -699,8 +699,8 @@ function sectionIntro(heading, options) {
     if (options.sectionKind === "api") {
         return apiGroupText[heading] ?? "This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.";
     }
-    const base = genericGuideText[heading] ?? "This section explains the next operation, the arguments it expects, and the return shape you should read before wiring it into an admin page or request handler.";
-    return `${base} The examples keep the same code, JSON, and public identifiers as the Chinese source so both locales describe one behavior contract. Read the raw return notes before copying a summary object into production code.`;
+    return genericGuideText[heading]
+        ?? "This section explains the next operation, the arguments it expects, and the return shape you should read before wiring it into an admin page or request handler.";
 }
 
 function methodEvidence(marker, heading, contract) {

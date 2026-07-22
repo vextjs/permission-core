@@ -34,13 +34,13 @@ permission-core 不是身份提供方、登录模块、ORM、API 网关，也不
 | 对象/方法 | 输入 | 输出 | 典型使用方 |
 |---|---|---|---|
 | `new PermissionCore(options)` / `init()` | 已连接 MonSQLize 3.1 与 core 配置 | ready core 与 `PermissionCoreHealth` | 应用启动代码 |
-| `pc.scope(scope)` | 可信完整 scope | `ScopedPermissionContext` | 管理后台服务层 |
+| `pc.scope(scope, defaults?)` | 可信完整 scope；管理写入可一次绑定 `actorId/requestId` | `ScopedPermissionContext` | 管理后台服务层 |
 | `pc.forSubject(subject, context?)` | 已认证 user/scope/claims | `SubjectPermissionContext` | HTTP handler、任务处理器 |
 | `subject.can/assert/explain` | action/resource/可选 context | boolean、void/error 或解释 envelope | 后端授权点 |
 | `subject.menus.*` | 已绑定 subject | 可见树、按钮表、路由状态 | 前端 BFF/导航接口 |
 | `subject.data.collection()` | collection 名、逻辑资源、scopeFields | 受保护数据 facade | 业务 repository/service |
 
-`scope()` 与 `forSubject()` 都是同步创建 facade，不查询数据库；真正的读取发生在后续管理/判定方法。逐参数说明见[核心与上下文 API](/zh/api/core-and-contexts)。
+`scope()` 与 `forSubject()` 都是同步创建 facade，不查询数据库；真正的读取发生在后续管理/判定方法。后台管理请求建议在 `scope(scope, defaults)` 里一次绑定 `actorId/requestId`，普通写入就不需要反复传审计人或手写幂等键。逐参数说明见[核心与上下文 API](/zh/api/core-and-contexts)。
 
 ## 运行模型
 
