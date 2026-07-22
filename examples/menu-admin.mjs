@@ -52,13 +52,13 @@ const menuChanges = [
 // docs:menu-admin:start
 const runtime = await startExampleCore("menu-admin");
 const scope = { tenantId: "acme", appId: "admin" };
-const scoped = runtime.core.scope(scope);
+const scoped = runtime.core.scope(scope, {
+    actorId: "admin",
+    requestId: "req-example-menu-admin",
+});
 
 try {
-    const savedConfig = await scoped.menus.management.applyChanges("admin", menuChanges, {
-        actorId: "admin",
-        idempotencyKey: "example-menu-config-incremental-save",
-    });
+    const savedConfig = await scoped.menus.management.applyChanges("admin", menuChanges);
 
     await scoped.roles.create({ id: "order-operator", label: "Order operator" });
     const selection = {
@@ -74,7 +74,6 @@ try {
     const grantPreview = await scoped.roles.menuPermissions.preview(
         "order-operator",
         { operation: "grant", selection },
-        { actorId: "admin" },
     );
     if (!grantPreview.executable) {
         throw new Error(`menu grant is not executable: ${grantPreview.conflicts.items.map((item) => item.code).join(",")}`);
@@ -82,8 +81,6 @@ try {
     const granted = await scoped.roles.menuPermissions.grant("order-operator", selection, {
         ...grantPreview.expected,
         previewToken: grantPreview.previewToken,
-        actorId: "admin",
-        idempotencyKey: "example-menu-role-grant",
     });
     await scoped.userRoles.assign("u-menu", "order-operator");
 

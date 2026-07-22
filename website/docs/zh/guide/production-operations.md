@@ -9,7 +9,7 @@
 - 使用支持事务以及 `init()` 所探测 MonSQLize 3.1 能力的 MongoDB 部署。
 - 所有实例使用相同的 collection prefix、资源方案定义/版本、scope 模型、缓存策略和已配置 token secret。
 - 接受权限流量前只执行一次 `init()`，并将初始化失败保留为启动失败。
-- 可能重放的管理写入应提供 `actorId`、`reason`、`requestId` 和当前操作专用的 `idempotencyKey`。
+- 可能重放的管理写入应提供 `actorId`、`reason` 和 `requestId`；核心会基于 `requestId` 与本次输入自动派生内部幂等键。只有接入外部幂等协议时才显式传 `idempotencyKey`。
 
 ## 就绪检查清单
 

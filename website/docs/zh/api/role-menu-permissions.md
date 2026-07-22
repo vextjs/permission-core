@@ -10,6 +10,8 @@
 - 菜单配置已通过 `scoped.menus.management.applyChanges()`、`scoped.menus.configs/items/views/loadApis/actions/responses.*()` 或 `scoped.menus.config.save()` 保存。
 - 写入前先调用 `preview()`，执行时传回同一输入、`expected` 和 `previewToken`。
 
+注意：这里保留显式 preview/execute 是有意的。菜单配置的普通增量保存可以自动预览并提交，但角色菜单授权会改变真实访问范围，可能影响大量用户，所以需要管理端先展示影响，再确认提交。
+
 ## 我想做什么
 
 | 目标 | 首选 API | 说明 |

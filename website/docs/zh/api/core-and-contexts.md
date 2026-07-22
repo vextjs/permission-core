@@ -21,7 +21,7 @@
 new PermissionCore(options: PermissionCoreOptions)
 init(): Promise<PermissionCoreHealth>
 health(): Promise<PermissionCoreHealth>
-scope(scope: PermissionScope): ScopedPermissionContext
+scope(scope: PermissionScope, defaults?: ScopedMutationDefaults): ScopedPermissionContext
 forSubject(subject: PermissionSubject, context?: PolicyContext): SubjectPermissionContext
 can(subject: PermissionSubject, action: PermissionAction, resource: string, context?: PolicyContext): Promise<boolean>
 cannot(subject: PermissionSubject, action: PermissionAction, resource: string, context?: PolicyContext): Promise<boolean>
@@ -97,8 +97,8 @@ scope 使用完整对象做身份比较。`{ tenantId: 'acme' }` 与 `{ tenantId
 |---|---|:---:|---|
 | `actorId` | 写入/preview | 否 | 操作者 ID，写入审计证据；不要传被授权用户 ID 冒充管理员。 |
 | `reason` | 写入/preview | 否 | 本次变更原因，供审计和后台展示。 |
-| `requestId` | 写入/preview | 否 | 宿主请求关联 ID，用于日志追踪。 |
-| `idempotencyKey` | 直接写入 | 否 | 相同写入的幂等键；重放时 `replayed` 为 `true`。preview 不接受该字段。 |
+| `requestId` | 写入/preview | 否 | 宿主请求关联 ID，用于日志追踪；直接写入时也会用于自动派生内部幂等键。 |
+| `idempotencyKey` | 直接写入 | 否 | 高级覆盖项；不传时可由 `requestId` 自动派生。重放时 `replayed` 为 `true`。preview 不接受该字段。 |
 | `expectedRevision` | 单实体 update/remove/set/clear | 是 | 调用读取结果中的当前 `data.revision` 或方法要求的实体 revision；不一致返回 `REVISION_CONFLICT`。 |
 | `expectedRevisions` | 跨实体 execute | 是 | preview 返回的 revision vector；必须原样传给 execute。 |
 | `previewToken` | preview 对应 execute | 是 | 只使用当前 preview 返回的 token；过期或状态变化会失败。 |
@@ -168,14 +168,14 @@ scope 使用完整对象做身份比较。`{ tenantId: 'acme' }` 与 `{ tenantId
 <span id="core-scope"></span>
 ## 方法详解：创建管理与用户上下文
 
-### `scope(scope)`
+### `scope(scope, defaults?)`
 
 <!-- docs:method name=scope locale=zh -->
 
 - **用途**：进入一个确定权限域，随后管理该域的角色、用户角色和菜单配置。
-- **参数**：`scope: PermissionScope` 必填，字段见本页输入表。
+- **参数**：`scope: PermissionScope` 必填，字段见本页输入表；`defaults` 可绑定本次管理请求的 `actorId/reason/requestId`，后续写入和 preview 会自动合并这些审计默认值。
 - **状态影响**：同步创建轻量上下文，不读取数据库。
-- **原始返回**：`ScopedPermissionContext`，包含 `roles`、`userRoles`、`menus`；接口契约通过 `menus.config` 中的 `load/actions/response` 配置。
+- **原始返回**：`ScopedPermissionContext`，包含 `withDefaults()`、`roles`、`userRoles`、`menus`；接口契约通过 `menus.config` 中的 `load/actions/response` 配置。
 - **失败**：core 未 ready 或 scope 非法时抛错。
 
 <span id="core-for-subject"></span>
@@ -309,7 +309,10 @@ ready 前调用返回 `NOT_INITIALIZED`；开始关闭后调用返回 `CORE_CLOS
 ```ts
 const pc = new PermissionCore({ monsqlize: msq });
 await pc.init();
-const scoped = pc.scope({ tenantId: 'acme' });
+const scoped = pc.scope(
+  { tenantId: 'acme' },
+  { actorId: 'admin', requestId: 'req-42' },
+);
 const subject = pc.forSubject({ userId: 'u-1', scope: { tenantId: 'acme' } });
 const allowed = await subject.can('read', 'db:orders');
 await pc.close();

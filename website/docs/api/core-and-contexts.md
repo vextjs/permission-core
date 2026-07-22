@@ -19,7 +19,7 @@ The signatures below are the public contract. The code block is kept executable-
 new PermissionCore(options: PermissionCoreOptions)
 init(): Promise<PermissionCoreHealth>
 health(): Promise<PermissionCoreHealth>
-scope(scope: PermissionScope): ScopedPermissionContext
+scope(scope: PermissionScope, defaults?: ScopedMutationDefaults): ScopedPermissionContext
 forSubject(subject: PermissionSubject, context?: PolicyContext): SubjectPermissionContext
 can(subject: PermissionSubject, action: PermissionAction, resource: string, context?: PolicyContext): Promise<boolean>
 cannot(subject: PermissionSubject, action: PermissionAction, resource: string, context?: PolicyContext): Promise<boolean>
@@ -93,13 +93,13 @@ This section narrows the public contract for this method family. Read it before 
 
 This section narrows the public contract for this method family. Read it before wiring the call into an admin page, route guard, or diagnostic tool.
 
-### `scope(scope)`
+### `scope(scope, defaults?)`
 <!-- docs:method name=scope locale=en -->
 
-- **Purpose**: Use `scope` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
-- **Parameters**: Pass trusted host state only: normalized scope, authenticated user ID, claims/context, and collection options that map every active scope field.
+- **Purpose**: Create a management facade for one trusted permission scope.
+- **Parameters**: `scope` is the trusted permission namespace. `defaults` can bind this admin request's `actorId/reason/requestId`; scoped mutation and preview methods merge those audit defaults before validating per-call options.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
-- **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
+- **Raw return**: `ScopedPermissionContext`, including `withDefaults()`, `roles`, `userRoles`, and `menus`.
 
 <span id="core-for-subject"></span>
 ### `forSubject(subject, context?)`
@@ -218,7 +218,10 @@ The example keeps one narrow path per page. It shows the raw method family and a
 ```ts
 const pc = new PermissionCore({ monsqlize: msq });
 await pc.init();
-const scoped = pc.scope({ tenantId: 'acme' });
+const scoped = pc.scope(
+  { tenantId: 'acme' },
+  { actorId: 'admin', requestId: 'req-42' },
+);
 const subject = pc.forSubject({ userId: 'u-1', scope: { tenantId: 'acme' } });
 const allowed = await subject.can('read', 'db:orders');
 await pc.close();

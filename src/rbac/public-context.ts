@@ -3,8 +3,10 @@ import type {
     PermissionScope,
     PermissionSubject,
     PolicyContext,
+    PreviewOptions,
     RoleManager,
     RoleMenuPermissionManager,
+    ScopedMutationDefaults,
     ScopedPermissionContext,
     SubjectMenuRuntime,
     SubjectDataRuntime,
@@ -20,6 +22,7 @@ import { mapDatabaseReadError, type PermissionRepository } from "../persistence/
 import type { RbacQueryService } from "./queries";
 import { SubjectAuthorizationRuntime } from "./runtime";
 import { loadEffectiveAuthorization } from "./effective";
+import { normalizePreviewOptions } from "./preview-inputs";
 import type { RbacScopeReader } from "./store";
 import { normalizeRbacId } from "./validation";
 import type { RbacPreviewService } from "./preview";
@@ -175,7 +178,22 @@ export function createScopedPermissionContext(
     scope: Readonly<PermissionScope>,
     services: ScopedRbacServices,
     run: RunPermissionOperation,
+    defaults?: ScopedMutationDefaults,
 ): ScopedPermissionContext {
+    const defaultOptions = defaults === undefined ? undefined : normalizePreviewOptions(defaults);
+    const mergeOptionalOptions = <TOptions extends object>(options?: TOptions): TOptions | undefined => {
+        if (defaultOptions === undefined) {
+            return options;
+        }
+        return Object.freeze({
+            ...defaultOptions,
+            ...(options ?? {}),
+        }) as TOptions;
+    };
+    const mergeRequiredOptions = <TOptions extends object>(options: TOptions): TOptions =>
+        mergeOptionalOptions(options) as TOptions;
+    const withDefaults = (nextDefaults: ScopedMutationDefaults) =>
+        createScopedPermissionContext(scope, services, run, mergeOptionalOptions<PreviewOptions>(nextDefaults));
     const query = <T>(operation: () => Promise<T>) => run(async () => {
         try {
             return await operation();
@@ -185,14 +203,14 @@ export function createScopedPermissionContext(
     });
     const menuPermissions: RoleMenuPermissionManager = {
         preview: (roleId, change, options) => query(() =>
-            services.roleMenu.businessMutations.preview(scope, roleId, change, options)),
+            services.roleMenu.businessMutations.preview(scope, roleId, change, mergeOptionalOptions(options))),
         grant: (roleId, selection, options) => run(() =>
-            services.roleMenu.businessMutations.grant(scope, roleId, selection, options)),
-        revoke: (roleId, input, options) => run(() => services.roleMenu.businessMutations.revoke(scope, roleId, input, options)),
+            services.roleMenu.businessMutations.grant(scope, roleId, selection, mergeRequiredOptions(options))),
+        revoke: (roleId, input, options) => run(() => services.roleMenu.businessMutations.revoke(scope, roleId, input, mergeRequiredOptions(options))),
         deny: (roleId, selection, options) => run(() =>
-            services.roleMenu.businessMutations.deny(scope, roleId, selection, options)),
+            services.roleMenu.businessMutations.deny(scope, roleId, selection, mergeRequiredOptions(options))),
         set: (roleId, assignments, options) => run(() =>
-            services.roleMenu.businessMutations.set(scope, roleId, assignments, options)),
+            services.roleMenu.businessMutations.set(scope, roleId, assignments, mergeRequiredOptions(options))),
         getDirect: (roleId) => query(() => services.roleMenu.queries.getBusinessDirect(scope, roleId)),
         listDirect: (roleId, options) => query(() => services.roleMenu.queries.listBusinessDirect(scope, roleId, options)),
         getEffective: (roleId) => query(() => services.roleMenu.queries.getBusinessEffective(scope, roleId)),
@@ -201,21 +219,21 @@ export function createScopedPermissionContext(
     Object.freeze(menuPermissions);
     const roles: RoleManager = {
         menuPermissions,
-        create: (input, options) => run(() => services.roles.create(scope, input, options)),
+        create: (input, options) => run(() => services.roles.create(scope, input, mergeOptionalOptions(options))),
         get: (roleId) => query(() => services.queries.getRole(scope, roleId)),
         list: (options) => query(() => services.queries.listRoles(scope, options)),
-        update: (roleId, patch, options) => run(() => services.roles.update(scope, roleId, patch, options)),
-        previewAccessUpdate: (roleId, patch, options) => query(() => services.previews.previewAccessUpdate(scope, roleId, patch, options)),
-        executeAccessUpdate: (roleId, patch, options) => run(() => services.previews.executeAccessUpdate(scope, roleId, patch, options)),
+        update: (roleId, patch, options) => run(() => services.roles.update(scope, roleId, patch, mergeRequiredOptions(options))),
+        previewAccessUpdate: (roleId, patch, options) => query(() => services.previews.previewAccessUpdate(scope, roleId, patch, mergeOptionalOptions(options))),
+        executeAccessUpdate: (roleId, patch, options) => run(() => services.previews.executeAccessUpdate(scope, roleId, patch, mergeRequiredOptions(options))),
         getRemovalImpact: (roleId) => query(() => services.queries.getRemovalImpact(scope, roleId)),
-        remove: (roleId, options) => run(() => services.roles.remove(scope, roleId, options)),
-        allow: (roleId, rule, options) => run(() => services.previews.allow(scope, roleId, rule, options)),
-        deny: (roleId, rule, options) => run(() => services.previews.deny(scope, roleId, rule, options)),
-        revoke: (roleId, selector, options) => run(() => services.previews.revoke(scope, roleId, selector, options)),
-        previewRuleChange: (roleId, change, options) => query(() => services.previews.previewRuleChange(scope, roleId, change, options)),
-        executeRuleChange: (roleId, change, options) => run(() => services.previews.executeRuleChange(scope, roleId, change, options)),
-        previewReplaceRules: (roleId, rules, options) => query(() => services.previews.previewReplaceRules(scope, roleId, rules, options)),
-        replaceRules: (roleId, rules, options) => run(() => services.previews.replaceRules(scope, roleId, rules, options)),
+        remove: (roleId, options) => run(() => services.roles.remove(scope, roleId, mergeRequiredOptions(options))),
+        allow: (roleId, rule, options) => run(() => services.previews.allow(scope, roleId, rule, mergeOptionalOptions(options))),
+        deny: (roleId, rule, options) => run(() => services.previews.deny(scope, roleId, rule, mergeOptionalOptions(options))),
+        revoke: (roleId, selector, options) => run(() => services.previews.revoke(scope, roleId, selector, mergeOptionalOptions(options))),
+        previewRuleChange: (roleId, change, options) => query(() => services.previews.previewRuleChange(scope, roleId, change, mergeOptionalOptions(options))),
+        executeRuleChange: (roleId, change, options) => run(() => services.previews.executeRuleChange(scope, roleId, change, mergeRequiredOptions(options))),
+        previewReplaceRules: (roleId, rules, options) => query(() => services.previews.previewReplaceRules(scope, roleId, rules, mergeOptionalOptions(options))),
+        replaceRules: (roleId, rules, options) => run(() => services.previews.replaceRules(scope, roleId, rules, mergeRequiredOptions(options))),
         getOwnRules: (roleId) => query(() => services.queries.getOwnRules(scope, roleId)),
         listOwnRules: (roleId, options) => query(() => services.queries.listOwnRules(scope, roleId, options)),
         getEffectiveRules: (roleId) => query(() => services.queries.getEffectiveRules(scope, roleId)),
@@ -223,31 +241,31 @@ export function createScopedPermissionContext(
     };
     Object.freeze(roles);
     const userRoles: UserRoleManager = {
-        assign: (userId, roleId, options) => run(() => services.userRoles.assign(scope, userId, roleId, options)),
-        revoke: (userId, roleId, options) => run(() => services.userRoles.revoke(scope, userId, roleId, options)),
-        set: (userId, roleIds, options) => run(() => services.userRoles.set(scope, userId, roleIds, options)),
-        clear: (userId, options) => run(() => services.userRoles.clear(scope, userId, options)),
+        assign: (userId, roleId, options) => run(() => services.userRoles.assign(scope, userId, roleId, mergeOptionalOptions(options))),
+        revoke: (userId, roleId, options) => run(() => services.userRoles.revoke(scope, userId, roleId, mergeOptionalOptions(options))),
+        set: (userId, roleIds, options) => run(() => services.userRoles.set(scope, userId, roleIds, mergeRequiredOptions(options))),
+        clear: (userId, options) => run(() => services.userRoles.clear(scope, userId, mergeRequiredOptions(options))),
         getDirect: (userId) => query(() => services.queries.getDirectUserRoles(scope, userId)),
         getEffective: (userId) => query(() => services.queries.getEffectiveUserRoles(scope, userId)),
         listUsersByRole: (roleId, options) => query(() => services.queries.listUsersByRole(scope, roleId, options)),
     };
     Object.freeze(userRoles);
     const config: ScopedPermissionContext["menus"]["config"] = {
-        preview: (input, options) => query(() => services.menuManagement.config.preview(scope, input, options)),
-        save: (input, options) => run(() => services.menuManagement.config.save(scope, input, options)),
+        preview: (input, options) => query(() => services.menuManagement.config.preview(scope, input, mergeOptionalOptions(options))),
+        save: (input, options) => run(() => services.menuManagement.config.save(scope, input, mergeRequiredOptions(options))),
         get: (configId) => query(() => services.menuManagement.config.get(scope, configId)),
         list: (options) => query(() => services.menuManagement.config.list(scope, options)),
-        previewRemove: (configId, options) => query(() => services.menuManagement.config.previewRemove(scope, configId, options)),
-        remove: (configId, options) => run(() => services.menuManagement.config.remove(scope, configId, options)),
-        previewChanges: (changes, options) => query(() => services.menuManagement.config.previewChanges(scope, changes, options)),
-        applyChanges: (changes, options) => run(() => services.menuManagement.config.applyChanges(scope, changes, options)),
+        previewRemove: (configId, options) => query(() => services.menuManagement.config.previewRemove(scope, configId, mergeOptionalOptions(options))),
+        remove: (configId, options) => run(() => services.menuManagement.config.remove(scope, configId, mergeRequiredOptions(options))),
+        previewChanges: (changes, options) => query(() => services.menuManagement.config.previewChanges(scope, changes, mergeOptionalOptions(options))),
+        applyChanges: (changes, options) => run(() => services.menuManagement.config.applyChanges(scope, changes, mergeRequiredOptions(options))),
     };
     Object.freeze(config);
     const management: ScopedPermissionContext["menus"]["management"] = {
         previewChanges: (configId, changes, options) => query(() =>
-            services.menuManagement.config.previewManagementChanges(scope, configId, changes, options)),
+            services.menuManagement.config.previewManagementChanges(scope, configId, changes, mergeOptionalOptions(options))),
         applyChanges: (configId, changes, options) => run(() =>
-            services.menuManagement.config.applyManagementChanges(scope, configId, changes, options)),
+            services.menuManagement.config.applyManagementChanges(scope, configId, changes, mergeOptionalOptions(options))),
     };
     Object.freeze(management);
     const configs: ScopedPermissionContext["menus"]["configs"] = {
@@ -305,7 +323,14 @@ export function createScopedPermissionContext(
     };
     Object.freeze(responses);
     const menus = Object.freeze({ config, management, configs, items, views, loadApis, actions, responses });
-    return Object.freeze({ roles, userRoles, menus });
+    const facade = { roles, userRoles, menus } as ScopedPermissionContext;
+    Object.defineProperty(facade, "withDefaults", {
+        value: withDefaults,
+        enumerable: false,
+        configurable: false,
+        writable: false,
+    });
+    return Object.freeze(facade);
 }
 
 export function createSubjectPermissionContext(

@@ -106,6 +106,8 @@ export interface PreviewOptions {
     requestId?: string;
 }
 
+export type ScopedMutationDefaults = PreviewOptions;
+
 export type RequiredRevisionOptions = MutationOptions & {
     expectedRevision: number;
     expectedRevisions?: never;

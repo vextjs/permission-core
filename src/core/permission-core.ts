@@ -11,6 +11,7 @@ import type {
     PermissionScope,
     PermissionSubject,
     PolicyContext,
+    ScopedMutationDefaults,
     SubjectPermissionContext,
     SubjectRuntimeResult,
     ScopedPermissionContext,
@@ -466,13 +467,14 @@ export class PermissionCore {
         );
     }
 
-    scope(scopeInput: PermissionScope): ScopedPermissionContext {
+    scope(scopeInput: PermissionScope, defaults?: ScopedMutationDefaults): ScopedPermissionContext {
         const services = this.requireRbacServices();
         const scope = normalizeScope(scopeInput);
         return createScopedPermissionContext(
             scope,
             services,
             (operation) => this.runPermissionOperation(operation),
+            defaults,
         );
     }
 

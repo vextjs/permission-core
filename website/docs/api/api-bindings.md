@@ -2,11 +2,11 @@
 
 ## Purpose and preconditions
 
-This page describes API and response-field configuration inside `MenuConfigInput`. Applications no longer need to directly create API bindings through a public manager. Declare `load`, `actions`, and `response` in the menu config; `menus.config.save()` compiles the internal endpoint contracts.
+This page describes API and response-field configuration inside menu configs. Admin pages can maintain these pieces incrementally with `menus.loadApis/actions/responses`; config-as-code can declare `load`, `actions`, and `response` inside `MenuConfigInput`. Public code no longer needs to create API bindings directly. permission-core compiles internal endpoint contracts when the menu config is saved.
 
 Before using it:
 
-- You have a `MenuConfigInput`.
+- You have a menu config, either from `menus.configs.create()` or a complete `MenuConfigInput`.
 - API resources use `ApiResource` in `api:METHOD:/path` form.
 - Response fields are declared in config before role-menu grants select them.
 
@@ -14,11 +14,11 @@ Before using it:
 
 | Goal | Field or API | Notes |
 |---|---|---|
-| Declare a load API | `MenuConfigInput.load` | Use `load.resource`; permission-core automatically treats it as `invoke`. |
-| Declare an action API | `MenuConfigInput.actions` | Use `actions[].resource`; `api:*` actions can also declare `response`. |
-| Declare response fields | `response` / `ResponseProjectionConfigInput` | Use array form for direct objects or `{ target, preserve, fields }` for paged responses. |
-| Runtime check | `subject.assert()` / `subject.menus.filterResponse()` | Guard the API and project the response by granted fields. |
-| Common errors | validation errors and permission errors | Check invalid resource format, field path conflicts, missing grants, and no-allow results. |
+| Declare a load API | `menus.loadApis.add()` / `MenuConfigInput.load` | Use `resource`; permission-core automatically treats it as `invoke`. |
+| Declare an action API | `menus.actions.create()` / `MenuConfigInput.actions` | Use `resource`; `api:*` actions can also declare `response`. |
+| Declare response fields | `menus.responses.set()` / `response` | `menus.responses.set()` uses object form; inline `MenuConfigInput` config can use an array or `{ target, preserve, fields }`. |
+| Runtime check | `subject.assert()` / `subject.menus.filterResponse()` | Guard the API first, then project the response by granted fields; the projected value is in `data`. |
+| Common errors | validation errors and permission errors | Check invalid resource format, field path conflicts, missing field grants, and default deny. |
 
 ## Signatures
 
@@ -33,9 +33,13 @@ actions[].response?: ResponseProjectionInput
 
 MenuConfigInput.response?: ResponseProjectionConfigInput
 response?: ResponseProjectionConfigInput
+
+menus.loadApis.add(configId: string, viewId: string, input: MenuLoadApiAddInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.actions.create(configId: string, viewId: string, input: MenuActionCreateInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.responses.set(configId: string, input: MenuResponseSetInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
 ```
 
-Signature markers: `load.resource: ApiResource`, `actions[].resource: ApiResource | UiResource`, `response?: ResponseProjectionConfigInput`.
+Signature markers: `load.resource: ApiResource`, `actions[].resource: ApiResource | UiResource`, and `response?: ResponseProjectionConfigInput`. For ordinary incremental APIs, bind `actorId/requestId` once with `pc.scope(scope, defaults)`, then call the object methods directly; the system derives the idempotency key while performing internal preview and commit automatically. Use explicit `expected/previewToken` from the matching `preview*()` method for cascade delete, grant-revoking delete, or rejected auto-commit.
 
 ## Parameters
 
@@ -46,7 +50,7 @@ Signature markers: `load.resource: ApiResource`, `actions[].resource: ApiResourc
 | Field | Type | Required/default | Meaning |
 |---|---|---|---|
 | `resource` | `ApiResource` | Required | View load API, for example `api:GET:/api/orders`. The system treats it as `invoke`; do not write action separately. |
-| `response` | `ResponseProjectionInput` | Optional | Response fields that can be granted for this API. |
+| `response` | `ResponseProjectionInput` | Optional | Response fields that can be granted for this API; inline `MenuConfigInput` config accepts array or object form. |
 | `meta` | `Record<string, PolicyValue>` | Optional | Custom admin metadata. |
 
 ### `MenuActionInput`
@@ -55,9 +59,9 @@ Signature markers: `load.resource: ApiResource`, `actions[].resource: ApiResourc
 |---|---|---|---|
 | `id` | `string` | Optional | Action ID; the compiler can generate one, but explicit IDs are easier to manage. |
 | `title` | `string` | Required | Action display name. |
-| `resource` | `ApiResource \| UiResource` | Required | Backend APIs use `api:`, frontend-only actions use `ui:`. |
+| `resource` | `ApiResource \| UiResource` | Required | Backend APIs use `api:`, frontend-only buttons use `ui:`. |
 | `opens` | `string` | Optional | View ID opened by the action. |
-| `response` | `ResponseProjectionInput` | Optional | Field config for the action API response. |
+| `response` | `ResponseProjectionInput` | Optional | Field config for the action API response; meaningful only for `api:*` actions. |
 | `enabled` | `boolean` | Default `true` | Whether the action is active. |
 | `i18nKey/meta` | Display metadata | Optional | For frontend or management UI. |
 
@@ -69,9 +73,9 @@ Signature markers: `load.resource: ApiResource`, `actions[].resource: ApiResourc
 | `target` | `string` | Optional | Object or array path to project, such as `items` or `data.items`. |
 | `preserve` | `string[]` | Default `[]` | Outer fields to keep without field grants, such as `total` or `cursor`. |
 
-`ResponseProjectionInput` can be a field array or an object with `{ target, preserve, fields }`.
+`ResponseProjectionInput` can be a field array or an object with `{ target, preserve, fields }`. That is the inline convenience form for `MenuConfigInput.load[].response` and `actions[].response`; `menus.responses.set()` should use object form, such as `response: { fields: [...] }`.
 
-## Load API field
+## Method details: page load APIs
 
 <span id="menu-config-input-load"></span>
 ### `MenuConfigInput.load`
@@ -99,14 +103,14 @@ load: [{
 }]
 ```
 
-## Action API field
+## Method details: page action APIs
 
 <span id="menu-config-input-actions"></span>
 ### `MenuConfigInput.actions`
 
 <!-- docs:method name=MenuConfigInput.actions locale=en -->
 
-- **Purpose**: Declare buttons, toolbar actions, or row actions under a view.
+- **Purpose**: Declare buttons, toolbar actions, or row operations under a view.
 - **Parameters**: `actions[].resource` is `ApiResource | UiResource`; use `api:` when the action calls the backend.
 - **State impact**: Saving the config creates grantable actions; selecting `include.actions: true` creates action or API permission sources.
 - **Raw return**: The field has no standalone return. User-side state is read with `subject.menus.getActionMap()`.
@@ -122,7 +126,7 @@ actions: [{
 }]
 ```
 
-## Response field projection
+## Method details: response fields
 
 <span id="menu-config-input-response"></span>
 ### `MenuConfigInput.response`
@@ -130,7 +134,7 @@ actions: [{
 <!-- docs:method name=MenuConfigInput.response locale=en -->
 
 - **Purpose**: Define which fields in an API response can be granted to roles.
-- **Parameters**: Array form declares fields directly; object form uses `target/preserve/fields` for paginated or nested responses.
+- **Parameters**: Array form declares fields directly; object form uses `target/preserve/fields` for paginated or nested responses. When calling `menus.responses.set()` incrementally, wrap it in object form: `response: { fields: [...] }`.
 - **State impact**: Saving the config creates field inventory. After role grants select `responseFields`, `filterResponse()` returns only those fields.
 - **Raw return**: Field declarations appear in `MenuConfigSnapshot` load/action responses; runtime projection appears in `SubjectRuntimeResult.data`.
 
@@ -158,14 +162,15 @@ response: {
 
 ## Responses and side effects
 
-`load/actions/response` are config fields, not standalone mutation methods. Their validation and compiled results surface through these APIs:
+`load/actions/response` are config fields, not standalone mutation envelopes. Their validation and compiled results surface through these APIs:
 
 | Operation | Result |
 |---|---|
+| `menus.loadApis.add()` / `menus.actions.create()` / `menus.responses.set()` | Incrementally saves APIs, actions, and response fields and returns `MenuManagementResult`. |
 | `menus.config.preview(config)` | Previews whether the config is valid and which internal assets it creates. |
 | `menus.config.save(config, options)` | Saves the config and returns `MenuConfigSaveResult`. |
 | `roles.menuPermissions.preview/grant` | Selects load, action, and responseFields and creates role sources. |
-| `subject.menus.filterResponse(apiResource, payload)` | Projects response fields for the current user. |
+| `subject.menus.filterResponse(apiResource, payload)` | Projects response fields for the current user; the projected payload is in `data`. |
 
 ```json
 {
@@ -184,6 +189,8 @@ response: {
 
 `load.resource` must be an `api:` resource. `actions[].resource` must use a supported resource scheme. Field paths cannot be empty or unsafe, and role grants cannot select undeclared fields. `preserve` bypasses field grants, so keep it for structural fields, not sensitive business fields.
 
+For incremental response-field configuration, remember that `menus.responses.set()` expects `input.response` to be a `ResponseProjectionConfigInput` object, not an array. For a direct-object response, write `{ fields: [...] }`.
+
 ## Example
 
 ```ts
@@ -192,6 +199,7 @@ const selection = {
   views: ['orders-list'],
   responseFields: [{
     apiResource: 'api:GET:/api/orders',
+    target: 'items',
     fields: ['orderNo', 'status'],
   }],
   include: { loads: true, actions: true, responseFields: 'none' },
@@ -201,6 +209,7 @@ const projected = await subject.menus.filterResponse('api:GET:/api/orders', {
   items: [{ orderNo: 'O-1001', status: 'paid', amount: 88 }],
   total: 1,
 });
+const projectedData = projected.data;
 ```
 
 ```json

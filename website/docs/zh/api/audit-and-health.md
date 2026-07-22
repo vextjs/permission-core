@@ -34,7 +34,7 @@ interface MutationResult<T> {
 }
 ```
 
-管理选项可以包含 `actorId`、`reason`、`requestId`、`idempotencyKey`。这些值会成为有界关联证据，但不会授予变更权限。
+管理选项可以包含 `actorId`、`reason`、`requestId`、`idempotencyKey`。这些值会成为有界关联证据，但不会授予变更权限。直接写入时，如果提供 `requestId` 且没有显式 `idempotencyKey`，核心会自动派生内部幂等键。
 
 ## 方法与字段详解
 
@@ -78,8 +78,8 @@ interface MutationResult<T> {
 |---|:---:|---|
 | `actorId` | 否 | 记录谁发起管理变更。 |
 | `reason` | 否 | 记录为什么变更。 |
-| `requestId` | 否 | 与宿主请求/日志关联。 |
-| `idempotencyKey` | 否 | 对同一直接写入安全重放；相同 key 不同 input 会冲突。 |
+| `requestId` | 否 | 与宿主请求/日志关联；存在时核心会自动派生内部幂等键。 |
+| `idempotencyKey` | 否 | 高级覆盖项；接入外部幂等协议时使用。相同 key 不同 input 会冲突。 |
 
 ## 响应与副作用
 
@@ -115,7 +115,7 @@ interface MutationResult<T> {
 ```ts
 const result = await scoped.roles.create(
   { id: 'operator', label: 'Operator' },
-  { actorId: 'admin-7', reason: 'Initial setup', requestId: 'req-42', idempotencyKey: 'role:operator:v1' },
+  { actorId: 'admin-7', reason: 'Initial setup', requestId: 'req-42' },
 );
 businessAudit.info({ operationId: result.operationId, auditId: result.auditId });
 ```

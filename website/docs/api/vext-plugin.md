@@ -9,7 +9,7 @@ Before using it:
 - Node.js is `>=20.19.0`.
 - The host provides a connected MonSQLize 3.1 instance.
 - The authentication plugin runs first and writes trusted identity to `req.auth`.
-- Response-field projection requires the matching `api:` resource and fields to be saved through `menus.config.save()`.
+- Response-field projection requires the matching `api:` resource and fields to be saved through `menus.responses.set()` or `menus.config.save()`.
 
 ## Signatures
 

@@ -3,7 +3,10 @@ import { printExample, startExampleCore } from "./_support/host.mjs";
 // docs:basic:start
 const runtime = await startExampleCore("basic");
 const scope = { tenantId: "acme" };
-const scoped = runtime.core.scope(scope);
+const scoped = runtime.core.scope(scope, {
+    actorId: "admin",
+    requestId: "req-basic",
+});
 
 try {
     await scoped.roles.create({ id: "order-reader", label: "Order reader" });
@@ -24,7 +27,6 @@ try {
     const beforeSet = await scoped.userRoles.getDirect("u-1");
     const replaced = await scoped.userRoles.set("u-1", ["order-reader"], {
         expectedRevision: beforeSet.data.revision,
-        actorId: "admin",
     });
 
     const role = await scoped.roles.get("order-reader");

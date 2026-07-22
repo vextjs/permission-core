@@ -165,6 +165,24 @@ export function normalizeMutationOptions(value?: MutationOptions): NormalizedMut
     return normalizeMutationOptionSnapshot(snapshotOptions(value, OPTION_KEYS));
 }
 
+function withAutoIdempotencyKey(
+    options: NormalizedMutationOptions,
+    operation: InternalManagementAuditOperation,
+    requestHash: string,
+): NormalizedMutationOptions {
+    if (options.idempotencyKey !== undefined || options.requestId === undefined) {
+        return options;
+    }
+    return deepFreeze({
+        ...options,
+        idempotencyKey: `auto:${digestCanonical({
+            requestId: options.requestId,
+            operation,
+            requestHash,
+        })}`,
+    });
+}
+
 export function normalizeRequiredRevisionOptions(value: unknown): NormalizedRequiredRevisionOptions {
     const snapshot = snapshotOptions(value, [...OPTION_KEYS, "expectedRevision"]);
     if (!Object.hasOwn(snapshot, "expectedRevision")) {
@@ -425,7 +443,8 @@ export class ManagementMutationExecutor {
             operation: input.operation,
             request: input.request,
         });
-        const replayInput = { ...input, scope };
+        const options = withAutoIdempotencyKey(input.options, input.operation, requestHash);
+        const replayInput = { ...input, scope, options };
         const existing = await this.findReplay(replayInput, requestHash);
         if (existing !== null) {
             const settled = await this.settleCacheOutcome(existing);
@@ -437,13 +456,13 @@ export class ManagementMutationExecutor {
         let committed: InternalAuditEntryDocument;
         try {
             committed = await this.repository.withTransaction(async (transaction) => {
-                const concurrentReplay = input.options.idempotencyKey === undefined
+                const concurrentReplay = options.idempotencyKey === undefined
                     ? null
                     : await this.repository.audits.findIdempotentReplay(
                         scope,
-                        input.options.actorId,
+                        options.actorId,
                         input.operation,
-                        input.options.idempotencyKey,
+                        options.idempotencyKey,
                         requestHash,
                         transaction.session,
                     );
@@ -504,13 +523,13 @@ export class ManagementMutationExecutor {
                     auditId,
                     operationId,
                     scope,
-                    actorId: input.options.actorId,
+                    actorId: options.actorId,
                     operation: input.operation,
                     action: input.action,
                     resource: input.resource,
-                    ...(input.options.requestId === undefined ? {} : { requestId: input.options.requestId }),
-                    ...(input.options.reason === undefined ? {} : { reason: input.options.reason }),
-                    ...(input.options.idempotencyKey === undefined ? {} : { idempotencyKey: input.options.idempotencyKey }),
+                    ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
+                    ...(options.reason === undefined ? {} : { reason: options.reason }),
+                    ...(options.idempotencyKey === undefined ? {} : { idempotencyKey: options.idempotencyKey }),
                     idempotencyRequestHash: requestHash,
                     ...(work.validatedPlanHash === undefined ? {} : { validatedPlanHash: work.validatedPlanHash }),
                     change: toPolicyValue(work.change),

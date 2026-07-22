@@ -21,12 +21,12 @@ npm run example:menu-admin
 ```js
 const runtime = await startExampleCore("menu-admin");
 const scope = { tenantId: "acme", appId: "admin" };
-const scoped = runtime.core.scope(scope);
-
-const savedConfig = await scoped.menus.management.applyChanges("admin", menuChanges, {
+const scoped = runtime.core.scope(scope, {
   actorId: "admin",
-  idempotencyKey: "example-menu-config-incremental-save",
+  requestId: "req-example-menu-admin",
 });
+
+const savedConfig = await scoped.menus.management.applyChanges("admin", menuChanges);
 
 await scoped.roles.create({ id: "order-operator", label: "Order operator" });
 const selection = {
@@ -42,13 +42,10 @@ const selection = {
 const grantPreview = await scoped.roles.menuPermissions.preview(
   "order-operator",
   { operation: "grant", selection },
-  { actorId: "admin" },
 );
 const granted = await scoped.roles.menuPermissions.grant("order-operator", selection, {
   ...grantPreview.expected,
   previewToken: grantPreview.previewToken,
-  actorId: "admin",
-  idempotencyKey: "example-menu-role-grant",
 });
 await scoped.userRoles.assign("u-menu", "order-operator");
 

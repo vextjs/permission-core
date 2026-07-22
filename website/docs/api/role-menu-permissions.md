@@ -7,8 +7,10 @@
 Before using it:
 
 - The role exists.
-- The menu config has been saved with `scoped.menus.config.save()`.
+- The menu config has been saved with `scoped.menus.management.applyChanges()`, `scoped.menus.configs/items/views/loadApis/actions/responses.*()`, or `scoped.menus.config.save()`.
 - Every write is previewed first, and execution receives the same input, `expected`, and `previewToken`.
+
+This explicit preview/execute flow is intentional here. Ordinary incremental menu-config saves can auto-preview and commit, but role-menu authorization changes real access for a role and may affect many users, so the admin UI should show impact before committing.
 
 ## What Do You Want to Do?
 
@@ -51,7 +53,7 @@ Signature markers: `change: MenuBusinessPermissionChange`, `selection: MenuBusin
 | `actions` | `string[]` | Optional | Exact selected action IDs. |
 | `responseFields` | `MenuBusinessResponseFieldSelection[]` | Optional | Selected response fields for an API. |
 | `include.descendants` | `boolean` | Default `false` | Include child menus and views when selecting menus. |
-| `include.loads` | `boolean` | Default `false` | Include load APIs from selected views. |
+| `include.loads` | `boolean` | Default `true` | Include load APIs from selected views. |
 | `include.actions` | `boolean` | Default `false` | Include actions from selected views. |
 | `include.responseFields` | `'none' \| 'all'` | Default `'none'` | Whether to auto-include all response fields from selected APIs. |
 
@@ -60,11 +62,12 @@ Each `responseFields` item looks like:
 ```ts
 {
   apiResource: 'api:GET:/api/orders',
+  target: 'items',
   fields: ['orderNo', 'status'],
 }
 ```
 
-`fields` must come from fields declared for that API in the menu config. Use `include.responseFields: 'all'` to grant every field, or `'none'` plus explicit `responseFields` for precise control.
+`fields` must come from fields declared for that API in the menu config. For paginated responses, write `target`, such as `items` or `data.items`; if one API has multiple response targets, omitting `target` is rejected as ambiguous. Use `include.responseFields: 'all'` to grant every field, or `'none'` plus explicit `responseFields` for precise control.
 
 <!-- docs:params owner=MenuBusinessPermissionChange locale=en -->
 
@@ -207,6 +210,7 @@ const selection = {
   views: ['orders-list'],
   responseFields: [{
     apiResource: 'api:GET:/api/orders',
+    target: 'items',
     fields: ['orderNo', 'status'],
   }],
   include: { loads: true, actions: true, responseFields: 'none' },

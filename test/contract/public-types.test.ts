@@ -82,6 +82,10 @@ if (false) {
         userId: "u-1",
         scope: { tenantId: "tenant-a" },
     };
+    const scopedWithDefaults = new PermissionCore(minimal).scope(
+        { tenantId: "tenant-a", appId: "admin" },
+        { actorId: "admin", requestId: "req-admin-page" },
+    );
     const detail: PermissionCoreErrorDetails = { kind: "validation", reason: "example" };
     const data = null as unknown as SubjectDataRuntime;
     const menuManagement = null as unknown as MenuConfigRootManager["management"];
@@ -91,13 +95,23 @@ if (false) {
         { amount: number }
     >("orders", { resource: "db:orders", scopeFields: { tenantId: "tenantId" } });
     void orders.insertOne({ amount: 10 });
+    void scopedWithDefaults.withDefaults({ actorId: "ops" }).roles.create({ id: "operator", label: "Operator" });
+    void scopedWithDefaults.menus.management.applyChanges("admin", menuManagementChanges);
+    void scopedWithDefaults.menus.items.create("admin", { id: "orders", title: "Orders" });
+    void scopedWithDefaults.menus.views.create("admin", "orders", {
+        id: "orders-list",
+        type: "page",
+        title: "Orders list",
+        path: "/orders",
+        component: "OrdersList",
+    });
     void menuManagement.applyChanges("admin", menuManagementChanges, { actorId: "admin", idempotencyKey: "auto" });
     void menuManagement.applyChanges("admin", menuManagementChanges, {
         actorId: "admin",
         expectedRevisions: { global: 0, menu: 0, entities: [] },
         previewToken: "preview-token",
     });
-    void [minimal, disabled, enabled, health, subject, detail, data, orders, menuManagement];
+    void [minimal, disabled, enabled, health, subject, scopedWithDefaults, detail, data, orders, menuManagement];
 
     // @ts-expect-error Empty cache objects are not a third configuration state.
     new PermissionCore({ monsqlize, cache: {} });

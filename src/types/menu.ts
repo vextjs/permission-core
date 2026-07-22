@@ -369,61 +369,61 @@ export interface MenuConfigManager {
 
 export interface MenuManagementManager {
     previewChanges(configId: string, changes: NonEmptyMenuManagementChangeArray, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    applyChanges(configId: string, changes: NonEmptyMenuManagementChangeArray, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    applyChanges(configId: string, changes: NonEmptyMenuManagementChangeArray, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
 }
 
 export interface MenuConfigsManager {
     previewCreate(input: MenuConfigCreateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    create(input: MenuConfigCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    create(input: MenuConfigCreateInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
     previewUpdate(configId: string, patch: MenuConfigUpdateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    update(configId: string, patch: MenuConfigUpdateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    update(configId: string, patch: MenuConfigUpdateInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
     get(configId: string): Promise<VersionedResult<MenuConfigSnapshot>>;
     list(query?: MenuConfigListQuery): Promise<PageResult<MenuConfigSummary>>;
     previewRemove(configId: string, input?: MenuManagementRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    remove(configId: string, input: MenuManagementRemoveInput | undefined, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    remove(configId: string, input?: MenuManagementRemoveInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
 }
 
 export interface MenuItemsManager {
     previewCreate(configId: string, input: MenuItemCreateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    create(configId: string, input: MenuItemCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    create(configId: string, input: MenuItemCreateInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
     previewUpdate(configId: string, menuId: string, patch: MenuItemUpdateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    update(configId: string, menuId: string, patch: MenuItemUpdateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    update(configId: string, menuId: string, patch: MenuItemUpdateInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
     previewRemove(configId: string, menuId: string, input?: MenuManagementRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    remove(configId: string, menuId: string, input: MenuManagementRemoveInput | undefined, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    remove(configId: string, menuId: string, input?: MenuManagementRemoveInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
 }
 
 export interface MenuViewsManager {
     previewCreate(configId: string, menuId: string, input: MenuViewCreateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    create(configId: string, menuId: string, input: MenuViewCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    create(configId: string, menuId: string, input: MenuViewCreateInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
     previewUpdate(configId: string, viewId: string, patch: MenuViewUpdateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    update(configId: string, viewId: string, patch: MenuViewUpdateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    update(configId: string, viewId: string, patch: MenuViewUpdateInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
     previewRemove(configId: string, viewId: string, input?: MenuManagementRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    remove(configId: string, viewId: string, input: MenuManagementRemoveInput | undefined, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    remove(configId: string, viewId: string, input?: MenuManagementRemoveInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
 }
 
 export interface MenuLoadApisManager {
     previewAdd(configId: string, viewId: string, input: MenuLoadApiAddInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    add(configId: string, viewId: string, input: MenuLoadApiAddInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    add(configId: string, viewId: string, input: MenuLoadApiAddInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
     previewUpdate(configId: string, viewId: string, resource: ApiResource, patch: MenuLoadApiUpdateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    update(configId: string, viewId: string, resource: ApiResource, patch: MenuLoadApiUpdateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    update(configId: string, viewId: string, resource: ApiResource, patch: MenuLoadApiUpdateInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
     previewRemove(configId: string, viewId: string, resource: ApiResource, input?: MenuManagementRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    remove(configId: string, viewId: string, resource: ApiResource, input: MenuManagementRemoveInput | undefined, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    remove(configId: string, viewId: string, resource: ApiResource, input?: MenuManagementRemoveInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
 }
 
 export interface MenuActionsManager {
     previewCreate(configId: string, viewId: string, input: MenuActionCreateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    create(configId: string, viewId: string, input: MenuActionCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    create(configId: string, viewId: string, input: MenuActionCreateInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
     previewUpdate(configId: string, viewId: string, actionId: string, patch: MenuActionUpdateInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    update(configId: string, viewId: string, actionId: string, patch: MenuActionUpdateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    update(configId: string, viewId: string, actionId: string, patch: MenuActionUpdateInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
     previewRemove(configId: string, viewId: string, actionId: string, input?: MenuManagementRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    remove(configId: string, viewId: string, actionId: string, input: MenuManagementRemoveInput | undefined, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    remove(configId: string, viewId: string, actionId: string, input?: MenuManagementRemoveInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
 }
 
 export interface MenuResponsesManager {
     previewSet(configId: string, input: MenuResponseSetInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    set(configId: string, input: MenuResponseSetInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    set(configId: string, input: MenuResponseSetInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
     previewRemove(configId: string, input: MenuResponseRemoveInput, options?: MenuManagementPreviewOptions): Promise<ImpactPreview<MenuManagementPlan>>;
-    remove(configId: string, input: MenuResponseRemoveInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
+    remove(configId: string, input: MenuResponseRemoveInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>;
 }
 
 export interface MenuConfigRootManager {

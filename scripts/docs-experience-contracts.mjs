@@ -64,7 +64,7 @@ export const diagramContracts = [
     {
         id: "role-menu-relationship",
         path: "guide/role-menu-authorization.md",
-        kind: "flowchart TD",
+        kind: "flowchart LR",
         locales: {
             en: {
                 title: "Role-menu authorization relationship",
@@ -79,15 +79,15 @@ export const diagramContracts = [
     {
         id: "menu-config-lifecycle",
         path: "guide/menu-management.md",
-        kind: "flowchart TD",
+        kind: "flowchart LR",
         locales: {
             en: {
-                title: "Menu config lifecycle",
-                description: "A MenuConfigInput is previewed and saved, role-menu grants assign its capabilities, user-role bindings activate them for a user, and subject runtime projects UI state and response fields.",
+                title: "Menu config to API protection flow",
+                description: "The admin side creates a menu config, menus, and views, then configures page load APIs, action APIs or UI permissions, and response fields. Role grants assign those capabilities, and backend guards protect APIs and response fields.",
             },
             zh: {
-                title: "菜单配置生命周期",
-                description: "管理端逐项创建配置、菜单、页面、接口和响应字段后，角色菜单授权分配其中能力，用户绑定角色后，subject runtime 投影前端状态和响应字段。",
+                title: "菜单配置到接口保护流程",
+                description: "管理端先创建菜单配置、菜单和页面，再配置页面加载接口、按钮接口或 UI 权限、接口响应字段；随后给角色授权这些能力，并在后端保护接口和响应字段。",
             },
         },
     },
@@ -241,11 +241,8 @@ export const operationPageContracts = [
         operations: [
             {
                 id: "menu-model",
-                headings: { en: "1. Preview and save the menu config", zh: "1. 保存菜单配置" },
-                calls: ["menus.config.preview", "menus.config.save"],
-                callsByLocale: {
-                    zh: ["menus.management.applyChanges"],
-                },
+                headings: { en: "1. Save the menu config", zh: "1. 保存菜单配置" },
+                calls: ["menus.management.applyChanges"],
                 outputs: ["config"],
                 apiPaths: ["/api/menus"],
             },
@@ -272,7 +269,7 @@ export const operationPageContracts = [
             },
         ],
         outputGroups: [
-            { group: "config", producer: "menu-model", producerToken: "menus.config.save", producerTokenByLocale: { zh: "menus.management.applyChanges" } },
+            { group: "config", producer: "menu-model", producerToken: "menus.management.applyChanges" },
             { group: "roleGrant", producer: "menu-grant", producerToken: "menuPermissions.grant" },
             { group: "subjectRuntime", producer: "menu-subject", producerToken: "filterResponse" },
         ],

@@ -17,6 +17,7 @@ import type {
     PreviewOptions,
     RequiredRevisionOptions,
     RequiredRevisionVectorOptions,
+    ScopedMutationDefaults,
     SubjectRuntimeResult,
     VersionedResult,
 } from "./management";
@@ -339,6 +340,7 @@ export interface UserRoleManager {
 }
 
 export interface ScopedPermissionContext {
+    withDefaults(defaults: ScopedMutationDefaults): ScopedPermissionContext;
     readonly roles: RoleManager;
     readonly userRoles: UserRoleManager;
     readonly menus: MenuConfigRootManager;

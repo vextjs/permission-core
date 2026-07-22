@@ -67,6 +67,7 @@ export type {
     RequiredRevisionVectorOptions,
     ResponseDetailBudget,
     RevisionVector,
+    ScopedMutationDefaults,
     SubjectRuntimeResult,
     VersionedResult,
 } from "./management";

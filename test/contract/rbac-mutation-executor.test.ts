@@ -74,6 +74,8 @@ function repositoryHarness() {
             actorId: input.actorId,
             operation: input.operation,
             action: input.action,
+            reason: input.reason,
+            requestId: input.requestId,
             idempotencyKey: input.idempotencyKey,
             idempotencyRequestHash: input.idempotencyRequestHash,
             revisionsBefore: input.revisionsBefore,
@@ -295,6 +297,54 @@ describe("RbacMutationExecutor", () => {
             expect.objectContaining({ idempotencyKey: "create-operator", reason: "first reason", requestId: "request-1" }),
             expect.anything(),
         );
+    });
+
+    it("derives an internal idempotency key from requestId when callers do not provide one", async () => {
+        const harness = repositoryHarness();
+        const executor = new RbacMutationExecutor(harness.repository, new ResourceSchemeRegistry());
+        const work = vi.fn(async () => ({
+            changed: true,
+            data: { value: "created" },
+            primaryRevision: 1,
+            entity: { kind: "role" as const, id: "operator", before: 0, after: 1 },
+            change: { kind: "role-created" },
+            cacheTargets: ["scope:test:rbac"],
+        }));
+        const input = {
+            ...mutationInput(work),
+            options: normalizeMutationOptions({
+                actorId: "admin",
+                requestId: "request-auto",
+            }),
+        };
+
+        const first = await executor.execute(input);
+        const replay = await executor.execute(input);
+        const persisted = await harness.spies.append.mock.results[0]!.value as InternalAuditEntryDocument;
+
+        expect(replay).toMatchObject({ operationId: first.operationId, replayed: true });
+        expect(work).toHaveBeenCalledTimes(1);
+        expect(persisted).toMatchObject({
+            actorId: "admin",
+            requestId: "request-auto",
+            idempotencyKey: expect.stringMatching(/^auto:[A-Za-z0-9_-]{43}$/),
+        });
+
+        const changedInputWork = vi.fn(async () => ({
+            changed: true,
+            data: { value: "created-other" },
+            primaryRevision: 2,
+            entity: { kind: "role" as const, id: "viewer", before: 1, after: 2 },
+            change: { kind: "role-created" },
+            cacheTargets: ["scope:test:rbac"],
+        }));
+        await executor.execute({
+            ...input,
+            request: { roleId: "viewer" },
+            work: changedInputWork,
+        });
+
+        expect(changedInputWork).toHaveBeenCalledTimes(1);
     });
 
     it("fails closed when replay primary revision evidence is inconsistent", async () => {

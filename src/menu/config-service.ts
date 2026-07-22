@@ -190,7 +190,7 @@ function writeOptions(session: MongoSession) {
     return { session, cache: { invalidate: false as const }, collation: SIMPLE_COLLATION };
 }
 
-function normalizeMenuManagementExecutionOptions(value: MenuManagementExecuteOptions): NormalizedMenuManagementExecution {
+function normalizeMenuManagementExecutionOptions(value?: MenuManagementExecuteOptions): NormalizedMenuManagementExecution {
     const record = exactMenuRecord(value ?? {}, MENU_MANAGEMENT_EXECUTE_OPTION_KEYS, "options");
     if (Object.hasOwn(record, "expectedRevision")) {
         throw validationError("INVALID_ARGUMENT", "options.expectedRevision", "is not supported for menu management execution");
@@ -1872,7 +1872,7 @@ export class MenuConfigService {
         scope: PermissionScope,
         configId: string,
         changesInput: NonEmptyMenuManagementChangeArray,
-        options: MenuManagementExecuteOptions,
+        options?: MenuManagementExecuteOptions,
     ): Promise<MutationResult<MenuManagementResult>> {
         const execution = normalizeMenuManagementExecutionOptions(options);
         if (execution.mode === "strict") {

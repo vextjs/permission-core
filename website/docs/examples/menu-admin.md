@@ -2,7 +2,7 @@
 
 ## Scenario
 
-This example shows the complete backend menu path: save one `MenuConfigInput`, grant a role its page, API, action, and response-field permissions, then read user runtime menu state and project the API response.
+This example shows the complete backend menu path: first use incremental APIs to create the config, menus, views, APIs, actions, and response fields; then grant a role its page, API, action, and response-field permissions; finally read user runtime menu state and project the API response.
 
 ## Run
 
@@ -21,15 +21,12 @@ A successful run should include `roleGrant.generatedSources`, `roleGrant.auditRe
 ```js
 const runtime = await startExampleCore("menu-admin");
 const scope = { tenantId: "acme", appId: "admin" };
-const scoped = runtime.core.scope(scope);
-
-const configPreview = await scoped.menus.config.preview(menuConfig, { actorId: "admin" });
-const savedConfig = await scoped.menus.config.save(menuConfig, {
-  ...configPreview.expected,
-  previewToken: configPreview.previewToken,
+const scoped = runtime.core.scope(scope, {
   actorId: "admin",
-  idempotencyKey: "example-menu-config-save",
+  requestId: "req-example-menu-admin",
 });
+
+const savedConfig = await scoped.menus.management.applyChanges("admin", menuChanges);
 
 await scoped.roles.create({ id: "order-operator", label: "Order operator" });
 const selection = {
@@ -37,6 +34,7 @@ const selection = {
   views: ["orders-list"],
   responseFields: [{
     apiResource: "api:GET:/api/orders",
+    target: "items",
     fields: ["orderNo", "status"],
   }],
   include: { loads: true, actions: true, responseFields: "none" },
@@ -44,13 +42,10 @@ const selection = {
 const grantPreview = await scoped.roles.menuPermissions.preview(
   "order-operator",
   { operation: "grant", selection },
-  { actorId: "admin" },
 );
 const granted = await scoped.roles.menuPermissions.grant("order-operator", selection, {
   ...grantPreview.expected,
   previewToken: grantPreview.previewToken,
-  actorId: "admin",
-  idempotencyKey: "example-menu-role-grant",
 });
 await scoped.userRoles.assign("u-menu", "order-operator");
 
@@ -62,19 +57,19 @@ const projected = await subjectMenus.filterResponse("api:GET:/api/orders", rawOr
 const directGrant = await scoped.roles.menuPermissions.getDirect("order-operator");
 ```
 
-The snippet omits the `menuConfig` and `rawOrders` definitions; the full file declares the `orders-list` page, the `api:GET:/api/orders` load API, the `export` action, and the response fields.
+The snippet omits the `menuChanges` and `rawOrders` definitions. In the full file, `menuChanges` incrementally creates the `admin` config, `orders` menu, `orders-list` view, `api:GET:/api/orders` load API, `export` action, and response fields.
 
-### 1. Preview and save the menu config
+### 1. Save the menu config
 
-<!-- docs:operation id=menu-model calls=menus.config.preview,menus.config.save outputs=config -->
+<!-- docs:operation id=menu-model calls=menus.management.applyChanges outputs=config -->
 
-**Purpose and target.** `menus.config.preview` validates `menuConfig` before writing and shows which internal menu, API, and response-field assets will be produced. `menus.config.save` writes the same config with the returned `expected` vector and `previewToken`. This step produces `config`, showing that the config was saved and whether the internal manifest changed.
+**Purpose and target.** `menus.management.applyChanges` receives `menuChanges`, internally previews the change, confirms that ordinary create operations have no conflict, and then writes them. This step produces `config`, showing that the config was saved and whether the internal manifest changed.
 
-**State, arguments, and result.** `menuConfig.configId` is the key used later by role grants and runtime reads. `load.resource` uses `api:GET:/api/orders`, so no separate `action: 'invoke'` is needed. `response` declares the fields that can later be granted. The save call returns `MutationResult<MenuConfigSaveResult>`; `savedConfig.data.config` is the snapshot and `savedConfig.data.manifestOperations` summarizes internal synchronization.
+**State, arguments, and result.** `configId: "admin"` is the key used later by role grants and runtime reads. `loadApi.add` uses `resource` with `api:GET:/api/orders`, so no separate `action: 'invoke'` is needed. `response.set` declares grantable fields for the orders API. The save call returns `MutationResult<MenuManagementResult>`; `savedConfig.data.config` is the snapshot and `savedConfig.data.manifestOperations` summarizes internal synchronization.
 
-**Failure and next step.** If preview is not executable, the config has conflicts, invalid resources, or would break existing grant sources. Show `conflicts`, fix the config, and preview again. Do not skip preview, and do not reuse an old token for changed input.
+**Failure and next step.** If auto-commit returns `MENU_MANAGEMENT_PREVIEW_CONFLICT`, this change needs explicit administrator preview confirmation. Show `details.operations/conflicts/warnings`, then call the matching `preview*()` method. Ordinary argument or resource-format errors are returned as their original codes.
 
-**API reference.** See [Menus API](/api/menus) for `MenuConfigInput`, preview/save signatures, response envelopes, and error boundaries.
+**API reference.** See [Menus API](/api/menus) for `menus.management`, `menus.items/views/loadApis/actions/responses` signatures, response envelopes, and error boundaries.
 
 ### 2. Create the role identity used by the workflow
 
@@ -94,7 +89,7 @@ The snippet omits the `menuConfig` and `rawOrders` definitions; the full file de
 
 **Purpose and target.** `menuPermissions.preview` expands `selection` into the page, load API, action, and response fields. `menuPermissions.grant` commits the allow grant using the preview. `menuPermissions.getDirect` reads the saved grant and response-field sources. This step produces `roleGrant`.
 
-**State, arguments, and result.** `selection.configId` points at the `admin` config, `views` selects `orders-list`, `include.loads/actions` automatically includes the page load API and export action, and `responseFields` grants only `orderNo/status` for `api:GET:/api/orders`. The grant returns `generatedSources`, `generatedResponseFields`, and `grantIds`; the direct read returns `responseFields.total`.
+**State, arguments, and result.** `selection.configId` points at the `admin` config, `views` selects `orders-list`, `include.loads/actions` automatically includes the page load API and export action, and `responseFields` uses `target: "items"` to grant only `orderNo/status` for rows returned by `api:GET:/api/orders`. The grant returns `generatedSources`, `generatedResponseFields`, and `grantIds`; the direct read returns `responseFields.total`.
 
 **Failure and next step.** If a selected view, action, or field does not exist, preview rejects the input. If revisions or the token expire, grant execution fails. Refresh the config and role state, preview again, then submit the new token.
 
@@ -126,19 +121,19 @@ The following JSON is the **Example summary output** generated by `printExample(
     "manifestChanged": true
   },
   "roleGrant": {
-    "generatedSources": 3,
+    "generatedSources": 5,
     "generatedResponseFields": 2,
     "grantCount": 1,
     "responseFieldCount": 2,
     "auditRecorded": true
   },
   "subjectRuntime": {
-    "viewTreeIds": ["orders"],
+    "viewTreeIds": ["orders", "orders-list"],
     "viewAllowed": true,
     "exportEnabled": true,
     "projectedResponse": {
-      "items": [{ "orderNo": "O-1001", "status": "paid" }],
-      "total": 1
+      "total": 1,
+      "items": [{ "orderNo": "O-1001", "status": "paid" }]
     }
   }
 }
@@ -146,7 +141,7 @@ The following JSON is the **Example summary output** generated by `printExample(
 
 <!-- docs:output group=config producer=menu-model -->
 
-**`config` provenance.** `menus.config.save` returns the saved config snapshot and internal synchronization summary. The example prints only `configId`, menu count, and whether internal assets changed; the raw response still carries revision, auditId, and cache outcome.
+**`config` provenance.** `menus.management.applyChanges` returns the saved config snapshot and internal synchronization summary. The example prints only `configId`, menu count, and whether internal assets changed; the raw response still carries revision, auditId, and cache outcome.
 
 <!-- docs:output group=roleGrant producer=menu-grant -->
 

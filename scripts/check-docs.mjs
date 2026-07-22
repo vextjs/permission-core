@@ -149,7 +149,7 @@ function verifyManifestNegativeFixtures() {
             mutate(pages) {
                 pages.find((item) => item.id === "check-permission").navGroup = "concepts";
             },
-            expected: "EN tasks group must contain exactly 6 pages",
+            expected: "EN tasks group must contain exactly 7 pages",
         },
         {
             name: "missing role slot",
@@ -668,7 +668,8 @@ function verifyCriticalPages() {
         "guide/manage-roles-and-users.md": ["roles.create", "userRoles.assign", "userRoles.set", "getEffectiveRules", "previewAccessUpdate", "getRemovalImpact"],
         "guide/check-permission.md": ["cannot", "explain", "getEffectiveRules", "userRoles.set", "getResources"],
         "guide/data-permissions.md": ["filter", "where", "AuthorizedCollection", "FIELD_PERMISSION_DENIED"],
-        "guide/menu-management.md": ["menus.config.preview", "menus.config.save", "filterResponse", "getViewTree"],
+        "guide/menu-management.md": ["menus.configs.get", "menus.management.applyChanges", "filterResponse", "getViewTree"],
+        "guide/menu-config-as-code.md": ["MenuConfigInput", "menus.config.preview", "menus.config.save", "menus.config.previewChanges", "menus.config.applyChanges"],
         "guide/api-bindings.md": ["load.resource", "actions[].resource", "response", "subject.assert"],
         "guide/role-menu-authorization.md": ["menuPermissions.preview", "responseFields", "getAuthorizationTree", "filterResponse"],
         "guide/permission-lifecycle.md": ["flowchart", "revision", "auditId", "PermissionCore.close"],

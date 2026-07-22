@@ -37,7 +37,6 @@ await scoped.userRoles.assign('u-1', 'operator');
 const beforeSet = await scoped.userRoles.getDirect('u-1');
 const replaced = await scoped.userRoles.set('u-1', ['order-reader'], {
   expectedRevision: beforeSet.data.revision,
-  actorId: 'admin',
 });
 
 const role = await scoped.roles.get('order-reader');

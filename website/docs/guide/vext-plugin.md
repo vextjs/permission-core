@@ -7,7 +7,7 @@ Use `permission-core/plugins/vext` when Vext should own plugin ordering, request
 - Node.js `>=20.19.0`, required by Vext 0.3.26.
 - Install `permission-core`, `monsqlize@3.1.0`, and `vextjs@0.3.26`.
 - The authentication plugin runs first and writes trusted `req.auth`.
-- For automatic response-field projection, save the matching `api:` resource and fields with `menus.config.save()`.
+- For automatic response-field projection, save the matching `api:` resource and fields with `menus.responses.set()` or `menus.config.save()`.
 
 ## Register the plugin
 

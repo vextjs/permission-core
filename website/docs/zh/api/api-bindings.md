@@ -16,8 +16,8 @@
 |---|---|---|
 | 声明加载接口 | `menus.loadApis.add()` / `MenuConfigInput.load` | 使用 `resource`；系统自动按 `invoke` 处理。 |
 | 声明操作接口 | `menus.actions.create()` / `MenuConfigInput.actions` | 使用 `resource`；`api:*` 操作也可以声明 `response`。 |
-| 声明响应字段 | `menus.responses.set()` / `response` | 对象或数组直接用数组形式；分页响应用 `{ target, preserve, fields }`。 |
-| 运行时校验 | `subject.assert()` / `subject.menus.filterResponse()` | 先守住接口调用，再按已授权字段裁剪响应。 |
+| 声明响应字段 | `menus.responses.set()` / `response` | `menus.responses.set()` 使用对象形式；`MenuConfigInput` 内联配置可用数组或 `{ target, preserve, fields }`。 |
+| 运行时校验 | `subject.assert()` / `subject.menus.filterResponse()` | 先守住接口调用，再按已授权字段裁剪响应；裁剪结果在 `data`。 |
 | 常见错误 | 校验错误和权限错误 | 检查资源格式、字段路径冲突、缺少字段授权和默认拒绝。 |
 
 ## 签名
@@ -34,12 +34,12 @@ actions[].response?: ResponseProjectionInput
 MenuConfigInput.response?: ResponseProjectionConfigInput
 response?: ResponseProjectionConfigInput
 
-menus.loadApis.add(configId: string, viewId: string, input: MenuLoadApiAddInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
-menus.actions.create(configId: string, viewId: string, input: MenuActionCreateInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
-menus.responses.set(configId: string, input: MenuResponseSetInput, options: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.loadApis.add(configId: string, viewId: string, input: MenuLoadApiAddInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.actions.create(configId: string, viewId: string, input: MenuActionCreateInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
+menus.responses.set(configId: string, input: MenuResponseSetInput, options?: MenuManagementExecuteOptions): Promise<MutationResult<MenuManagementResult>>
 ```
 
-关键参数标记：`load.resource: ApiResource`，`actions[].resource: ApiResource | UiResource`，`response?: ResponseProjectionConfigInput`。逐项 API 的 `options` 普通情况下传 `actorId/idempotencyKey` 即可，系统会自动内部预览并提交；级联删除、撤权删除或自动提交被拒绝时，再使用对应 `preview*()` 返回的 `expected/previewToken` 显式确认。
+关键参数标记：`load.resource: ApiResource`，`actions[].resource: ApiResource | UiResource`，`response?: ResponseProjectionConfigInput`。逐项 API 普通情况下在 `pc.scope(scope, defaults)` 里绑定 `actorId/requestId`，之后直接调用对象方法；系统会自动内部预览、派生幂等键并提交。级联删除、撤权删除或自动提交被拒绝时，再使用对应 `preview*()` 返回的 `expected/previewToken` 显式确认。
 
 ## 参数对象
 
@@ -50,7 +50,7 @@ menus.responses.set(configId: string, input: MenuResponseSetInput, options: Menu
 | 字段 | 类型 | 必填/默认 | 说明 |
 |---|---|---|---|
 | `resource` | `ApiResource` | 必填 | 页面加载接口，例如 `api:GET:/api/orders`。系统自动按 `invoke` 处理，不需要额外写 action。 |
-| `response` | `ResponseProjectionInput` | 可选 | 该接口允许配置的响应字段。 |
+| `response` | `ResponseProjectionInput` | 可选 | 该接口允许配置的响应字段；在 `MenuConfigInput` 内可用数组或对象形式。 |
 | `meta` | `Record<string, PolicyValue>` | 可选 | 管理端自定义元数据。 |
 
 ### `MenuActionInput`
@@ -61,7 +61,7 @@ menus.responses.set(configId: string, input: MenuResponseSetInput, options: Menu
 | `title` | `string` | 必填 | 操作展示名。 |
 | `resource` | `ApiResource \| UiResource` | 必填 | 后端接口使用 `api:`，纯前端按钮使用 `ui:`。 |
 | `opens` | `string` | 可选 | 点击后打开的 view ID。 |
-| `response` | `ResponseProjectionInput` | 可选 | 操作接口返回值的字段配置。 |
+| `response` | `ResponseProjectionInput` | 可选 | 操作接口返回值的字段配置；只对 `api:*` 操作有意义。 |
 | `enabled` | `boolean` | 默认 `true` | 是否启用该操作。 |
 | `i18nKey/meta` | 展示元数据 | 可选 | 给前端或管理端使用。 |
 
@@ -73,7 +73,7 @@ menus.responses.set(configId: string, input: MenuResponseSetInput, options: Menu
 | `target` | `string` | 可选 | 要裁剪的对象或数组路径，例如 `items`、`data.items`。 |
 | `preserve` | `string[]` | 默认 `[]` | 保留但不参与字段授权的外层字段，例如 `total`、`cursor`。 |
 
-`ResponseProjectionInput` 可以直接写成字段数组，也可以写成 `{ target, preserve, fields }` 对象。
+`ResponseProjectionInput` 可以直接写成字段数组，也可以写成 `{ target, preserve, fields }` 对象。但这是 `MenuConfigInput.load[].response`、`actions[].response` 的内联便利写法；`menus.responses.set()` 的 `response` 请使用对象形式，例如 `response: { fields: [...] }`。
 
 ## 方法详解：页面加载接口
 
@@ -134,7 +134,7 @@ actions: [{
 <!-- docs:method name=MenuConfigInput.response locale=zh -->
 
 - **用途**：定义某个接口响应里哪些字段可以被分配给角色。
-- **参数**：数组形式直接声明字段；对象形式使用 `target/preserve/fields` 处理分页或嵌套响应。
+- **参数**：数组形式直接声明字段；对象形式使用 `target/preserve/fields` 处理分页或嵌套响应。逐项调用 `menus.responses.set()` 时必须放进对象：`response: { fields: [...] }`。
 - **状态影响**：保存配置后形成字段库存；角色授权 `responseFields` 选择字段后，`filterResponse()` 才会返回这些字段。
 - **原始返回**：字段声明会出现在 `MenuConfigSnapshot` 的 load/action response 中；运行时裁剪结果在 `SubjectRuntimeResult.data`。
 
@@ -166,11 +166,11 @@ response: {
 
 | 操作 | 结果 |
 |---|---|
-| `menus.loadApis.add()` / `menus.responses.set()` | 逐项保存接口和响应字段，并返回 `MenuManagementResult`。 |
+| `menus.loadApis.add()` / `menus.actions.create()` / `menus.responses.set()` | 逐项保存接口、按钮和响应字段，并返回 `MenuManagementResult`。 |
 | `menus.config.preview(config)` | 预览配置是否合法、会生成哪些内部资产。 |
 | `menus.config.save(config, options)` | 保存配置并返回 `MenuConfigSaveResult`。 |
 | `roles.menuPermissions.preview/grant` | 选择 load、action、responseFields 并生成角色来源。 |
-| `subject.menus.filterResponse(apiResource, payload)` | 对当前用户执行响应字段裁剪。 |
+| `subject.menus.filterResponse(apiResource, payload)` | 对当前用户执行响应字段裁剪，裁剪后的 payload 在 `data`。 |
 
 ```json
 {
@@ -188,6 +188,8 @@ response: {
 ## 失败与限制
 
 `load.resource` 必须是 `api:` 资源；`actions[].resource` 只能是支持的资源 scheme；字段路径不能为空、不能包含危险段，也不能引用未声明字段。`preserve` 不参与字段授权，适合分页总数和游标，不适合业务敏感字段。
+
+逐项响应字段配置要注意：`menus.responses.set()` 的 `input.response` 是 `ResponseProjectionConfigInput` 对象，不是数组；如果想声明直接对象响应，请写成 `{ fields: [...] }`。
 
 ## 示例
 
@@ -207,6 +209,7 @@ const projected = await subject.menus.filterResponse('api:GET:/api/orders', {
   items: [{ orderNo: 'O-1001', status: 'paid', amount: 88 }],
   total: 1,
 });
+const projectedData = projected.data;
 ```
 
 ```json

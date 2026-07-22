@@ -93,7 +93,7 @@ The example keeps one narrow path per page. It shows the raw method family and a
 ```ts
 const result = await scoped.roles.create(
   { id: 'operator', label: 'Operator' },
-  { actorId: 'admin-7', reason: 'Initial setup', requestId: 'req-42', idempotencyKey: 'role:operator:v1' },
+  { actorId: 'admin-7', reason: 'Initial setup', requestId: 'req-42' },
 );
 businessAudit.info({ operationId: result.operationId, auditId: result.auditId });
 ```

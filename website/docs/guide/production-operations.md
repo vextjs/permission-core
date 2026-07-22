@@ -10,7 +10,7 @@ Production readiness depends on a healthy host MonSQLize 3.1 connection, a compa
 - Use a MongoDB deployment that supports the transactions and MonSQLize 3.1 capabilities probed by `init()`.
 - Keep every instance on the same collection prefix, resource-scheme definition/version, scope model, cache policy, and configured token secret.
 - Call `init()` exactly once before accepting authorization traffic and treat initialization failure as startup failure.
-- Replayable management writes should include `actorId`, `reason`, `requestId`, and an operation-specific `idempotencyKey`.
+- Replayable management writes should include `actorId`, `reason`, and `requestId`; permission-core derives an internal idempotency key from `requestId` and the current input. Pass `idempotencyKey` explicitly only when integrating an external idempotency protocol.
 
 ## Readiness Checklist
 
