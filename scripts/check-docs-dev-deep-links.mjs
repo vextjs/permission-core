@@ -7,13 +7,10 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { runInNewContext } from "node:vm";
+import { docsLocales, docsPagesForLocale } from "../website/docs-manifest.mjs";
 
 const base = "/permission-core/";
-const routes = [
-    "zh/guide/core-concepts.html",
-    "zh/guide/quick-start.html",
-    "zh/guide/manage-roles-and-users.html",
-];
+const routes = createDocsDevRoutes();
 const forbiddenLazyProxyTokens = [
     "docs_zh_guide_core-concepts_md_lazy-compilation-proxy",
     "docs_zh_guide_manage-roles-and-users_md_lazy-compilation-proxy",
@@ -22,6 +19,21 @@ const forbiddenLazyProxyTokens = [
 let child;
 let stdout = "";
 let stderr = "";
+
+function createDocsDevRoutes() {
+    const routesByLocale = [];
+    for (const locale of docsLocales) {
+        for (const page of docsPagesForLocale(locale)) {
+            const localizedPrefix = locale === "zh" ? "zh/" : "";
+            if (page.path === "index.md") {
+                routesByLocale.push(localizedPrefix);
+                continue;
+            }
+            routesByLocale.push(`${localizedPrefix}${page.path.replace(/\.md$/, ".html")}`);
+        }
+    }
+    return routesByLocale;
+}
 
 async function main() {
     const port = await findFreePort();
