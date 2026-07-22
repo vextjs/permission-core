@@ -30,6 +30,20 @@ Saving menus is not user authorization. It records what the system can expose; r
 
 If you are building a normal admin UI, read the first half first and use the incremental object methods. The later `MenuConfigInput`, `menus.config.save()`, and batch-import sections are mainly for plugins, CI/CD, and config-as-code.
 
+## New Projects and Existing Projects
+
+For new projects, keep one main line in mind: manage config with `menus.configs/items/views/loadApis/actions/responses`, grant roles with `roles.menuPermissions`, and project runtime state with `subject.menus.*`.
+
+The older `nodes`, `apiBindings`, and owner model still exists internally for v2 manifests, batch import, and migration compatibility. A normal admin UI should not maintain those records by hand. When you see `menus.config.*`, treat it as the advanced full-config entrypoint for import or config-as-code, not the default save method for form screens.
+
+| What you are building | Use this |
+|---|---|
+| New admin screens that create menus, views, actions, APIs, and fields one object at a time | `menus.configs/items/views/loadApis/actions/responses` |
+| Role authorization for menus, views, actions, APIs, and fields | `roles.menuPermissions.*` |
+| Runtime visible menu tree and action state for the current user | `subject.menus.getViewTree()` / `getActionMap()` |
+| Plugin install, CI/CD, or full config import | `MenuConfigInput` + `menus.config.save()` |
+| Historical v2 manifest maintenance or compatibility migration | Migration tooling that handles `nodes` / `apiBindings` / owner records |
+
 ## Open the management page: read the full tree first
 
 When a menu-management page opens, the first step is usually not creating a menu. Read the full tree first:

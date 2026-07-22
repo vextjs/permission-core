@@ -82,12 +82,24 @@ import {
 } from "./config-aggregate";
 import { configInputFromSnapshot } from "./config-draft";
 import {
-    compileMenuConfigInput,
     compileMenuConfigSnapshot,
     normalizeMenuConfigInput,
     type CompiledMenuConfig,
 } from "./config-compiler";
 import { sampledCountSample } from "./impact-support";
+import {
+    buildConfigChangeOperationPlans,
+    configChangeRevisionEntities,
+    configMutationLimitConflicts,
+    countConfigManifestMutations,
+    createConfigChangeAuditPlan,
+    normalizeConfigOperations,
+    splitDocuments,
+    summarizeConfigManifestOperations,
+    type ConfigChangeOperation,
+    type MenuDocumentUpdate,
+    type MenuDocumentSplit,
+} from "./config-plan-support";
 import {
     materializeMenuConfigDocument,
     nonNegativeInteger,
@@ -113,7 +125,6 @@ import {
     emptyBatchCounts,
     expectedMenuRevisions,
     menuPlanHash,
-    sortBatchMutationSamples,
     validateMenuExecution,
     type PreparedMenuPlan,
 } from "./mutations";
@@ -143,18 +154,9 @@ type NormalizedMenuManagementExecution =
     | { readonly mode: "auto"; readonly options: NormalizedMutationOptions }
     | { readonly mode: "strict"; readonly options: NormalizedPreviewExecutionOptions };
 
-type ConfigChangeOperation =
-    | { readonly operation: "save"; readonly config: CompiledMenuConfig }
-    | { readonly operation: "remove"; readonly configId: string };
-
 interface MenuConfigDocumentUpdate {
     readonly before: Readonly<InternalMenuConfigDocument>;
     readonly after: Readonly<InternalMenuConfigDocument>;
-}
-
-interface MenuDocumentUpdate<T> {
-    readonly before: Readonly<T>;
-    readonly after: Readonly<T>;
 }
 
 interface PreparedConfigPlan extends PreparedMenuPlan<MenuConfigChangeSetPlan> {
@@ -177,6 +179,28 @@ interface PreparedConfigPlan extends PreparedMenuPlan<MenuConfigChangeSetPlan> {
     readonly changeResults: readonly (MenuConfigSaveResult | MenuConfigRemoveResult)[];
     readonly manifestSummary: BatchMutationSummary;
     readonly changedConfigId?: string;
+}
+
+interface ConfigChangeSetArtifacts {
+    readonly currentConfigs: readonly Readonly<InternalMenuConfigDocument>[];
+    readonly currentConfigById: ReadonlyMap<string, Readonly<InternalMenuConfigDocument>>;
+    readonly targetConfigById: ReadonlyMap<string, Readonly<InternalMenuConfigDocument>>;
+    readonly targetConfigState: {
+        readonly aggregate: CompiledScopeMenuTarget;
+        readonly configs: readonly Readonly<InternalMenuConfigDocument>[];
+    };
+    readonly targetNodes: readonly Readonly<InternalMenuNodeDocument>[];
+    readonly targetBindings: readonly Readonly<InternalApiBindingDocument>[];
+    readonly targetReplaceManifestBytes: number;
+    readonly configSplit: MenuDocumentSplit<InternalMenuConfigDocument>;
+    readonly nodeSplit: MenuDocumentSplit<InternalMenuNodeDocument>;
+    readonly bindingSplit: MenuDocumentSplit<InternalApiBindingDocument>;
+}
+
+interface ConfigChangeOperationPlans {
+    readonly savePlans: readonly MenuConfigPlan[];
+    readonly removePlans: readonly MenuConfigRemovePlan[];
+    readonly changeResults: readonly (MenuConfigSaveResult | MenuConfigRemoveResult)[];
 }
 
 interface ConfigCursorPayload {
@@ -947,30 +971,6 @@ function materializeTargetBindings(input: {
     }).sort((left, right) => compareUtf8(left.bindingId, right.bindingId));
 }
 
-function splitDocuments<T, TKey extends string>(
-    current: readonly Readonly<T>[],
-    target: readonly Readonly<T>[],
-    key: (value: Readonly<T>) => TKey,
-    equal: (left: Readonly<T>, right: Readonly<T>) => boolean,
-) {
-    const currentById = new Map(current.map((item) => [key(item), item] as const));
-    const targetById = new Map(target.map((item) => [key(item), item] as const));
-    const inserts: Readonly<T>[] = [];
-    const updates: MenuDocumentUpdate<T>[] = [];
-    const deletes: Readonly<T>[] = [];
-    const unchanged: string[] = [];
-    for (const item of target) {
-        const before = currentById.get(key(item));
-        if (before === undefined) inserts.push(item);
-        else if (equal(before, item)) unchanged.push(key(item));
-        else updates.push({ before, after: item });
-    }
-    for (const item of current) {
-        if (!targetById.has(key(item))) deletes.push(item);
-    }
-    return deepFreeze({ inserts, updates, deletes, unchanged: Object.freeze(unchanged.sort(compareUtf8)) });
-}
-
 export class MenuConfigService {
     private readonly executor: ManagementMutationExecutor;
     private readonly store: MenuReadStore;
@@ -1077,71 +1077,12 @@ export class MenuConfigService {
         return deepFreeze({ aggregate, configs: Object.freeze(target) });
     }
 
-    private normalizeOperations(changes: readonly MenuConfigChange[], now: number, allowEmptyDraft = false) {
-        return changes.map((change): ConfigChangeOperation => {
-            if (change.operation === "remove") return { operation: "remove", configId: change.configId };
-            return {
-                operation: "save",
-                config: compileMenuConfigInput(change.config, {
-                    revision: 1,
-                    createdAt: now,
-                    updatedAt: now,
-                    allowEmptyMenus: allowEmptyDraft,
-                    allowEmptyContainers: allowEmptyDraft,
-                }, this.schemes),
-            };
-        });
-    }
-
-    private summarizeManifestOperations(input: {
-        readonly configSplit: ReturnType<typeof splitDocuments<InternalMenuConfigDocument, string>>;
-        readonly nodeSplit: ReturnType<typeof splitDocuments<InternalMenuNodeDocument, string>>;
-        readonly bindingSplit: ReturnType<typeof splitDocuments<InternalApiBindingDocument, string>>;
-        readonly conflicts: readonly ManagementConflict[];
-    }) {
-        const samples = [
-            ...input.configSplit.inserts.map((config) => ({ id: `config:${config.configId}`, outcome: "inserted" as const })),
-            ...input.configSplit.updates.map((update) => ({ id: `config:${update.before.configId}`, outcome: "updated" as const })),
-            ...input.configSplit.deletes.map((config) => ({ id: `config:${config.configId}`, outcome: "deleted" as const })),
-            ...input.configSplit.unchanged.map((id) => ({ id: `config:${id}`, outcome: "unchanged" as const })),
-            ...input.nodeSplit.inserts.map((node) => ({ id: `node:${node.nodeId}`, outcome: "inserted" as const })),
-            ...input.nodeSplit.updates.map((update) => ({ id: `node:${update.before.nodeId}`, outcome: "updated" as const })),
-            ...input.nodeSplit.deletes.map((node) => ({ id: `node:${node.nodeId}`, outcome: "deleted" as const })),
-            ...input.nodeSplit.unchanged.map((id) => ({ id: `node:${id}`, outcome: "unchanged" as const })),
-            ...input.bindingSplit.inserts.map((binding) => ({ id: `api-binding:${binding.bindingId}`, outcome: "inserted" as const })),
-            ...input.bindingSplit.updates.map((update) => ({ id: `api-binding:${update.before.bindingId}`, outcome: "updated" as const })),
-            ...input.bindingSplit.deletes.map((binding) => ({ id: `api-binding:${binding.bindingId}`, outcome: "deleted" as const })),
-            ...input.bindingSplit.unchanged.map((id) => ({ id: `api-binding:${id}`, outcome: "unchanged" as const })),
-            ...input.conflicts.map((conflict) => ({
-                id: conflict.id,
-                outcome: "conflicted" as const,
-                conflict: {
-                    code: conflict.code,
-                    message: conflict.message,
-                    ...(conflict.currentRevision === undefined ? {} : { currentRevision: conflict.currentRevision }),
-                },
-            })),
-        ];
-        const summary: BatchMutationSummary = deepFreeze({
-            inserted: input.configSplit.inserts.length + input.nodeSplit.inserts.length + input.bindingSplit.inserts.length,
-            updated: input.configSplit.updates.length + input.nodeSplit.updates.length + input.bindingSplit.updates.length,
-            unchanged: input.configSplit.unchanged.length + input.nodeSplit.unchanged.length + input.bindingSplit.unchanged.length,
-            deleted: input.configSplit.deletes.length + input.nodeSplit.deletes.length + input.bindingSplit.deletes.length,
-            conflicted: input.conflicts.length,
-            samples: new DetailBudgetAllocator().bounded(sortBatchMutationSamples(samples)),
-        });
-        return summary;
-    }
-
-    private async planChangeSet(
+    private async readChangeSetArtifacts(
         reader: MenuScopeReader,
-        changes: readonly MenuConfigChange[],
+        operations: readonly ConfigChangeOperation[],
         issuedAt: number,
-        method: "menus.config.preview" | "menus.config.previewRemove" | "menus.config.previewChanges",
-        allowEmptyDraft = false,
         session?: MongoSession,
-    ): Promise<PreparedConfigPlan> {
-        const operations = this.normalizeOperations(changes, issuedAt, allowEmptyDraft);
+    ): Promise<ConfigChangeSetArtifacts> {
         const currentConfigs = await this.readConfigs(reader, session);
         const currentInventory = await reader.readCompleteInventory();
         const targetConfigState = this.targetConfigs({
@@ -1165,103 +1106,29 @@ export class MenuConfigService {
             scope: reader.state.scope,
             now: issuedAt,
         });
-        const configSplit = splitDocuments(
+        const configSplit = splitDocuments(currentConfigs, targetConfigState.configs, (config) => config.configId, configDocumentEqual);
+        const nodeSplit = splitDocuments(currentInventory.nodes, targetNodes, (node) => node.nodeId, nodeManifestEqual);
+        const bindingSplit = splitDocuments(currentInventory.bindings, targetBindings, (binding) => binding.bindingId, bindingManifestEqual);
+        return {
             currentConfigs,
-            targetConfigState.configs,
-            (config) => config.configId,
-            configDocumentEqual,
-        );
-        const nodeSplit = splitDocuments(
-            currentInventory.nodes,
+            currentConfigById: new Map(currentConfigs.map((config) => [config.configId, config] as const)),
+            targetConfigById: new Map(targetConfigState.configs.map((config) => [config.configId, config] as const)),
+            targetConfigState,
             targetNodes,
-            (node) => node.nodeId,
-            nodeManifestEqual,
-        );
-        const bindingSplit = splitDocuments(
-            currentInventory.bindings,
             targetBindings,
-            (binding) => binding.bindingId,
-            bindingManifestEqual,
-        );
-        const targetReplaceManifestBytes = canonicalByteLength({
-            schemaVersion: 2,
-            mode: "replace",
-            nodes: targetNodes.map(menuNodeManifestItemFromDocument),
-            apiBindings: targetBindings.map(apiBindingManifestItemFromDocument),
-        });
-        const conflicts: ManagementConflict[] = [];
-        const mutationCount = configSplit.inserts.length
-            + configSplit.updates.length
-            + configSplit.deletes.length
-            + nodeSplit.inserts.length
-            + nodeSplit.updates.length
-            + nodeSplit.deletes.length
-            + bindingSplit.inserts.length
-            + bindingSplit.updates.length
-            + bindingSplit.deletes.length;
-        if (mutationCount > CONFIG_MUTATION_LIMIT) {
-            conflicts.push({
-                id: "menu-config-mutation-capacity",
-                code: "LIMIT_EXCEEDED",
-                message: `Menu config change set requires ${mutationCount} document mutations; the atomic limit is ${CONFIG_MUTATION_LIMIT}.`,
-            });
-        }
-        const manifestSummary = this.summarizeManifestOperations({ configSplit, nodeSplit, bindingSplit, conflicts });
-        const currentConfigById = new Map(currentConfigs.map((config) => [config.configId, config] as const));
-        const targetConfigById = new Map(targetConfigState.configs.map((config) => [config.configId, config] as const));
-        const savePlans: MenuConfigPlan[] = [];
-        const removePlans: MenuConfigRemovePlan[] = [];
-        const changeResults: (MenuConfigSaveResult | MenuConfigRemoveResult)[] = [];
-        for (const operation of operations) {
-            if (operation.operation === "save") {
-                const before = currentConfigById.get(operation.config.configId);
-                const after = targetConfigById.get(operation.config.configId)!;
-                const perConfigSummary = manifestSummary;
-                savePlans.push(deepFreeze({
-                    configId: operation.config.configId,
-                    operation: "save",
-                    ...(before === undefined ? {} : { before: before.config }),
-                    after: after.config,
-                    manifestOperations: sampledCountSample(perConfigSummary.samples.items.map((item) => `${item.outcome}:${item.id}`)),
-                    affectedRoles: sampledCountSample([]),
-                    affectedUsers: sampledCountSample([]),
-                }));
-                changeResults.push(deepFreeze({
-                    config: after.config,
-                    manifestOperations: perConfigSummary,
-                    retainedGrantCount: 0,
-                    revokedGrantCount: 0,
-                }));
-            } else {
-                const before = currentConfigById.get(operation.configId);
-                if (before === undefined) {
-                    throw new PermissionCoreError("MENU_NOT_FOUND", `Menu config ${operation.configId} was not found.`);
-                }
-                const removedNodeIds = nodeSplit.deletes.map((node) => node.nodeId);
-                const removedBindingIds = bindingSplit.deletes.map((binding) => binding.bindingId);
-                removePlans.push(deepFreeze({
-                    configId: operation.configId,
-                    before: before.config,
-                    removedAssets: sampledCountSample([...removedNodeIds, ...removedBindingIds]),
-                    revokedGrants: sampledCountSample([]),
-                    affectedRoles: sampledCountSample([]),
-                    affectedUsers: sampledCountSample([]),
-                }));
-                changeResults.push(deepFreeze({
-                    configId: operation.configId,
-                    removedAssets: sampledCountSample([...removedNodeIds, ...removedBindingIds]),
-                    revokedGrantCount: 0,
-                }));
-            }
-        }
-        const completePlan = toPolicyValue({
-            operation: "menus.config.changeSet",
-            changes: changes.map((change) => change.operation === "save"
-                ? { operation: "save", configId: normalizeRbacId(change.config.configId, "config.configId"), digest: digestCanonical(change.config) }
-                : { operation: "remove", configId: change.configId }),
-            targetAggregateDigest: targetConfigState.aggregate.aggregateDigest,
-            manifestSummary,
-        });
+            targetReplaceManifestBytes: canonicalByteLength({
+                schemaVersion: 2,
+                mode: "replace",
+                nodes: targetNodes.map(menuNodeManifestItemFromDocument),
+                apiBindings: targetBindings.map(apiBindingManifestItemFromDocument),
+            }),
+            configSplit,
+            nodeSplit,
+            bindingSplit,
+        };
+    }
+
+    private appendAuditBudgetConflict(completePlan: PolicyValue, conflicts: ManagementConflict[]) {
         try {
             assertAuditChangeBudget({ kind: "menu-config", plan: completePlan });
         } catch (error) {
@@ -1272,66 +1139,146 @@ export class MenuConfigService {
                 message: "The complete menu config audit diff exceeds its atomic byte budget.",
             });
         }
-        const revisionEntities = [
-            { kind: "scope" as const, id: reader.state.scopeKey, revision: reader.state.revision },
-            ...operations.flatMap((operation) => {
-                const configId = operation.operation === "save" ? operation.config.configId : operation.configId;
-                const current = currentConfigById.get(configId);
-                return current === undefined ? [] : [{ kind: "menu-config" as const, id: configId, revision: current.configRevision }];
-            }),
-        ];
-        const expectedRevisions = expectedMenuRevisions(reader, revisionEntities, false);
-        const inputHash = digestCanonical({ changes });
-        const planHash = menuPlanHash(method, inputHash, expectedRevisions, completePlan);
+    }
+
+    private summarizeChangeSetArtifacts(artifacts: ConfigChangeSetArtifacts) {
+        const mutationCount = countConfigManifestMutations({
+            configSplit: artifacts.configSplit,
+            nodeSplit: artifacts.nodeSplit,
+            bindingSplit: artifacts.bindingSplit,
+        });
+        const conflicts: ManagementConflict[] = configMutationLimitConflicts(mutationCount, CONFIG_MUTATION_LIMIT);
+        const manifestSummary = summarizeConfigManifestOperations({
+            configSplit: artifacts.configSplit,
+            nodeSplit: artifacts.nodeSplit,
+            bindingSplit: artifacts.bindingSplit,
+            conflicts,
+        });
+        return { conflicts, manifestSummary };
+    }
+
+    private preparedConfigDocumentOutputs(artifacts: ConfigChangeSetArtifacts) {
         return {
-            method,
-            reader,
-            inputHash,
-            planHash,
-            completePlan,
+            target: artifacts.targetConfigState.aggregate,
+            configInserts: artifacts.configSplit.inserts,
+            configUpdates: artifacts.configSplit.updates as MenuConfigDocumentUpdate[],
+            configDeletes: artifacts.configSplit.deletes,
+            nodeInserts: artifacts.nodeSplit.inserts,
+            nodeUpdates: artifacts.nodeSplit.updates,
+            nodeDeletes: artifacts.nodeSplit.deletes,
+            bindingInserts: artifacts.bindingSplit.inserts,
+            bindingUpdates: artifacts.bindingSplit.updates,
+            bindingDeletes: artifacts.bindingSplit.deletes,
+            targetConfigs: artifacts.targetConfigState.configs,
+            targetNodes: artifacts.targetNodes,
+            targetBindings: artifacts.targetBindings,
+            targetReplaceManifestBytes: artifacts.targetReplaceManifestBytes,
+        };
+    }
+
+    private singleChangedConfigId(operations: readonly ConfigChangeOperation[]) {
+        if (operations.length !== 1) return undefined;
+        return operations[0]!.operation === "save" ? operations[0]!.config.configId : operations[0]!.configId;
+    }
+
+    private createPreparedConfigPlan(input: {
+        readonly method: PreparedConfigPlan["method"];
+        readonly reader: MenuScopeReader;
+        readonly operations: readonly ConfigChangeOperation[];
+        readonly artifacts: ConfigChangeSetArtifacts;
+        readonly operationPlans: ConfigChangeOperationPlans;
+        readonly manifestSummary: BatchMutationSummary;
+        readonly conflicts: readonly ManagementConflict[];
+        readonly completePlan: PolicyValue;
+        readonly expectedRevisions: PreparedConfigPlan["expectedRevisions"];
+        readonly revisionEntities: PreparedConfigPlan["revisionEntities"];
+        readonly inputHash: string;
+        readonly planHash: string;
+    }): PreparedConfigPlan {
+        const { artifacts, operationPlans } = input;
+        const changedConfigId = this.singleChangedConfigId(input.operations);
+        return {
+            method: input.method,
+            reader: input.reader,
+            inputHash: input.inputHash,
+            planHash: input.planHash,
+            completePlan: input.completePlan,
             publicPlan: (budget) => deepFreeze({
-                changes: budget.bounded([...savePlans, ...removePlans].sort((left, right) => compareUtf8(left.configId, right.configId))),
-                manifestOperations: sampledCountSample(manifestSummary.samples.items.map((item) => `${item.outcome}:${item.id}`)),
+                changes: budget.bounded([...operationPlans.savePlans, ...operationPlans.removePlans].sort((left, right) => compareUtf8(left.configId, right.configId))),
+                manifestOperations: sampledCountSample(input.manifestSummary.samples.items.map((item) => `${item.outcome}:${item.id}`)),
                 affectedRoles: sampledCountSample([]),
                 affectedUsers: sampledCountSample([]),
             }),
+            expectedRevisions: input.expectedRevisions,
+            revisionEntities: input.revisionEntities,
+            summaryCounts: emptyBatchCounts({
+                inserted: input.manifestSummary.inserted,
+                updated: input.manifestSummary.updated,
+                unchanged: input.manifestSummary.unchanged,
+                deleted: input.manifestSummary.deleted,
+                conflicted: input.conflicts.length,
+            }),
+            summarySamples: input.manifestSummary.samples.items,
+            warnings: Object.freeze([]),
+            conflicts: input.conflicts,
+            capacity: null,
+            ...this.preparedConfigDocumentOutputs(artifacts),
+            savePlans: operationPlans.savePlans,
+            removePlans: operationPlans.removePlans,
+            changeResults: operationPlans.changeResults,
+            manifestSummary: input.manifestSummary,
+            ...(changedConfigId === undefined ? {} : { changedConfigId }),
+        };
+    }
+
+    private async planChangeSet(
+        reader: MenuScopeReader,
+        changes: readonly MenuConfigChange[],
+        issuedAt: number,
+        method: "menus.config.preview" | "menus.config.previewRemove" | "menus.config.previewChanges",
+        allowEmptyDraft = false,
+        session?: MongoSession,
+    ): Promise<PreparedConfigPlan> {
+        const operations = normalizeConfigOperations(changes, issuedAt, allowEmptyDraft, this.schemes);
+        const artifacts = await this.readChangeSetArtifacts(reader, operations, issuedAt, session);
+        const { conflicts, manifestSummary } = this.summarizeChangeSetArtifacts(artifacts);
+        const operationPlans = buildConfigChangeOperationPlans({
+            operations,
+            currentConfigById: artifacts.currentConfigById,
+            targetConfigById: artifacts.targetConfigById,
+            nodeDeletes: artifacts.nodeSplit.deletes,
+            bindingDeletes: artifacts.bindingSplit.deletes,
+            manifestSummary,
+        });
+        const completePlan = createConfigChangeAuditPlan({
+            changes,
+            targetAggregateDigest: artifacts.targetConfigState.aggregate.aggregateDigest,
+            manifestSummary,
+        });
+        this.appendAuditBudgetConflict(completePlan, conflicts);
+        const revisionEntities = configChangeRevisionEntities({
+            scopeKey: reader.state.scopeKey,
+            scopeRevision: reader.state.revision,
+            operations,
+            currentConfigById: artifacts.currentConfigById,
+        });
+        const expectedRevisions = expectedMenuRevisions(reader, revisionEntities, false);
+        const inputHash = digestCanonical({ changes });
+        const planHash = menuPlanHash(method, inputHash, expectedRevisions, completePlan);
+        return this.createPreparedConfigPlan({
+            method,
+            reader,
+            operations,
+            artifacts,
+            operationPlans,
+            manifestSummary,
+            conflicts,
+            completePlan,
             expectedRevisions,
             revisionEntities,
-            summaryCounts: emptyBatchCounts({
-                inserted: manifestSummary.inserted,
-                updated: manifestSummary.updated,
-                unchanged: manifestSummary.unchanged,
-                deleted: manifestSummary.deleted,
-                conflicted: conflicts.length,
-            }),
-            summarySamples: manifestSummary.samples.items,
-            warnings: Object.freeze([]),
-            conflicts,
-            capacity: null,
-            target: targetConfigState.aggregate,
-            configInserts: configSplit.inserts,
-            configUpdates: configSplit.updates as MenuConfigDocumentUpdate[],
-            configDeletes: configSplit.deletes,
-            nodeInserts: nodeSplit.inserts,
-            nodeUpdates: nodeSplit.updates,
-            nodeDeletes: nodeSplit.deletes,
-            bindingInserts: bindingSplit.inserts,
-            bindingUpdates: bindingSplit.updates,
-            bindingDeletes: bindingSplit.deletes,
-            targetConfigs: targetConfigState.configs,
-            targetNodes,
-            targetBindings,
-            targetReplaceManifestBytes,
-            savePlans,
-            removePlans,
-            changeResults,
-            manifestSummary,
-            ...(operations.length === 1 ? {
-                changedConfigId: operations[0]!.operation === "save"
-                    ? operations[0]!.config.configId
-                    : operations[0]!.configId,
-            } : {}),
-        };
+            inputHash,
+            planHash,
+        });
     }
 
     private async buildPreview<TPlan>(

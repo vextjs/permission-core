@@ -4,6 +4,8 @@
 
 `scoped.menus` 管理后台菜单配置。后台页面优先使用 `configs/items/views/loadApis/actions/responses` 逐项创建菜单、页面、接口、按钮和响应字段；配置即代码或插件安装可以继续使用 `menus.config.*` 批量保存完整 `MenuConfigInput`。`subject.menus` 是用户运行时入口，用同一套配置投影当前用户可见视图、按钮状态、页面状态和接口响应字段。
 
+新项目不要直接维护底层 `nodes`、`apiBindings` 或 owner 关系；这些是编译后的兼容模型，主要服务历史 v2 清单、迁移工具和批量导入。普通后台管理页应把 `menus.configs/items/views/loadApis/actions/responses` 当作主 API，把 `menus.config.*` 当作高级整包入口。
+
 使用前需要完成：
 
 - `pc.init()` 已成功。

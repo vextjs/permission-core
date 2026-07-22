@@ -30,6 +30,20 @@ flowchart LR
 
 如果你只是做后台管理页面，优先看前半部分的逐项方法；后面的 `MenuConfigInput`、`menus.config.save()` 和批量导入更适合插件、CI/CD 或配置即代码。
 
+## 新项目和旧项目怎么选
+
+新项目只需要记住一条主线：用 `menus.configs/items/views/loadApis/actions/responses` 管理配置，用 `roles.menuPermissions` 给角色授权，用 `subject.menus.*` 给前端投影运行时状态。
+
+旧的 `nodes`、`apiBindings` 和 owner 关系仍然存在于内部模型里，是为了兼容 v2 菜单清单、批量导入和历史迁移；普通后台不应该直接维护它们。你在文档里看到 `menus.config.*` 时，可以把它理解成“整包导入/配置即代码”的高级入口，不是后台表单的默认保存方式。
+
+| 你正在做什么 | 应该用什么 |
+|---|---|
+| 新后台页面逐项创建菜单、页面、按钮、接口和字段 | `menus.configs/items/views/loadApis/actions/responses` |
+| 给角色勾选菜单、页面、按钮、接口和字段 | `roles.menuPermissions.*` |
+| 给当前用户返回可见菜单树和按钮状态 | `subject.menus.getViewTree()` / `getActionMap()` |
+| 插件安装、CI/CD 或一次导入整套配置 | `MenuConfigInput` + `menus.config.save()` |
+| 维护历史 v2 清单或做兼容迁移 | 只在迁移工具里处理 `nodes` / `apiBindings` / owner |
+
 ## 打开管理页：先读取完整菜单树
 
 管理端菜单维护页打开时，通常第一步不是新增菜单，而是先把整棵菜单树读出来：

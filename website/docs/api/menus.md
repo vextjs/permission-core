@@ -4,6 +4,8 @@
 
 `scoped.menus` manages admin menu configs. Admin pages should prefer `configs/items/views/loadApis/actions/responses` to create menus, views, APIs, actions, and response fields incrementally. Config-as-code or plugin installation can still use `menus.config.*` to save a complete `MenuConfigInput`. `subject.menus` is the user runtime entrypoint; it projects visible views, action state, view state, and response-field filtering from the same config.
 
+New projects should not maintain low-level `nodes`, `apiBindings`, or owner relationships directly. Those are compiled compatibility records for historical v2 manifests, migration tooling, and batch import. Normal admin pages should treat `menus.configs/items/views/loadApis/actions/responses` as the main API and `menus.config.*` as the advanced full-config entrypoint.
+
 Before using it:
 
 - `pc.init()` has completed.
