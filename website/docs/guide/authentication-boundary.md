@@ -6,14 +6,14 @@ The host authenticates the request first; permission-core answers authorization 
 ## Responsibility Model
 
 ```mermaid
-flowchart TD
+flowchart LR
   accTitle: Authentication and authorization boundary
   accDescr: The host authenticates credentials and supplies trusted identity, scope, and claims before permission-core authorizes a route, menu, or data operation.
-  A["Credentials or session"] --> B["Host authentication"]
-  B --> C["Trusted user, scope, and claims"]
+  A["Credentials / session"] --> B["Host auth"]
+  B --> C["Trusted identity<br/>scope / claims"]
   C --> D["PermissionSubject"]
-  D --> E["permission-core authorization"]
-  E --> F["Route, menu, or data operation"]
+  D --> E["permission-core<br/>authorization"]
+  E --> F["Route / menu<br/>data operation"]
 ```
 <p className="pc-diagram-text" id="pc-diagram-authentication-boundary-en-text" data-diagram-id="authentication-boundary"><strong>Text equivalent.</strong>Credentials or sessions are authenticated by the host first. The host supplies trusted user identity, scope, and claims to build a PermissionSubject. Only then does permission-core authorize the route, menu projection, or data operation; credential checks and account state remain host responsibilities.</p>
 

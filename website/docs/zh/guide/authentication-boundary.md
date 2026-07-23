@@ -5,14 +5,14 @@
 ## 职责模型
 
 ```mermaid
-flowchart TD
+flowchart LR
   accTitle: 认证与授权边界
   accDescr: 宿主先认证凭据并提供可信身份、范围和声明，再由 permission-core 授权路由、菜单或数据操作。
-  A["凭据或会话"] --> B["宿主认证"]
-  B --> C["可信用户、scope 与 claims"]
+  A["凭据 / 会话"] --> B["宿主认证"]
+  B --> C["可信身份<br/>scope / claims"]
   C --> D["PermissionSubject"]
-  D --> E["permission-core 授权"]
-  E --> F["路由、菜单或数据操作"]
+  D --> E["permission-core<br/>授权"]
+  E --> F["路由 / 菜单<br/>数据操作"]
 ```
 
 <p className="pc-diagram-text" id="pc-diagram-authentication-boundary-zh-text" data-diagram-id="authentication-boundary"><strong>文字等价说明。</strong>凭据或会话先由宿主认证。宿主提供可信用户身份、scope 和 claims 来构造 `PermissionSubject`，之后 permission-core 才授权当前路由、菜单投影或数据操作。凭据校验、账号状态和身份恢复仍由宿主负责。</p>
