@@ -24,6 +24,10 @@ import {
     createPermissionRequestMiddleware,
     requirePermissionContext,
 } from "./request";
+import {
+    installTransparentDbFacade,
+    type TransparentDbInstallation,
+} from "./transparent-db";
 import type { PermissionVextPluginOptions } from "./types";
 
 function appExtensionConflict(reason: string, cause?: unknown) {
@@ -54,6 +58,7 @@ function permissionDenied() {
 async function closeRuntime(
     core: PermissionCore,
     unsubscribers: Array<() => void>,
+    transparentDb?: TransparentDbInstallation,
 ) {
     while (unsubscribers.length > 0) {
         try {
@@ -62,7 +67,11 @@ async function closeRuntime(
             // Hook unsubscription is best effort during app disposal.
         }
     }
-    await core.close();
+    try {
+        await core.close();
+    } finally {
+        transparentDb?.restore();
+    }
 }
 
 async function setupPermissionPlugin(
@@ -83,8 +92,9 @@ async function setupPermissionPlugin(
     let reloadRequired = false;
     let disposed = false;
     let schemes: ResourceSchemeRegistry;
+    let transparentDb: TransparentDbInstallation | undefined;
     const close = () => {
-        closePromise ??= closeRuntime(core, unsubscribers).finally(() => {
+        closePromise ??= closeRuntime(core, unsubscribers, transparentDb).finally(() => {
             disposed = true;
         });
         return closePromise;
@@ -104,7 +114,24 @@ async function setupPermissionPlugin(
     try {
         await core.init();
         schemes = new ResourceSchemeRegistry(options.core.resourceSchemes);
-        const requestMiddleware = createPermissionRequestMiddleware(core, options.resolveSubject, options.data);
+        if (options.data?.transparent) {
+            transparentDb = installTransparentDbFacade(app, monsqlize);
+        }
+        const modelResolver = (name: string) => {
+            const model = (monsqlize as unknown as Record<string, unknown>).model;
+            if (typeof model !== "function") {
+                throw new PermissionCoreError("DATA_OPERATION_UNSUPPORTED", "The resolved MonSQLize instance does not expose model().", {
+                    details: { kind: "validation", field: "monsqlize.model", reason: "model method is required for Vext protected models" },
+                });
+            }
+            return model.call(monsqlize, name);
+        };
+        const requestMiddleware = createPermissionRequestMiddleware(
+            core,
+            options.resolveSubject,
+            options.data,
+            modelResolver,
+        );
         const onRoutesReady: VextHookHandler<"routes:ready"> = ({ count, routes }) => {
             if (disposed) return;
             if (committed || commitPromise) {
@@ -112,7 +139,7 @@ async function setupPermissionPlugin(
                 return;
             }
             try {
-                candidate = buildVextRouteSnapshot(count, routes, schemes);
+                candidate = buildVextRouteSnapshot(count, routes, schemes, options.routes);
                 candidateError = undefined;
             } catch (error) {
                 candidate = undefined;
@@ -153,7 +180,7 @@ async function setupPermissionPlugin(
             }
             let observed;
             try {
-                observed = matchVextRouteContract(route, schemes);
+                observed = matchVextRouteContract(route, schemes, options.routes);
             } catch (cause) {
                 reloadRequired = true;
                 return throwVextPermissionError(req.app, restartRequired("matched route metadata is invalid", cause));

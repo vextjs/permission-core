@@ -25,6 +25,7 @@ export interface PermissionVextPluginOptions {
     ) => MonSQLizeInstance | Promise<MonSQLizeInstance>;
     databasePlugin?: string;
     authPlugin?: string;
+    routes?: PermissionVextRouteDefaultsOptions;
     core?: Omit<PermissionCoreOptions, "monsqlize">;
     subject?: PermissionVextSubjectOptions;
     data?: PermissionVextDataOptions;
@@ -39,13 +40,19 @@ export interface PermissionVextSubjectOptions {
     resolve: (req: VextRequest) => PermissionSubject | Promise<PermissionSubject>;
 }
 
+export interface PermissionVextRouteDefaultsOptions {
+    protect?: readonly string[];
+    public?: readonly string[];
+}
+
 export interface PermissionVextDataCollectionOptions {
     resource?: string;
     scopeFields?: AuthorizedCollectionOptions["scopeFields"];
 }
 
 export interface PermissionVextDataOptions {
-    exposeAs?: false | "monsqlize";
+    exposeAs?: false | "monsqlize" | "db";
+    transparent?: boolean;
     scopeFields: AuthorizedCollectionOptions["scopeFields"];
     collections?: Readonly<Record<string, PermissionVextDataCollectionOptions>>;
 }
@@ -71,6 +78,22 @@ export interface VextRequestDataApi {
         TDocument extends object,
         TCreate extends object = Omit<TDocument, "_id">,
     >(name: string): AuthorizedCollection<TDocument, TCreate>;
+    model<
+        TDocument extends object,
+        TCreate extends object = Omit<TDocument, "_id">,
+    >(name: string): VextAuthorizedModel<TDocument, TCreate>;
+}
+
+export interface VextAuthorizedModel<
+    TDocument extends object = Record<string, unknown>,
+    TCreate extends object = Omit<TDocument, "_id">,
+> extends AuthorizedCollection<TDocument, TCreate> {
+    readonly collectionName: string;
+    readonly dbName?: string;
+    readonly poolName?: string;
+    getNamespace?(): unknown;
+    validate?(document?: unknown): unknown;
+    raw(): never;
 }
 
 export interface VextRequestPermissionApi {
@@ -98,6 +121,7 @@ export type PermissionVextRequest<
 > = VextRequest & {
     auth: TAuth & { permission: VextRequestPermissionApi };
     monsqlize?: VextRequestDataApi;
+    db?: VextRequestDataApi;
 };
 
 export interface VextPermissionRequirement {
@@ -139,5 +163,6 @@ declare module "vextjs" {
 
     interface VextRequest {
         readonly monsqlize?: VextRequestDataApi;
+        readonly db?: VextRequestDataApi;
     }
 }

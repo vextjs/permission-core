@@ -112,6 +112,7 @@ function dataOptions(
     input?: Partial<ResolvedPermissionVextDataOptions>,
 ): ResolvedPermissionVextDataOptions {
     return Object.freeze({
+        transparent: false,
         scopeFields: Object.freeze({ tenantId: "tenantId" }),
         collections: Object.freeze({}),
         ...input,

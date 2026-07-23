@@ -127,6 +127,39 @@ describe("Vext route manifest", () => {
         ]));
     });
 
+    it("applies plugin-level protected route defaults with public and explicit overrides", () => {
+        const defaults = {
+            protect: Object.freeze([
+                Object.freeze({ kind: "prefix" as const, value: "/api" }),
+            ]),
+            public: Object.freeze([
+                Object.freeze({ kind: "prefix" as const, value: "/api/auth" }),
+                Object.freeze({ kind: "exact" as const, value: "/api/health" }),
+            ]),
+        };
+        const snapshot = buildVextRouteSnapshot(5, [
+            route("GET", "/api/orders"),
+            route("GET", "/api/auth/login"),
+            route("GET", "/api/health"),
+            route("GET", "/api/manual-public", false),
+            route("POST", "/api/export", { action: "export" }),
+        ], schemes, defaults);
+
+        expect(snapshot.manifest.routes.find(({ path }) => path === "/api/orders")?.authorization)
+            .toEqual({ mode: "all", permissions: [{ action: "invoke", resource: "api:GET:/api/orders" }] });
+        expect(snapshot.manifest.routes.find(({ path }) => path === "/api/auth/login")?.authorization).toBeNull();
+        expect(snapshot.manifest.routes.find(({ path }) => path === "/api/health")?.authorization).toBeNull();
+        expect(snapshot.manifest.routes.find(({ path }) => path === "/api/manual-public")?.authorization).toBeNull();
+        expect(snapshot.manifest.routes.find(({ path }) => path === "/api/export")?.authorization)
+            .toEqual({ mode: "all", permissions: [{ action: "export", resource: "api:POST:/api/export" }] });
+        expect(snapshot.apiBindings.map(({ path }) => path).sort()).toEqual(["/api/export", "/api/orders"]);
+
+        const observed = matchVextRouteContract(route("GET", "/api/orders"), schemes, defaults);
+        expect(observed.evaluation?.requirements).toEqual([
+            { action: "invoke", resource: "api:GET:/api/orders" },
+        ]);
+    });
+
     it("rejects duplicate normalized routes, count drift, and malformed aggregate declarations", () => {
         expect(() => buildVextRouteSnapshot(2, [
             route("get", "//orders/", true),

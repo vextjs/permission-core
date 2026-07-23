@@ -1,6 +1,20 @@
 import { defineRoutes } from "vextjs";
+import { Model } from "monsqlize";
 
 const METRICS = Symbol.for("permission-core.vext.integration.metrics");
+
+if (!Model.has("Order")) {
+    Model.define("Order", {
+        collection: "vext_orders",
+        schema: (s) => s({
+            tenantId: "string!",
+            orderNo: "string!",
+            status: "string!",
+            amount: "number",
+            internalCost: "number",
+        }),
+    });
+}
 
 function bumpHandler() {
     globalThis[METRICS] ??= { middleware: 0, handler: 0 };
@@ -36,6 +50,23 @@ export default defineRoutes((app) => {
             total: items.length,
             debug: true,
         });
+    });
+
+    app.get("/orders-transparent", {}, async (_req, res) => {
+        const items = await app.db.collection("vext_orders").find({}, {
+            projection: ["orderNo", "status", "amount", "internalCost"],
+            sort: { orderNo: 1 },
+        });
+        res.json({ items, total: items.length });
+    });
+
+    app.get("/orders-model", {}, async (_req, res) => {
+        const Order = app.db.model("Order");
+        const items = await Order.find({}, {
+            projection: ["orderNo", "status", "amount", "internalCost"],
+            sort: { orderNo: 1 },
+        });
+        res.json({ items, total: items.length, collectionName: Order.collectionName });
     });
 
     app.get("/permissions/any", {

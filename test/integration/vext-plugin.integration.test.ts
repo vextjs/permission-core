@@ -130,9 +130,13 @@ describe("permissionPlugin with a real Vext host", () => {
                     });
                     await permissionPlugin({
                         monsqlize: mongo.monsqlize,
+                        routes: {
+                            protect: ["/orders-transparent", "/orders-model"],
+                        },
                         core: { collectionPrefix: "pc_vext_host" },
                         data: {
                             exposeAs: "monsqlize",
+                            transparent: true,
                             scopeFields: { tenantId: "tenantId" },
                             collections: {
                                 vext_orders: { resource: "db:orders" },
@@ -152,6 +156,8 @@ describe("permissionPlugin with a real Vext host", () => {
             await scoped.roles.create({ id: "route-reader", label: "Route reader" });
             await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders/:id" });
             await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/capabilities/one" });
+            await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders-transparent" });
+            await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders-model" });
             await scoped.roles.allow("route-reader", { action: "read", resource: "db:orders" });
             await (mongo.monsqlize.collection("vext_orders").raw() as RawCollection).insertMany([
                 { tenantId: SCOPE.tenantId, orderNo: "O-1", status: "paid", amount: 12, internalCost: 7 },
@@ -243,6 +249,29 @@ describe("permissionPlugin with a real Vext host", () => {
             expect(dataAuthorized.body.data.items[0]).not.toHaveProperty("amount");
             expect(dataAuthorized.body.data.items[0]).not.toHaveProperty("internalCost");
             expect(dataAuthorized.body.data).not.toHaveProperty("debug");
+
+            const transparentMissingAuth = await testApp.request.get("/orders-transparent");
+            expect(transparentMissingAuth.status).toBe(401);
+            expect(transparentMissingAuth.body).toMatchObject({ code: "VEXT_AUTH_REQUIRED" });
+
+            const transparentCollection = await testApp.request.get("/orders-transparent").set("x-test-auth", "valid");
+            expect(transparentCollection.status).toBe(200);
+            expect(transparentCollection.body).toMatchObject({
+                data: {
+                    items: [{ orderNo: "O-1", status: "paid", amount: 12, internalCost: 7 }],
+                    total: 1,
+                },
+            });
+
+            const transparentModel = await testApp.request.get("/orders-model").set("x-test-auth", "valid");
+            expect(transparentModel.status).toBe(200);
+            expect(transparentModel.body).toMatchObject({
+                data: {
+                    items: [{ orderNo: "O-1", status: "paid", amount: 12, internalCost: 7 }],
+                    total: 1,
+                    collectionName: "vext_orders",
+                },
+            });
 
             const anyAllowed = await testApp.request.get("/permissions/any").set("x-test-auth", "valid");
             expect(anyAllowed.status).toBe(200);

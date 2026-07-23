@@ -266,6 +266,10 @@ describe("permissionPlugin contract", () => {
         const stub = createMonSQLizeStub();
         const resolved = resolvePermissionVextPluginOptions({
             monsqlize: stub.instance,
+            routes: {
+                protect: ["/api/**"],
+                public: ["/api/auth/**", "/api/health"],
+            },
             subject: {
                 resolve: (request) => ({
                     userId: String(request.headers["x-user-id"] ?? "u-1"),
@@ -274,6 +278,7 @@ describe("permissionPlugin contract", () => {
             },
             data: {
                 exposeAs: "monsqlize",
+                transparent: true,
                 scopeFields: { tenantId: "tenantId" },
                 collections: {
                     order_records: {
@@ -285,11 +290,19 @@ describe("permissionPlugin contract", () => {
         });
 
         expect(Object.isFrozen(resolved.data)).toBe(true);
+        expect(Object.isFrozen(resolved.routes)).toBe(true);
+        expect(Object.isFrozen(resolved.routes.protect)).toBe(true);
+        expect(Object.isFrozen(resolved.routes.public)).toBe(true);
         expect(Object.isFrozen(resolved.data?.scopeFields)).toBe(true);
         expect(Object.isFrozen(resolved.data?.collections)).toBe(true);
         expect(Object.isFrozen(resolved.data?.collections.order_records)).toBe(true);
+        expect(resolved.routes).toEqual({
+            protect: [{ kind: "prefix", value: "/api" }],
+            public: [{ kind: "prefix", value: "/api/auth" }, { kind: "exact", value: "/api/health" }],
+        });
         expect(resolved.data).toMatchObject({
             exposeAs: "monsqlize",
+            transparent: true,
             scopeFields: { tenantId: "tenantId" },
             collections: {
                 order_records: {
@@ -318,8 +331,13 @@ describe("permissionPlugin contract", () => {
             { monsqlize: stub.instance, subject: {} },
             { monsqlize: stub.instance, subject: { resolve: "resolver" } },
             { monsqlize: stub.instance, subject: { resolve: () => ({ userId: "u-1", scope: { tenantId: "t-1" } }) }, resolveSubject: () => ({ userId: "u-1", scope: { tenantId: "t-1" } }) },
+            { monsqlize: stub.instance, routes: null },
+            { monsqlize: stub.instance, routes: { protect: ["/api/*"] } },
+            { monsqlize: stub.instance, routes: { protect: ["api/**"] } },
+            { monsqlize: stub.instance, routes: { public: ["/api?\u003fx=1"] } },
             { monsqlize: stub.instance, data: {} },
             { monsqlize: stub.instance, data: { exposeAs: "database", scopeFields: { tenantId: "tenantId" } } },
+            { monsqlize: stub.instance, data: { transparent: "yes", scopeFields: { tenantId: "tenantId" } } },
             { monsqlize: stub.instance, data: { scopeFields: {} } },
             { monsqlize: stub.instance, data: { scopeFields: accessorScopeFields } },
             { monsqlize: stub.instance, data: { scopeFields: { tenantId: "tenantId" }, collections: symbolCollections } },

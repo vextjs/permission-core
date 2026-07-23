@@ -4,9 +4,12 @@ import type {
     ApiResource,
     AuthorizedCollection,
     AuthorizedCollectionOptions,
+    AuthorizedFindOneOptions,
+    AuthorizedReadOptions,
     PermissionAction,
     PermissionSubject,
     PolicyContext,
+    SafeMongoFilter,
     SubjectPermissionContext,
     SubjectRuntimeResult,
 } from "../../types";
@@ -28,6 +31,7 @@ import {
 } from "./errors";
 import type {
     PermissionVextRequest,
+    VextAuthorizedModel,
     VextRequestDataApi,
     VextRequestPermissionApi,
 } from "./types";
@@ -67,6 +71,8 @@ type SubjectResolver = (
     auth: Readonly<Record<string, unknown>>,
     req: VextRequest,
 ) => PermissionSubject | Promise<PermissionSubject>;
+
+type ModelResolver = (name: string) => unknown;
 
 function authRequired(reason: string) {
     return new PermissionCoreError("VEXT_AUTH_REQUIRED", "An authenticated permission subject is required.", {
@@ -288,8 +294,8 @@ function readExistingPermission(auth: Record<string, unknown>, req: VextRequest)
     return descriptor.value as VextRequestPermissionApi;
 }
 
-function readExistingDataAlias(req: VextRequest) {
-    const descriptor = Object.getOwnPropertyDescriptor(req, "monsqlize");
+function readExistingDataAlias(req: VextRequest, key: "monsqlize" | "db") {
+    const descriptor = Object.getOwnPropertyDescriptor(req, key);
     if (!descriptor) return undefined;
     const ownerKey = "value" in descriptor ? weakMapKey(descriptor.value) : undefined;
     if (
@@ -297,7 +303,7 @@ function readExistingDataAlias(req: VextRequest) {
         || ownerKey === undefined
         || permissionDataApiOwners.get(ownerKey) !== req
     ) {
-        throw extensionConflict("is already occupied by another extension", undefined, "req.monsqlize");
+        throw extensionConflict("is already occupied by another extension", undefined, `req.${key}`);
     }
     return descriptor.value as VextRequestDataApi;
 }
@@ -307,18 +313,19 @@ function installDataAlias(
     data: VextRequestDataApi,
     dataOptions?: ResolvedPermissionVextDataOptions,
 ) {
-    if (dataOptions?.exposeAs !== "monsqlize") return;
-    const existing = readExistingDataAlias(req);
+    const exposeAs = dataOptions?.exposeAs;
+    if (exposeAs !== "monsqlize" && exposeAs !== "db") return;
+    const existing = readExistingDataAlias(req, exposeAs);
     if (existing) return;
     try {
-        Object.defineProperty(req, "monsqlize", {
+        Object.defineProperty(req, exposeAs, {
             value: data,
             enumerable: true,
             writable: false,
             configurable: false,
         });
     } catch (cause) {
-        throw extensionConflict("cannot be defined on req", cause, "req.monsqlize");
+        throw extensionConflict("cannot be defined on req", cause, `req.${exposeAs}`);
     }
 }
 
@@ -397,18 +404,104 @@ function wrapAuthorizedCollection<
     return wrapped;
 }
 
+function unsupportedModelMethod(method: string): never {
+    throw new PermissionCoreError(
+        "DATA_OPERATION_UNSUPPORTED",
+        `Vext protected model method ${method} is not supported by the transparent permission facade.`,
+        { details: { kind: "validation", field: `model.${method}`, reason: "use a supported CRUD method or the host raw model outside a protected request" } },
+    );
+}
+
+function safeModelString(model: unknown, key: string) {
+    try {
+        const value = (model as Record<string, unknown>)[key];
+        return typeof value === "string" ? value : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function safeModelMethod(model: unknown, key: string) {
+    try {
+        const value = (model as Record<string, unknown>)[key];
+        return typeof value === "function" ? value.bind(model) as (...args: unknown[]) => unknown : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+export function createProtectedModelFacade<
+    TDocument extends object,
+    TCreate extends object = Omit<TDocument, "_id">,
+>(
+    name: string,
+    model: unknown,
+    data: VextRequestDataApi,
+): VextAuthorizedModel<TDocument, TCreate> {
+    if (model === null || (typeof model !== "object" && typeof model !== "function") || utilTypes.isProxy(model)) {
+        throw new PermissionCoreError("DATA_OPERATION_UNSUPPORTED", "Vext protected model requires a plain MonSQLize model instance.", {
+            details: { kind: "validation", field: "model", reason: "model resolver did not return an object instance" },
+        });
+    }
+    const collectionName = safeModelString(model, "collectionName") ?? name;
+    const collection = data.collection<TDocument, TCreate>(collectionName);
+    const getNamespace = safeModelMethod(model, "getNamespace");
+    const validate = safeModelMethod(model, "validate");
+    const facade = {
+        collectionName,
+        ...(safeModelString(model, "dbName") === undefined ? {} : { dbName: safeModelString(model, "dbName") }),
+        ...(safeModelString(model, "poolName") === undefined ? {} : { poolName: safeModelString(model, "poolName") }),
+        ...(getNamespace === undefined ? {} : { getNamespace: () => getNamespace() }),
+        ...(validate === undefined ? {} : { validate: (document?: unknown) => validate(document) }),
+        raw: () => unsupportedModelMethod("raw"),
+        find: (filter, options) => collection.find(filter, options),
+        findOne: (filter, options) => collection.findOne(filter, options),
+        findOneById: (id: unknown, options?: AuthorizedFindOneOptions) =>
+            collection.findOne({ _id: id } as SafeMongoFilter, options),
+        findById: (id: unknown, options?: AuthorizedFindOneOptions) =>
+            collection.findOne({ _id: id } as SafeMongoFilter, options),
+        findByIds: (ids: readonly unknown[], options?: AuthorizedReadOptions) =>
+            collection.find({ _id: { $in: ids } } as SafeMongoFilter, options),
+        count: (filter, options) => collection.count(filter, options),
+        findAndCount: (filter, options) => collection.findAndCount(filter, options),
+        findPage: (query) => collection.findPage(query),
+        insertOne: (document, options) => collection.insertOne(document, options),
+        updateOne: (filter, update, options) => collection.updateOne(filter, update, options),
+        updateMany: (filter, update, options) => collection.updateMany(filter, update, options),
+        deleteOne: (filter, options) => collection.deleteOne(filter, options),
+        deleteMany: (filter, options) => collection.deleteMany(filter, options),
+        insertMany: () => unsupportedModelMethod("insertMany"),
+        replaceOne: () => unsupportedModelMethod("replaceOne"),
+        findOneAndUpdate: () => unsupportedModelMethod("findOneAndUpdate"),
+        findOneAndReplace: () => unsupportedModelMethod("findOneAndReplace"),
+        findOneAndDelete: () => unsupportedModelMethod("findOneAndDelete"),
+        aggregate: () => unsupportedModelMethod("aggregate"),
+        distinct: () => unsupportedModelMethod("distinct"),
+        stream: () => unsupportedModelMethod("stream"),
+        watch: () => unsupportedModelMethod("watch"),
+        createIndex: () => unsupportedModelMethod("createIndex"),
+        createIndexes: () => unsupportedModelMethod("createIndexes"),
+        dropIndex: () => unsupportedModelMethod("dropIndex"),
+        dropIndexes: () => unsupportedModelMethod("dropIndexes"),
+        dropCollection: () => unsupportedModelMethod("dropCollection"),
+    } satisfies VextAuthorizedModel<TDocument, TCreate> & Record<string, unknown>;
+    return Object.freeze(facade);
+}
+
 function createProtectedDataApi(
     req: VextRequest,
     dataOptions: ResolvedPermissionVextDataOptions,
     contextFor: (context?: PolicyContext) => SubjectPermissionContext,
     assertOwner: () => void,
     execute: <T>(operation: () => Promise<T>) => Promise<T>,
+    modelResolver?: ModelResolver,
 ): VextRequestDataApi {
-    const data = Object.freeze({
+    let data: VextRequestDataApi;
+    data = Object.freeze({
         collection<
             TDocument extends object,
             TCreate extends object = Omit<TDocument, "_id">,
-        >(name: string) {
+        >(name: string): AuthorizedCollection<TDocument, TCreate> {
             try {
                 assertOwner();
                 const collection = contextFor().data.collection<TDocument, TCreate>(
@@ -416,6 +509,22 @@ function createProtectedDataApi(
                     collectionOptionsFor(name, dataOptions),
                 );
                 return wrapAuthorizedCollection(collection, req, assertOwner, execute);
+            } catch (error) {
+                return throwVextPermissionError(req.app, error);
+            }
+        },
+        model<
+            TDocument extends object,
+            TCreate extends object = Omit<TDocument, "_id">,
+        >(name: string): VextAuthorizedModel<TDocument, TCreate> {
+            try {
+                assertOwner();
+                if (!modelResolver) {
+                    throw new PermissionCoreError("DATA_OPERATION_UNSUPPORTED", "Vext protected model requires a MonSQLize model resolver.", {
+                        details: { kind: "validation", field: "model", reason: "model resolver is not configured" },
+                    });
+                }
+                return createProtectedModelFacade<TDocument, TCreate>(name, modelResolver(name), data);
             } catch (error) {
                 return throwVextPermissionError(req.app, error);
             }
@@ -430,6 +539,7 @@ function createPermissionApi(
     subject: Readonly<PermissionSubject>,
     req: VextRequest,
     dataOptions?: ResolvedPermissionVextDataOptions,
+    modelResolver?: ModelResolver,
 ): VextRequestPermissionApi {
     const base = core.forSubject(subject);
     const contexts = new Map<string, SubjectPermissionContext>();
@@ -457,7 +567,7 @@ function createPermissionApi(
     };
     const data = dataOptions === undefined
         ? undefined
-        : createProtectedDataApi(req, dataOptions, contextFor, assertOwner, execute);
+        : createProtectedDataApi(req, dataOptions, contextFor, assertOwner, execute, modelResolver);
     return Object.freeze({
         subject,
         ...(data === undefined ? {} : { data }),
@@ -484,6 +594,7 @@ async function installPermissionApi(
     req: VextRequest,
     resolver?: SubjectResolver,
     dataOptions?: ResolvedPermissionVextDataOptions,
+    modelResolver?: ModelResolver,
     onSubject?: (subject: Readonly<PermissionSubject>) => void,
 ) {
     const authValue = requestDataProperty(req, "auth");
@@ -501,9 +612,12 @@ async function installPermissionApi(
         throw extensionConflict("was occupied while resolving the permission subject");
     }
     if (dataOptions?.exposeAs === "monsqlize") {
-        readExistingDataAlias(req);
+        readExistingDataAlias(req, "monsqlize");
     }
-    const api = createPermissionApi(core, subject, req, dataOptions);
+    if (dataOptions?.exposeAs === "db") {
+        readExistingDataAlias(req, "db");
+    }
+    const api = createPermissionApi(core, subject, req, dataOptions, modelResolver);
     permissionApiOwners.set(api, req);
     try {
         Object.defineProperty(auth, "permission", {
@@ -571,6 +685,7 @@ export function createPermissionRequestMiddleware(
     core: PermissionCore,
     resolver?: SubjectResolver,
     dataOptions?: ResolvedPermissionVextDataOptions,
+    modelResolver?: ModelResolver,
 ): VextMiddleware {
     return async (req, res, next) => {
         const runNext = async () => {
@@ -595,7 +710,7 @@ export function createPermissionRequestMiddleware(
         let route: ResponseProjectionRoute | undefined;
         const state: RequestPermissionState = Object.freeze({
             resolve() {
-                pending ??= installPermissionApi(core, req, resolver, dataOptions, (subject) => {
+                pending ??= installPermissionApi(core, req, resolver, dataOptions, modelResolver, (subject) => {
                     resolvedSubject = subject;
                 });
                 return pending;
@@ -628,6 +743,13 @@ export function createPermissionRequestMiddleware(
         installResponseProjection(req, res, state);
         await runNext();
     };
+}
+
+export function currentPermissionDataApi(): VextRequestDataApi | undefined {
+    const req = requestContext.getStore();
+    if (!req || !activeRequests.has(req) || !hasPermissionContext(req)) return undefined;
+    const auth = requestDataProperty(req, "auth") as PermissionVextRequest["auth"];
+    return auth.permission.data;
 }
 
 export function bindPermissionResponseProjection(

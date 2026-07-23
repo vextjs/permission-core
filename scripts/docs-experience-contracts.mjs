@@ -301,21 +301,28 @@ export const operationPageContracts = [
             },
             {
                 id: "vext-request-data",
-                headings: { en: "4. Read protected data through the request facade", zh: "4. 通过请求门面读取受保护数据" },
-                calls: ["req.monsqlize.collection"],
+                headings: { en: "4. Read protected data through transparent app.db.collection", zh: "4. 通过透明 app.db.collection 读取受保护数据" },
+                calls: ["app.db.collection"],
                 outputs: ["requestDataBody"],
                 apiPaths: ["/api/vext-plugin"],
             },
             {
+                id: "vext-model-data",
+                headings: { en: "5. Read protected data through transparent app.db.model", zh: "5. 通过透明 app.db.model 读取受保护数据" },
+                calls: ["app.db.model"],
+                outputs: ["modelDataBody"],
+                apiPaths: ["/api/vext-plugin"],
+            },
+            {
                 id: "vext-reload",
-                headings: { en: "5. Reject hot route reload", zh: "5. 拒绝热路由重载" },
+                headings: { en: "6. Reject hot route reload", zh: "6. 拒绝热路由重载" },
                 calls: ["routes:ready", "request.get"],
                 outputs: ["responses.routeReloadRequiresRestart"],
                 apiPaths: ["/api/vext-plugin"],
             },
             {
                 id: "vext-close",
-                headings: { en: "6. Close only plugin-owned state", zh: "6. 只关闭插件拥有的状态" },
+                headings: { en: "7. Close only plugin-owned state", zh: "7. 只关闭插件拥有的状态" },
                 calls: ["testApp.close", "monsqlize.health"],
                 outputs: ["lifecycle"],
                 apiPaths: ["/api/vext-plugin", "/api/core-and-contexts"],
@@ -324,7 +331,8 @@ export const operationPageContracts = [
         outputGroups: [
             { group: "responses", producer: "vext-requests", producerToken: "request.get" },
             { group: "allowedBody", producer: "vext-requests", producerToken: "request.get" },
-            { group: "requestDataBody", producer: "vext-request-data", producerToken: "req.monsqlize.collection" },
+            { group: "requestDataBody", producer: "vext-request-data", producerToken: "app.db.collection" },
+            { group: "modelDataBody", producer: "vext-model-data", producerToken: "app.db.model" },
             { group: "lifecycle", producer: "vext-close", producerToken: "testApp.close" },
         ],
     },
@@ -409,7 +417,8 @@ export const apiMethodContracts = [
         path: "api/vext-plugin.md",
         methods: [
             "permissionPlugin", "hasPermissionContext", "requirePermissionContext",
-            "req.auth.permission.data.collection", "req.auth.permission.filterResponse", "appExtensions.permission",
+            "req.auth.permission.data.collection", "req.auth.permission.data.model",
+            "app.db.transparent", "req.auth.permission.filterResponse", "appExtensions.permission",
         ],
     },
 ];

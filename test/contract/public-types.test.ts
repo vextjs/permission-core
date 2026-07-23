@@ -76,7 +76,7 @@ describe("B5 data public type contract", () => {
 
 describe("Vext protected data public type contract", () => {
     it("exports the request data facade safe subset from the Vext subpath", () => {
-        const dataKeys = ["collection"] as const satisfies readonly (keyof VextRequestDataApi)[];
+        const dataKeys = ["collection", "model"] as const satisfies readonly (keyof VextRequestDataApi)[];
         const complete: Exclude<keyof VextRequestDataApi, typeof dataKeys[number]> extends never ? true : false = true;
         expect(complete).toBe(true);
     });

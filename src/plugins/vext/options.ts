@@ -7,6 +7,7 @@ import {
     PermissionCoreError,
 } from "../../core/errors";
 import { normalizeDataPath, pathsOverlap } from "../../data/path";
+import { normalizeDeclaredPath } from "../../menu/validation";
 import type { VextPluginContext } from "vextjs";
 import type {
     PermissionVextDataOptions,
@@ -18,13 +19,15 @@ const OPTION_KEYS = [
     "resolveMonSQLize",
     "databasePlugin",
     "authPlugin",
+    "routes",
     "core",
     "subject",
     "data",
     "resolveSubject",
 ] as const;
 const SUBJECT_OPTION_KEYS = ["resolve"] as const;
-const DATA_OPTION_KEYS = ["exposeAs", "scopeFields", "collections"] as const;
+const ROUTE_DEFAULT_OPTION_KEYS = ["protect", "public"] as const;
+const DATA_OPTION_KEYS = ["exposeAs", "transparent", "scopeFields", "collections"] as const;
 const DATA_COLLECTION_OPTION_KEYS = ["resource", "scopeFields"] as const;
 const SCOPE_FIELD_KEYS = ["tenantId", "appId", "moduleId", "namespace"] as const;
 const CORE_OPTION_KEYS = [
@@ -45,12 +48,15 @@ const MONSQLIZE_CAPABILITIES = [
 const PLUGIN_NAME = /^[A-Za-z][A-Za-z0-9._-]{0,127}$/u;
 const DB_RESOURCE = /^db:[A-Za-z_-][A-Za-z0-9_-]{0,63}$/u;
 const MAX_DATA_COLLECTION_OVERRIDES = 128;
+const MAX_ROUTE_DEFAULT_PATTERNS = 128;
+const MAX_ROUTE_DEFAULT_PATTERN_BYTES = 1024;
 
 export interface ResolvedPermissionVextPluginOptions {
     readonly monsqlize?: MonSQLizeInstance;
     readonly resolveMonSQLize?: NonNullable<PermissionVextPluginOptions["resolveMonSQLize"]>;
     readonly databasePlugin?: string;
     readonly authPlugin: string;
+    readonly routes: ResolvedPermissionVextRouteDefaultsOptions;
     readonly dependencies: readonly string[];
     readonly core: Omit<PermissionCoreOptions, "monsqlize">;
     readonly resolveSubject?: NonNullable<PermissionVextPluginOptions["resolveSubject"]>;
@@ -63,9 +69,20 @@ export interface ResolvedPermissionVextDataCollectionOptions {
 }
 
 export interface ResolvedPermissionVextDataOptions {
-    readonly exposeAs?: false | "monsqlize";
+    readonly exposeAs?: false | "monsqlize" | "db";
+    readonly transparent: boolean;
     readonly scopeFields: AuthorizedCollectionOptions["scopeFields"];
     readonly collections: Readonly<Record<string, ResolvedPermissionVextDataCollectionOptions>>;
+}
+
+export interface ResolvedPermissionVextRoutePattern {
+    readonly kind: "exact" | "prefix";
+    readonly value: string;
+}
+
+export interface ResolvedPermissionVextRouteDefaultsOptions {
+    readonly protect: readonly ResolvedPermissionVextRoutePattern[];
+    readonly public: readonly ResolvedPermissionVextRoutePattern[];
 }
 
 function configurationError(field: string, reason: string, cause?: unknown) {
@@ -141,6 +158,57 @@ function pluginName(value: unknown, field: string) {
     return value;
 }
 
+function routePattern(value: unknown, field: string): ResolvedPermissionVextRoutePattern {
+    if (
+        typeof value !== "string"
+        || !value.startsWith("/")
+        || !value
+        || Buffer.byteLength(value, "utf8") > MAX_ROUTE_DEFAULT_PATTERN_BYTES
+        || /[\u0000-\u001f\u007f?#]/u.test(value)
+    ) {
+        throw configurationError(field, "must be an absolute route path or prefix pattern");
+    }
+    if (value === "/**") {
+        return Object.freeze({ kind: "prefix", value: "/" });
+    }
+    if (value.endsWith("/**")) {
+        const prefix = value.slice(0, -3);
+        if (!prefix || prefix.endsWith("/")) {
+            throw configurationError(field, "must use a non-empty prefix before /**");
+        }
+        try {
+            return Object.freeze({ kind: "prefix", value: normalizeDeclaredPath(prefix, field) });
+        } catch (cause) {
+            throw configurationError(field, "must contain a valid route prefix before /**", cause);
+        }
+    }
+    if (value.includes("*")) {
+        throw configurationError(field, "only a trailing /** wildcard is supported");
+    }
+    try {
+        return Object.freeze({ kind: "exact", value: normalizeDeclaredPath(value, field) });
+    } catch (cause) {
+        throw configurationError(field, "must be a valid route path", cause);
+    }
+}
+
+function routePatternArray(value: unknown, field: string) {
+    return dataArray(value, field, MAX_ROUTE_DEFAULT_PATTERNS)
+        .map((entry, index) => routePattern(entry, `${field}[${index}]`));
+}
+
+function snapshotRouteDefaults(value: unknown): ResolvedPermissionVextRouteDefaultsOptions {
+    const input = exactRecord(value, ROUTE_DEFAULT_OPTION_KEYS, "options.routes");
+    return Object.freeze({
+        protect: Object.freeze(Object.hasOwn(input, "protect")
+            ? routePatternArray(input.protect, "options.routes.protect")
+            : []),
+        public: Object.freeze(Object.hasOwn(input, "public")
+            ? routePatternArray(input.public, "options.routes.public")
+            : []),
+    });
+}
+
 function assertNoScopePathOverlap(scopeFields: AuthorizedCollectionOptions["scopeFields"], field: string) {
     const paths = Object.values(scopeFields);
     for (let left = 0; left < paths.length; left += 1) {
@@ -198,8 +266,12 @@ function snapshotDataOptions(value: unknown): ResolvedPermissionVextDataOptions 
         throw configurationError("options.data.scopeFields", "is required when data is enabled");
     }
     const exposeAs = Object.hasOwn(input, "exposeAs") ? input.exposeAs : undefined;
-    if (exposeAs !== undefined && exposeAs !== false && exposeAs !== "monsqlize") {
-        throw configurationError("options.data.exposeAs", "must be false or 'monsqlize'");
+    if (exposeAs !== undefined && exposeAs !== false && exposeAs !== "monsqlize" && exposeAs !== "db") {
+        throw configurationError("options.data.exposeAs", "must be false, 'monsqlize', or 'db'");
+    }
+    const transparent = Object.hasOwn(input, "transparent") ? input.transparent : false;
+    if (typeof transparent !== "boolean") {
+        throw configurationError("options.data.transparent", "must be a boolean");
     }
     const collections: Record<string, ResolvedPermissionVextDataCollectionOptions> = {};
     if (Object.hasOwn(input, "collections")) {
@@ -219,7 +291,8 @@ function snapshotDataOptions(value: unknown): ResolvedPermissionVextDataOptions 
         }
     }
     return Object.freeze({
-        ...(exposeAs === undefined ? {} : { exposeAs: exposeAs as false | "monsqlize" }),
+        ...(exposeAs === undefined ? {} : { exposeAs: exposeAs as false | "monsqlize" | "db" }),
+        transparent,
         scopeFields: snapshotScopeFields(input.scopeFields, "options.data.scopeFields"),
         collections: Object.freeze(collections),
     });
@@ -315,6 +388,9 @@ export function resolvePermissionVextPluginOptions(
             : {}),
         ...(databasePlugin === undefined ? {} : { databasePlugin }),
         authPlugin,
+        routes: Object.hasOwn(input, "routes")
+            ? snapshotRouteDefaults(input.routes)
+            : Object.freeze({ protect: Object.freeze([]), public: Object.freeze([]) }),
         dependencies,
         core: Object.hasOwn(input, "core") ? snapshotCoreOptions(input.core) : Object.freeze({}),
         ...(subjectResolver === undefined ? {} : { resolveSubject: subjectResolver }),

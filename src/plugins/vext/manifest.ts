@@ -22,6 +22,7 @@ import type {
     VextRoutePermissionManifest,
     VextRouteManifestEntry,
 } from "./types";
+import type { ResolvedPermissionVextRouteDefaultsOptions } from "./options";
 
 const MAX_ROUTE_COUNT = 20_000;
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
@@ -284,6 +285,25 @@ function readPermissionOption(route: Record<string, unknown>, field: string) {
     return record.permission as VextRoutePermission;
 }
 
+function routePatternMatches(path: string, pattern: ResolvedPermissionVextRouteDefaultsOptions["protect"][number]) {
+    if (pattern.kind === "exact") return path === pattern.value;
+    if (pattern.value === "/") return true;
+    return path === pattern.value || path.startsWith(`${pattern.value}/`);
+}
+
+function defaultPermissionForRoute(
+    path: string,
+    defaults: ResolvedPermissionVextRouteDefaultsOptions | undefined,
+) {
+    if (!defaults) return undefined;
+    if (defaults.public.some((pattern) => routePatternMatches(path, pattern))) {
+        return undefined;
+    }
+    return defaults.protect.some((pattern) => routePatternMatches(path, pattern))
+        ? true
+        : undefined;
+}
+
 function hasEnabledRouteCache(route: Record<string, unknown>, field: string) {
     const options = route.options;
     if (options === undefined) return false;
@@ -311,6 +331,7 @@ function normalizeRoute(
     value: unknown,
     schemes: ResourceSchemeRegistry,
     field: string,
+    defaults?: ResolvedPermissionVextRouteDefaultsOptions,
 ): { entry: VextRouteManifestEntry; contract: VextRouteRuntimeContract } {
     const route = plainRecord(value, field);
     const method = normalizeMethod(route.method, `${field}.method`);
@@ -322,8 +343,12 @@ function normalizeRoute(
         throw invalidRoute(`${field}.path`, "cannot form a valid route permission resource", cause);
     }
     const routeKey = digestCanonical({ method, path });
+    const explicitPermission = readPermissionOption(route, field);
+    const permissionInput = explicitPermission === undefined
+        ? defaultPermissionForRoute(path, defaults)
+        : explicitPermission;
     const permission = normalizeRoutePermission(
-        readPermissionOption(route, field),
+        permissionInput,
         defaultResource,
         schemes,
         `${field}.options.permission`,
@@ -476,6 +501,7 @@ export function buildVextRouteSnapshot(
     count: number,
     routesInput: readonly VextRouteHookInfo[],
     schemes: ResourceSchemeRegistry,
+    defaults?: ResolvedPermissionVextRouteDefaultsOptions,
 ): VextRouteSnapshot {
     if (!Number.isSafeInteger(count) || count < 0 || count > MAX_ROUTE_COUNT) {
         throw invalidRoute("routes.count", `must be a safe integer in 0..${MAX_ROUTE_COUNT}`);
@@ -485,7 +511,7 @@ export function buildVextRouteSnapshot(
         throw invalidRoute("routes.count", "does not match the route inventory length");
     }
     const normalized = routes
-        .map((route, index) => normalizeRoute(route, schemes, `routes[${index}]`))
+        .map((route, index) => normalizeRoute(route, schemes, `routes[${index}]`, defaults))
         .sort((left, right) => compareRoutes(left.entry, right.entry));
     for (let index = 1; index < normalized.length; index += 1) {
         const previous = normalized[index - 1]!.entry;
@@ -513,6 +539,7 @@ export function buildVextRouteSnapshot(
 export function matchVextRouteContract(
     route: VextRouteHookInfo,
     schemes: ResourceSchemeRegistry,
+    defaults?: ResolvedPermissionVextRouteDefaultsOptions,
 ) {
-    return normalizeRoute(route, schemes, "route").contract;
+    return normalizeRoute(route, schemes, "route", defaults).contract;
 }

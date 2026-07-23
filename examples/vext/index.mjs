@@ -32,9 +32,13 @@ try {
             });
             await permissionPlugin({
                 monsqlize: database.monsqlize,
+                routes: {
+                    protect: ["/orders/**", "/orders-data", "/orders-model"],
+                    public: ["/public"],
+                },
                 core: { collectionPrefix: "pc_vext_example" },
                 data: {
-                    exposeAs: "monsqlize",
+                    transparent: true,
                     scopeFields: { tenantId: "tenantId" },
                     collections: {
                         vext_orders: { resource: "db:orders" },
@@ -53,6 +57,7 @@ try {
     await scoped.roles.create({ id: "route-reader", label: "Route reader" });
     await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders/:id" });
     await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders-data" });
+    await scoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders-model" });
     await scoped.roles.allow("route-reader", { action: "read", resource: "db:orders" });
     await scoped.userRoles.assign("u-vext", "route-reader");
     await database.monsqlize.collection("vext_orders").raw().insertMany([
@@ -65,6 +70,7 @@ try {
     const denied = await testApp.request.get("/orders/42").set("x-example-user", "u-denied");
     const allowed = await testApp.request.get("/orders/42").set("x-example-user", "u-vext");
     const dataAllowed = await testApp.request.get("/orders-data").set("x-example-user", "u-vext");
+    const modelAllowed = await testApp.request.get("/orders-model").set("x-example-user", "u-vext");
 
     await testApp.app.hooks.emit("routes:ready", { count: 0, routes: [] });
     const restartRequired = await testApp.request.get("/public");
@@ -79,10 +85,12 @@ try {
             permissionDenied: denied.status,
             permissionAllowed: allowed.status,
             requestDataAllowed: dataAllowed.status,
+            modelDataAllowed: modelAllowed.status,
             routeReloadRequiresRestart: restartRequired.status,
         },
         allowedBody: allowed.body.data,
         requestDataBody: dataAllowed.body.data,
+        modelDataBody: modelAllowed.body.data,
         lifecycle: {
             permissionCoreClosedByPlugin: true,
             hostDatabaseStillConnected: hostDatabase.status === "up" && hostDatabase.connected,
