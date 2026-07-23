@@ -351,57 +351,38 @@ function wrapAuthorizedCollection<
 ): AuthorizedCollection<TDocument, TCreate> {
     const wrapped = Object.freeze({
         find: (filter, options) =>
-            execute(() => {
-                assertOwner();
-                return collection.find(filter, options);
-            }),
+            guardedCollectionCall(assertOwner, execute, () => collection.find(filter, options)),
         findOne: (filter, options) =>
-            execute(() => {
-                assertOwner();
-                return collection.findOne(filter, options);
-            }),
+            guardedCollectionCall(assertOwner, execute, () => collection.findOne(filter, options)),
         count: (filter, options) =>
-            execute(() => {
-                assertOwner();
-                return collection.count(filter, options);
-            }),
+            guardedCollectionCall(assertOwner, execute, () => collection.count(filter, options)),
         findAndCount: (filter, options) =>
-            execute(() => {
-                assertOwner();
-                return collection.findAndCount(filter, options);
-            }),
+            guardedCollectionCall(assertOwner, execute, () => collection.findAndCount(filter, options)),
         findPage: (query) =>
-            execute(() => {
-                assertOwner();
-                return collection.findPage(query);
-            }),
+            guardedCollectionCall(assertOwner, execute, () => collection.findPage(query)),
         insertOne: (document, options) =>
-            execute(() => {
-                assertOwner();
-                return collection.insertOne(document, options);
-            }),
+            guardedCollectionCall(assertOwner, execute, () => collection.insertOne(document, options)),
         updateOne: (filter, update, options) =>
-            execute(() => {
-                assertOwner();
-                return collection.updateOne(filter, update, options);
-            }),
+            guardedCollectionCall(assertOwner, execute, () => collection.updateOne(filter, update, options)),
         updateMany: (filter, update, options) =>
-            execute(() => {
-                assertOwner();
-                return collection.updateMany(filter, update, options);
-            }),
+            guardedCollectionCall(assertOwner, execute, () => collection.updateMany(filter, update, options)),
         deleteOne: (filter, options) =>
-            execute(() => {
-                assertOwner();
-                return collection.deleteOne(filter, options);
-            }),
+            guardedCollectionCall(assertOwner, execute, () => collection.deleteOne(filter, options)),
         deleteMany: (filter, options) =>
-            execute(() => {
-                assertOwner();
-                return collection.deleteMany(filter, options);
-            }),
+            guardedCollectionCall(assertOwner, execute, () => collection.deleteMany(filter, options)),
     } satisfies AuthorizedCollection<TDocument, TCreate>);
     return wrapped;
+}
+
+function guardedCollectionCall<T>(
+    assertOwner: () => void,
+    execute: <TResult>(operation: () => Promise<TResult>) => Promise<TResult>,
+    operation: () => Promise<T>,
+) {
+    return execute(() => {
+        assertOwner();
+        return operation();
+    });
 }
 
 function unsupportedModelMethod(method: string): never {
@@ -430,6 +411,60 @@ function safeModelMethod(model: unknown, key: string) {
     }
 }
 
+function optionalModelString(model: unknown, key: "dbName" | "poolName") {
+    const value = safeModelString(model, key);
+    return value === undefined ? {} : { [key]: value };
+}
+
+function optionalModelMethod(model: unknown, key: "getNamespace" | "validate") {
+    const value = safeModelMethod(model, key);
+    return value === undefined ? {} : { [key]: (...args: unknown[]) => value(...args) };
+}
+
+function protectedModelCrud<
+    TDocument extends object,
+    TCreate extends object,
+>(collection: AuthorizedCollection<TDocument, TCreate>) {
+    return {
+        find: (filter: SafeMongoFilter | undefined, options?: AuthorizedReadOptions) => collection.find(filter, options),
+        findOne: (filter: SafeMongoFilter | undefined, options?: AuthorizedFindOneOptions) => collection.findOne(filter, options),
+        findOneById: (id: unknown, options?: AuthorizedFindOneOptions) =>
+            collection.findOne({ _id: id } as SafeMongoFilter, options),
+        findById: (id: unknown, options?: AuthorizedFindOneOptions) =>
+            collection.findOne({ _id: id } as SafeMongoFilter, options),
+        findByIds: (ids: readonly unknown[], options?: AuthorizedReadOptions) =>
+            collection.find({ _id: { $in: ids } } as SafeMongoFilter, options),
+        count: (filter: SafeMongoFilter | undefined, options?: AuthorizedReadOptions) => collection.count(filter, options),
+        findAndCount: (filter: SafeMongoFilter | undefined, options?: AuthorizedReadOptions) => collection.findAndCount(filter, options),
+        findPage: collection.findPage,
+        insertOne: collection.insertOne,
+        updateOne: collection.updateOne,
+        updateMany: collection.updateMany,
+        deleteOne: collection.deleteOne,
+        deleteMany: collection.deleteMany,
+    };
+}
+
+function unsupportedProtectedModelMethods() {
+    return {
+        raw: () => unsupportedModelMethod("raw"),
+        insertMany: () => unsupportedModelMethod("insertMany"),
+        replaceOne: () => unsupportedModelMethod("replaceOne"),
+        findOneAndUpdate: () => unsupportedModelMethod("findOneAndUpdate"),
+        findOneAndReplace: () => unsupportedModelMethod("findOneAndReplace"),
+        findOneAndDelete: () => unsupportedModelMethod("findOneAndDelete"),
+        aggregate: () => unsupportedModelMethod("aggregate"),
+        distinct: () => unsupportedModelMethod("distinct"),
+        stream: () => unsupportedModelMethod("stream"),
+        watch: () => unsupportedModelMethod("watch"),
+        createIndex: () => unsupportedModelMethod("createIndex"),
+        createIndexes: () => unsupportedModelMethod("createIndexes"),
+        dropIndex: () => unsupportedModelMethod("dropIndex"),
+        dropIndexes: () => unsupportedModelMethod("dropIndexes"),
+        dropCollection: () => unsupportedModelMethod("dropCollection"),
+    };
+}
+
 export function createProtectedModelFacade<
     TDocument extends object,
     TCreate extends object = Omit<TDocument, "_id">,
@@ -445,47 +480,52 @@ export function createProtectedModelFacade<
     }
     const collectionName = safeModelString(model, "collectionName") ?? name;
     const collection = data.collection<TDocument, TCreate>(collectionName);
-    const getNamespace = safeModelMethod(model, "getNamespace");
-    const validate = safeModelMethod(model, "validate");
     const facade = {
         collectionName,
-        ...(safeModelString(model, "dbName") === undefined ? {} : { dbName: safeModelString(model, "dbName") }),
-        ...(safeModelString(model, "poolName") === undefined ? {} : { poolName: safeModelString(model, "poolName") }),
-        ...(getNamespace === undefined ? {} : { getNamespace: () => getNamespace() }),
-        ...(validate === undefined ? {} : { validate: (document?: unknown) => validate(document) }),
-        raw: () => unsupportedModelMethod("raw"),
-        find: (filter, options) => collection.find(filter, options),
-        findOne: (filter, options) => collection.findOne(filter, options),
-        findOneById: (id: unknown, options?: AuthorizedFindOneOptions) =>
-            collection.findOne({ _id: id } as SafeMongoFilter, options),
-        findById: (id: unknown, options?: AuthorizedFindOneOptions) =>
-            collection.findOne({ _id: id } as SafeMongoFilter, options),
-        findByIds: (ids: readonly unknown[], options?: AuthorizedReadOptions) =>
-            collection.find({ _id: { $in: ids } } as SafeMongoFilter, options),
-        count: (filter, options) => collection.count(filter, options),
-        findAndCount: (filter, options) => collection.findAndCount(filter, options),
-        findPage: (query) => collection.findPage(query),
-        insertOne: (document, options) => collection.insertOne(document, options),
-        updateOne: (filter, update, options) => collection.updateOne(filter, update, options),
-        updateMany: (filter, update, options) => collection.updateMany(filter, update, options),
-        deleteOne: (filter, options) => collection.deleteOne(filter, options),
-        deleteMany: (filter, options) => collection.deleteMany(filter, options),
-        insertMany: () => unsupportedModelMethod("insertMany"),
-        replaceOne: () => unsupportedModelMethod("replaceOne"),
-        findOneAndUpdate: () => unsupportedModelMethod("findOneAndUpdate"),
-        findOneAndReplace: () => unsupportedModelMethod("findOneAndReplace"),
-        findOneAndDelete: () => unsupportedModelMethod("findOneAndDelete"),
-        aggregate: () => unsupportedModelMethod("aggregate"),
-        distinct: () => unsupportedModelMethod("distinct"),
-        stream: () => unsupportedModelMethod("stream"),
-        watch: () => unsupportedModelMethod("watch"),
-        createIndex: () => unsupportedModelMethod("createIndex"),
-        createIndexes: () => unsupportedModelMethod("createIndexes"),
-        dropIndex: () => unsupportedModelMethod("dropIndex"),
-        dropIndexes: () => unsupportedModelMethod("dropIndexes"),
-        dropCollection: () => unsupportedModelMethod("dropCollection"),
+        ...optionalModelString(model, "dbName"),
+        ...optionalModelString(model, "poolName"),
+        ...optionalModelMethod(model, "getNamespace"),
+        ...optionalModelMethod(model, "validate"),
+        ...protectedModelCrud(collection),
+        ...unsupportedProtectedModelMethods(),
     } satisfies VextAuthorizedModel<TDocument, TCreate> & Record<string, unknown>;
     return Object.freeze(facade);
+}
+
+function createContextResolver(
+    core: PermissionCore,
+    subject: Readonly<PermissionSubject>,
+) {
+    const base = core.forSubject(subject);
+    const contexts = new Map<string, SubjectPermissionContext>();
+    return (context?: PolicyContext) => {
+        if (context === undefined) return base;
+        const normalized = normalizePolicyContext(context);
+        const key = digestCanonical(normalized);
+        const existing = contexts.get(key);
+        if (existing) return existing;
+        const created = core.forSubject(subject, normalized);
+        if (contexts.size < MAX_CONTEXTS_PER_REQUEST) contexts.set(key, created);
+        return created;
+    };
+}
+
+function createRequestOperationExecutor(req: VextRequest) {
+    return async <T>(operation: () => Promise<T>) => {
+        try {
+            return await operation();
+        } catch (error) {
+            return throwVextPermissionError(req.app, error);
+        }
+    };
+}
+
+function createRequestOwnerAssert(req: VextRequest) {
+    return () => {
+        if (requestContext.getStore() !== req || !activeRequests.has(req)) {
+            throw extensionConflict("was used outside its owning request");
+        }
+    };
 }
 
 function createProtectedDataApi(
@@ -541,30 +581,9 @@ function createPermissionApi(
     dataOptions?: ResolvedPermissionVextDataOptions,
     modelResolver?: ModelResolver,
 ): VextRequestPermissionApi {
-    const base = core.forSubject(subject);
-    const contexts = new Map<string, SubjectPermissionContext>();
-    const contextFor = (context?: PolicyContext) => {
-        if (context === undefined) return base;
-        const normalized = normalizePolicyContext(context);
-        const key = digestCanonical(normalized);
-        const existing = contexts.get(key);
-        if (existing) return existing;
-        const created = core.forSubject(subject, normalized);
-        if (contexts.size < MAX_CONTEXTS_PER_REQUEST) contexts.set(key, created);
-        return created;
-    };
-    const execute = async <T>(operation: () => Promise<T>) => {
-        try {
-            return await operation();
-        } catch (error) {
-            return throwVextPermissionError(req.app, error);
-        }
-    };
-    const assertOwner = () => {
-        if (requestContext.getStore() !== req || !activeRequests.has(req)) {
-            throw extensionConflict("was used outside its owning request");
-        }
-    };
+    const contextFor = createContextResolver(core, subject);
+    const execute = createRequestOperationExecutor(req);
+    const assertOwner = createRequestOwnerAssert(req);
     const data = dataOptions === undefined
         ? undefined
         : createProtectedDataApi(req, dataOptions, contextFor, assertOwner, execute, modelResolver);
