@@ -1,6 +1,6 @@
 # 管理菜单
 
-菜单管理的推荐用法是按后台页面的操作顺序来：先创建一套菜单配置，再创建菜单、页面、页面默认接口、按钮和响应字段。permission-core 会把这些操作编译成内部菜单节点、接口权限和字段库存；你不需要手动维护 `nodes`、`apiBindings` 或 owner 关系。
+菜单管理的推荐用法是按后台页面的操作顺序来：先创建一套菜单配置，再创建菜单、页面、页面默认接口、按钮和响应字段。permission-core 会在保存时自动生成运行时需要的接口契约和字段库存；后台表单只需要维护这些对象本身。
 
 最小心智模型是：
 
@@ -30,11 +30,11 @@ flowchart LR
 
 如果你只是做后台管理页面，优先看前半部分的逐项方法；后面的 `MenuConfigInput`、`menus.config.save()` 和批量导入更适合插件、CI/CD 或配置即代码。
 
-## 新项目和旧项目怎么选
+## 普通后台用哪套 API
 
-新项目只需要记住一条主线：用 `menus.configs/items/views/loadApis/actions/responses` 管理配置，用 `roles.menuPermissions` 给角色授权，用 `subject.menus.*` 给前端投影运行时状态。
+普通后台只需要记住一条主线：用 `menus.configs/items/views/loadApis/actions/responses` 管理配置，用 `roles.menuPermissions` 给角色授权，用 `subject.menus.*` 给前端投影运行时状态。
 
-旧的 `nodes`、`apiBindings` 和 owner 关系仍然存在于内部模型里，是为了兼容 v2 菜单清单、批量导入和历史迁移；普通后台不应该直接维护它们。你在文档里看到 `menus.config.*` 时，可以把它理解成“整包导入/配置即代码”的高级入口，不是后台表单的默认保存方式。
+你在文档里看到 `menus.config.*` 时，可以把它理解成“整包导入/配置即代码”的高级入口，不是后台表单的默认保存方式。历史迁移需要的内部模型不放在本页主路径里讲，避免后台接入时心智被带偏。
 
 | 你正在做什么 | 应该用什么 |
 |---|---|
@@ -42,7 +42,6 @@ flowchart LR
 | 给角色勾选菜单、页面、按钮、接口和字段 | `roles.menuPermissions.*` |
 | 给当前用户返回可见菜单树和按钮状态 | `subject.menus.getViewTree()` / `getActionMap()` |
 | 插件安装、CI/CD 或一次导入整套配置 | `MenuConfigInput` + `menus.config.save()` |
-| 维护历史 v2 清单或做兼容迁移 | 只在迁移工具里处理 `nodes` / `apiBindings` / owner |
 
 ## 打开管理页：先读取完整菜单树
 
@@ -202,7 +201,7 @@ const result = await scoped.menus.management.applyChanges('admin', [
 | 添加按钮或操作 | `menus.actions.previewCreate()` / `create()` |
 | 配置接口响应字段 | `menus.responses.previewSet()` / `set()` |
 
-`menus.configs.create()` 可以创建空配置，便于后台先建菜单树再慢慢补页面；但 `menus.config.save({ menus: [] })` 仍然会失败，因为批量入口表示“完整配置覆盖”，空数组很容易误删整套菜单。
+`menus.configs.create()` 可以创建空配置，便于后台先建菜单树再慢慢补页面；但 `menus.config.save({ menus: [] })` 仍然会失败，因为完整配置批量入口表示“覆盖整套配置”，空数组很容易误删整套菜单。
 
 什么时候需要显式 preview？
 
@@ -225,7 +224,7 @@ const result = await scoped.menus.management.applyChanges('admin', [
 const result = await scoped.menus.items.create('admin', input);
 ```
 
-`create/update/add/set()` 返回 `MutationResult<MenuManagementResult>`，会真正写入配置、同步内部菜单节点、接口契约和响应字段库存。`preview*()` 返回 `ImpactPreview<MenuManagementPlan>`，只读不写库，适合删除、容量风险或管理端想先展示影响的场景。
+`create/update/add/set()` 返回 `MutationResult<MenuManagementResult>`，会真正写入配置，并同步运行时需要的接口契约和响应字段库存。`preview*()` 返回 `ImpactPreview<MenuManagementPlan>`，只读不写库，适合删除、容量风险或管理端想先展示影响的场景。
 
 推荐在 `pc.scope(scope, defaults)` 里绑定本次管理请求的 `actorId/requestId`。单次方法的 `options` 只在需要覆盖默认值、提交显式 preview 凭证或确认容量风险时再传；`idempotencyKey` 不是权限模型的一部分，只是给高级接入场景覆盖默认策略。
 

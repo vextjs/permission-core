@@ -65,7 +65,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `new PermissionCore(options)`
 <!-- docs:method name=PermissionCore locale=en -->
 
-- **Purpose**: Use `PermissionCore` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Construct the root permission-core service with MonSQLize, cache, token, audit, and resource-scheme options.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -74,7 +74,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `init()`
 <!-- docs:method name=init locale=en -->
 
-- **Purpose**: Use `init` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Initialize the core service, persistence metadata, indexes, and runtime health state before use.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -83,7 +83,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `health()`
 <!-- docs:method name=health locale=en -->
 
-- **Purpose**: Use `health` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Read readiness and component health for the core service, including schema, database, cache, token, and audit status.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -105,7 +105,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `forSubject(subject, context?)`
 <!-- docs:method name=forSubject locale=en -->
 
-- **Purpose**: Use `forSubject` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Create a subject facade for one trusted user, scope, claims set, and optional policy context.
 - **Parameters**: Pass trusted host state only: normalized scope, authenticated user ID, claims/context, and collection options that map every active scope field.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -118,7 +118,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `can(subject, action, resource, context?)` / `subject.can(action, resource)`
 <!-- docs:method name=can locale=en -->
 
-- **Purpose**: Use `can` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Return whether a trusted subject can perform one action on one resource.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `boolean` or the documented matcher result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -127,7 +127,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `cannot(subject, action, resource, context?)` / `subject.cannot(action, resource)`
 <!-- docs:method name=cannot locale=en -->
 
-- **Purpose**: Use `cannot` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Return the inverse of `can(...)` for branches that read more naturally as a negative condition.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `boolean` or the documented matcher result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -136,7 +136,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `assert(subject, action, resource, context?)` / `subject.assert(action, resource)`
 <!-- docs:method name=assert locale=en -->
 
-- **Purpose**: Use `assert` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Stop the current flow by throwing when the subject cannot perform the requested action.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `Promise<void>` on success, or a structured `PermissionCoreError`. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -149,7 +149,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `getPermissions(subject, context?)` / `subject.getPermissions()`
 <!-- docs:method name=getPermissions locale=en -->
 
-- **Purpose**: Use `getPermissions` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Read the subject's resolved role IDs, rule sources, and bounded diagnostics for troubleshooting.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -158,7 +158,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `getResources(subject, action?, context?)` / `subject.getResources(action?)`
 <!-- docs:method name=getResources locale=en -->
 
-- **Purpose**: Use `getResources` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: List effective resource patterns for the subject, optionally narrowed to one action.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -167,7 +167,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `explain(subject, action, resource, context?)` / `subject.explain(action, resource)`
 <!-- docs:method name=explain locale=en -->
 
-- **Purpose**: Use `explain` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Return the decision reason and bounded evaluation details for one permission check.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -180,7 +180,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `close()`
 <!-- docs:method name=close locale=en -->
 
-- **Purpose**: Use `close` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Drain and close permission-core resources in the correct order during shutdown.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `Promise<void>` on success, or a structured `PermissionCoreError`. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.

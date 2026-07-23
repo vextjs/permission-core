@@ -47,7 +47,7 @@ Custom definitions are trusted configuration, not persisted rule functions. Init
 ### `new PermissionCore({ resourceSchemes })`
 <!-- docs:method name=PermissionCore.resourceSchemes locale=en -->
 
-- **Purpose**: Use `PermissionCore.resourceSchemes` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Register or inspect resource-scheme definitions that normalize and validate custom resource strings.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -56,7 +56,7 @@ Custom definitions are trusted configuration, not persisted rule functions. Init
 ### `validate(resource)` and `match(pattern, resource)`
 <!-- docs:method name=ResourceSchemeDefinition.callbacks locale=en -->
 
-- **Purpose**: Use `ResourceSchemeDefinition.callbacks` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Define scheme-specific normalize, validate, match, and describe behavior for custom resource kinds.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.

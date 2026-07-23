@@ -1,13 +1,13 @@
 # Check Permissions
-<!-- docs:inline-parity `pc.forSubject(input)` `userId` `scope` `claims` `subject.can(action, resource, context?)` `Promise<boolean>` `subject.cannot(...)` `can` `!can(...)` `subject.assert(...)` `Promise<void>` `cannot` `assert` `PERMISSION_DENIED` `api:GET:/orders/:id` `explain()` `SubjectRuntimeResult<PermissionExplanation>` `data` `detailBudget` `can()` `action` `invoke` `resource` `context?` `valueFrom` `can/assert` `allow` `explicit-deny` `no-allow` `policy-unknown` `role-disabled` `context-missing` `roles.get(roleId)` `VersionedResult<Role>` `roles.getOwnRules(roleId)` `VersionedResult<PermissionRuleView[]>` `roles.getEffectiveRules(roleId)` `roles.getChain(roleId)` `getOwnRules` `getEffectiveRules` `getChain` `assign()` `set()` `getDirect/getEffective` `userRoles.assign(userId, roleId, options?)` `UserRoleBindingSet` `userRoles.getDirect(userId)` `set` `userRoles.set(userId, roleIds, options)` `expectedRevision` `userRoles.getEffective(userId)` `assign` `permissions/invokeResources` `subject.getPermissions(options?)` `subject.getResources(action?, options?)` `conditional=true` `getPermissions()` `getResources(action?)` -->
+<!-- docs:inline-parity `pc.forSubject(input)` `pc.forSubject(input, context)` `userId` `scope` `claims` `subject.can(action, resource)` `pc.can(subject, action, resource, context?)` `Promise<boolean>` `subject.cannot(...)` `can` `!can(...)` `subject.assert(...)` `Promise<void>` `cannot` `assert` `PERMISSION_DENIED` `api:GET:/orders/:id` `explain()` `SubjectRuntimeResult<PermissionExplanation>` `data` `detailBudget` `can()` `action` `invoke` `resource` `context` `valueFrom` `can/assert` `allow` `explicit-deny` `no-allow` `policy-unknown` `role-disabled` `context-missing` `roles.get(roleId)` `VersionedResult<Role>` `roles.getOwnRules(roleId)` `VersionedResult<PermissionRuleView[]>` `roles.getEffectiveRules(roleId)` `roles.getChain(roleId)` `getOwnRules` `getEffectiveRules` `getChain` `assign()` `set()` `getDirect/getEffective` `userRoles.assign(userId, roleId, options?)` `UserRoleBindingSet` `userRoles.getDirect(userId)` `set` `userRoles.set(userId, roleIds, options)` `expectedRevision` `userRoles.getEffective(userId)` `assign` `permissions/invokeResources` `subject.getPermissions()` `subject.getResources(action?)` `conditional=true` `getPermissions()` `getResources(action?)` -->
 
 This page answers one practical question: **which method should application code call to check permissions?**
 
-For normal requests, bind the current user with `pc.forSubject(input)`, then call `can()`, `cannot()`, or `assert()` for the operation being performed. The role, rule, and snapshot reads later in this page are for admin screens and diagnostics; they are not required on every business request.
+For normal requests, bind the current user with `pc.forSubject(input)`, then call `can()`, `cannot()`, or `assert()` for the operation being performed. If conditional rules need policy context, bind it with `pc.forSubject(input, context)` or call the core-level `pc.can(subject, action, resource, context)` helper; do not pass context to the subject facade. The role, rule, and snapshot reads later in this page are for admin screens and diagnostics; they are not required on every business request.
 
 | Goal | Method | Return |
 |---|---|---|
-| Need a boolean for UI or business branching | `subject.can(action, resource, context?)` | `Promise<boolean>` |
+| Need a boolean for UI or business branching | `subject.can(action, resource)` | `Promise<boolean>` |
 | Want to write the inverse condition naturally | `subject.cannot(...)` | `Promise<boolean>`, equivalent to `!can(...)` |
 | Backend API must stop when unauthorized | `subject.assert(...)` | no value when allowed; throws `PERMISSION_DENIED` when denied |
 | Need to understand why access was denied | `subject.explain(...)` | diagnostic result with reason and bounded match details |
@@ -29,6 +29,20 @@ await subject.assert('invoke', 'api:GET:/api/orders');
 ```json
 { "allowed": true, "blocked": true, "assertResult": "void" }
 ```
+
+The JSON above is a tutorial summary of three separate calls, not the raw response of a single method.
+
+If a rule uses `valueFrom: 'context.xxx'`, do not pass `context` to `subject.can()`. Bind it when creating the subject:
+
+```ts
+const subject = pc.forSubject(
+  { userId: 'u-1', scope: { tenantId: 'acme' } },
+  { orderAmount: 1200 },
+);
+```
+
+You can also call the core-level helper directly: `pc.can(subjectInput, action, resource, context)`. The subject facade signatures remain `subject.can(action, resource)` and `subject.assert(action, resource)`, and `explain` uses the same bound subject context.
+
 ## Explain One Decision
 
 Use `explain()` when a decision is surprising. It returns the same allow/deny result plus the reason and bounded evaluation details, so diagnostics do not need to guess why a rule matched or missed.

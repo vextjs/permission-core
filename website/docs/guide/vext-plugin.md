@@ -62,7 +62,7 @@ frontend token
   -> plugin handles 401/403, data permissions, and response projection
 ```
 
-If you only need route authorization, configure `routes.protect/public` and API grants. If a handler or service reads or writes the database, enable `data.transparent`. If you need to hide response fields, continue to “Response field projection”. Canonical APIs, compatibility aliases such as `req.monsqlize`, and complete types live in [Vext Plugin API](/api/vext-plugin); they are not the first integration path.
+If you only need route authorization, configure `routes.protect/public` and API grants. If a handler or service reads or writes the database, enable `data.transparent`. If you need to hide response fields, continue to “Response field projection”. Complete options and types live in [Vext Plugin API](/api/vext-plugin); this guide keeps only the current recommended integration path.
 
 ## Prerequisites
 
@@ -159,18 +159,6 @@ export default permissionPlugin({
     collections: {
       vext_orders: { resource: 'db:orders' },
     },
-  },
-});
-```
-
-Legacy projects that already use `req.monsqlize.collection(...)` can keep the compatibility alias:
-
-```ts
-export default permissionPlugin({
-  monsqlize: appMonSQLize,
-  data: {
-    exposeAs: 'monsqlize',
-    scopeFields: { tenantId: 'tenantId' },
   },
 });
 ```
@@ -335,7 +323,7 @@ await scoped.menus.responses.set('admin', {
   owner: {
     ownerType: 'load',
     viewId: 'orders-list',
-    resource: 'api:GET:/orders',
+    resource: 'api:GET:/api/orders',
   },
   response: {
     target: 'items',
@@ -349,7 +337,7 @@ await scoped.menus.responses.set('admin', {
 });
 ```
 
-This means `/orders` returns `{ items, total }`, only fields inside `items` are projected, and `total` is preserved. After saving the response fields, grant field access to roles. See [Configure APIs and Response Fields](/guide/api-bindings) for the full flow.
+This means `/api/orders` returns `{ items, total }`, only fields inside `items` are projected, and `total` is preserved. After saving the response fields, grant field access to roles. See [Configure APIs and Response Fields](/guide/api-bindings) for the full flow.
 
 For routes protected by `routes.protect` or a route-level `permission` option, handlers that return through `res.json()` are automatically projected for the default `api:METHOD:/path` resource, and the plugin writes:
 
@@ -429,7 +417,6 @@ Prefer passing `monsqlize` directly. Use the following options only when the hos
 | `data.transparent` | Recommended main path. Protect `app.db.collection()` / `app.db.model()` inside protected requests. |
 | `data.scopeFields` | Required when transparent or explicit data access is enabled; `tenantId` is required. |
 | `data.collections` | A physical collection name needs a different logical resource or per-collection scope mapping. |
-| `data.exposeAs` | Compatibility entry. Use `'monsqlize'` for `req.monsqlize`, `'db'` for `req.db`, or `false` / omit it when you only want `req.auth.permission.data`. |
 
 Three notes:
 
@@ -444,7 +431,7 @@ Three notes:
 - Missing or incompatible MonSQLize, extension conflicts, and invalid route permission metadata block startup.
 - Route graph changes after startup return `VEXT_ROUTE_RESTART_REQUIRED` (`503`) until a cold restart.
 - Protected routes with shared caching block startup.
-- `req.auth.permission`, `req.monsqlize`, `req.db`, and transparent `app.db` authorization results belong to the current request and must not be cached across requests.
+- `req.auth.permission` and transparent `app.db` authorization results belong to the current request and must not be cached across requests.
 - During Vext shutdown, the plugin drains and closes PermissionCore; the host still owns and closes the host database.
 
 Run the [Vext example](/examples/vext) to see the full `200/401/403/503` flow. See [Vext Plugin API](/api/vext-plugin) for all options and exported types.

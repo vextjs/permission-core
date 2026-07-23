@@ -62,7 +62,7 @@ export default class OrderService {
   -> 插件自动做 401/403、数据权限和响应字段裁剪
 ```
 
-如果暂时只做接口鉴权，只需要配置 `routes.protect/public` 和接口授权；如果 handler 或 service 要读写数据库，再开启 `data.transparent`；如果要裁剪返回字段，再看“响应字段投影”。底层 canonical API、`req.monsqlize` 兼容入口和完整类型见 [Vext 插件 API](/zh/api/vext-plugin)，不作为首次接入主路径。
+如果暂时只做接口鉴权，只需要配置 `routes.protect/public` 和接口授权；如果 handler 或 service 要读写数据库，再开启 `data.transparent`；如果要裁剪返回字段，再看“响应字段投影”。完整选项和类型见 [Vext 插件 API](/zh/api/vext-plugin)，本页只保留当前版本推荐接入路径。
 
 ## 前置条件
 
@@ -159,18 +159,6 @@ export default permissionPlugin({
     collections: {
       vext_orders: { resource: 'db:orders' },
     },
-  },
-});
-```
-
-老项目如果已经用了 `req.monsqlize.collection(...)`，可以继续保留兼容入口：
-
-```ts
-export default permissionPlugin({
-  monsqlize: appMonSQLize,
-  data: {
-    exposeAs: 'monsqlize',
-    scopeFields: { tenantId: 'tenantId' },
   },
 });
 ```
@@ -335,7 +323,7 @@ await scoped.menus.responses.set('admin', {
   owner: {
     ownerType: 'load',
     viewId: 'orders-list',
-    resource: 'api:GET:/orders',
+    resource: 'api:GET:/api/orders',
   },
   response: {
     target: 'items',
@@ -349,7 +337,7 @@ await scoped.menus.responses.set('admin', {
 });
 ```
 
-这表示 `/orders` 返回 `{ items, total }` 时，只裁剪 `items` 里的字段，`total` 保留。保存后，再把字段权限分配给角色；具体分配流程见[接口与响应字段](/zh/guide/api-bindings)。
+这表示 `/api/orders` 返回 `{ items, total }` 时，只裁剪 `items` 里的字段，`total` 保留。保存后，再把字段权限分配给角色；具体分配流程见[接口与响应字段](/zh/guide/api-bindings)。
 
 如果路由被权限保护（来自 `routes.protect` 或单路由 `permission`），并且 handler 通过 `res.json()` 返回数据，插件会自动按默认 `api:METHOD:/path` 资源执行响应字段投影，并写入：
 
@@ -429,7 +417,6 @@ app.post('/api/orders/:id/approve', {}, async (req, res) => {
 | `data.transparent` | 受保护请求里透明保护 `app.db.collection()` / `app.db.model()`；推荐主路径。 |
 | `data.scopeFields` | 需要透明或显式读写业务数据时配置；`tenantId` 必填。 |
 | `data.collections` | 物理 collection 名和逻辑资源名不同，或某个 collection 需要单独 scope 映射。 |
-| `data.exposeAs` | 兼容入口。传 `'monsqlize'` 暴露 `req.monsqlize`；传 `'db'` 暴露 `req.db`；传 `false` 或省略时只使用 `req.auth.permission.data`。 |
 
 这些选项三点要注意：
 
@@ -444,7 +431,7 @@ app.post('/api/orders/:id/approve', {}, async (req, res) => {
 - MonSQLize 缺失、不兼容、扩展冲突、路由权限元数据无效：阻止启动。
 - 启动后路由图变化：返回 `VEXT_ROUTE_RESTART_REQUIRED`（`503`），直到冷重启。
 - 受保护路由开启共享缓存：阻止启动。
-- `req.auth.permission`、`req.monsqlize`、`req.db` 和透明 `app.db` 授权结果：只属于当前请求，不能跨请求缓存。
+- `req.auth.permission` 和透明 `app.db` 授权结果：只属于当前请求，不能跨请求缓存。
 - Vext 关闭：插件排空并关闭 PermissionCore；宿主数据库仍由宿主关闭。
 
 运行 [Vext 示例](/zh/examples/vext) 可以看到完整的 `200/401/403/503` 结果；全部选项和类型见 [Vext 插件 API](/zh/api/vext-plugin)。

@@ -88,6 +88,24 @@ function vextOrdersConfig(): MenuConfigInput {
                         },
                     }],
                 },
+                {
+                    id: "orders-transparent",
+                    type: "page",
+                    title: "Transparent orders",
+                    path: "/vext/orders-transparent",
+                    component: "OrdersTransparentPage",
+                    load: [{
+                        resource: "api:GET:/orders-transparent",
+                        response: {
+                            target: "items",
+                            preserve: ["total"],
+                            fields: [
+                                { field: "orderNo", title: "Order number" },
+                                { field: "status", title: "Status" },
+                            ],
+                        },
+                    }],
+                },
             ],
         }],
     };
@@ -96,8 +114,9 @@ function vextOrdersConfig(): MenuConfigInput {
 function installTestAuth(req: VextRequest) {
     const mode = req.headers["x-test-auth"];
     if (mode === undefined) return;
+    const tenantId = String(req.headers["x-test-tenant-id"] ?? SCOPE.tenantId);
     const auth = mode === "valid"
-        ? { isAuthenticated: true, userId: req.headers["x-user-id"] ?? "u-vext", scope: SCOPE }
+        ? { isAuthenticated: true, userId: req.headers["x-user-id"] ?? "u-vext", scope: { tenantId } }
         : mode === "invalid"
             ? { isAuthenticated: true, userId: "u-vext" }
             : { isAuthenticated: false };
@@ -173,12 +192,15 @@ describe("permissionPlugin with a real Vext host", () => {
             });
             const responseGrantSelection: MenuBusinessPermissionSelection = {
                 configId: "vext-admin",
-                views: ["orders-with-fields", "orders-data"],
+                views: ["orders-with-fields", "orders-data", "orders-transparent"],
                 responseFields: [{
                     apiResource: "api:GET:/orders-with-fields",
                     fields: ["orderNo", "status"],
                 }, {
                     apiResource: "api:GET:/orders-data",
+                    fields: ["orderNo", "status"],
+                }, {
+                    apiResource: "api:GET:/orders-transparent",
                     fields: ["orderNo", "status"],
                 }],
                 include: { loads: true, actions: false, responseFields: "none" as const },
@@ -196,6 +218,13 @@ describe("permissionPlugin with a real Vext host", () => {
             });
             await scoped.userRoles.assign("u-vext", "route-reader");
             await scoped.roles.create({ id: "duplicate-role", label: "Duplicate role" });
+
+            const otherScope = { tenantId: "other-tenant" };
+            const otherScoped = testApp.app.permission.scope(otherScope);
+            await otherScoped.roles.create({ id: "route-reader", label: "Route reader" });
+            await otherScoped.roles.allow("route-reader", { action: "invoke", resource: "api:GET:/orders-model" });
+            await otherScoped.roles.allow("route-reader", { action: "read", resource: "db:orders" });
+            await otherScoped.userRoles.assign("u-other", "route-reader");
 
             resetMetrics();
             const publicResponse = await testApp.request.get("/public");
@@ -256,12 +285,15 @@ describe("permissionPlugin with a real Vext host", () => {
 
             const transparentCollection = await testApp.request.get("/orders-transparent").set("x-test-auth", "valid");
             expect(transparentCollection.status).toBe(200);
+            expect(transparentCollection.headers["cache-control"]).toBe("private, no-store");
             expect(transparentCollection.body).toMatchObject({
                 data: {
-                    items: [{ orderNo: "O-1", status: "paid", amount: 12, internalCost: 7 }],
+                    items: [{ orderNo: "O-1", status: "paid" }],
                     total: 1,
                 },
             });
+            expect(transparentCollection.body.data.items[0]).not.toHaveProperty("amount");
+            expect(transparentCollection.body.data.items[0]).not.toHaveProperty("internalCost");
 
             const transparentModel = await testApp.request.get("/orders-model").set("x-test-auth", "valid");
             expect(transparentModel.status).toBe(200);
@@ -272,6 +304,25 @@ describe("permissionPlugin with a real Vext host", () => {
                     collectionName: "vext_orders",
                 },
             });
+
+            const [tenantModel, otherTenantModel] = await Promise.all([
+                testApp.request.get("/orders-model")
+                    .set("x-test-auth", "valid")
+                    .set("x-user-id", "u-vext")
+                    .set("x-test-tenant-id", SCOPE.tenantId),
+                testApp.request.get("/orders-model")
+                    .set("x-test-auth", "valid")
+                    .set("x-user-id", "u-other")
+                    .set("x-test-tenant-id", otherScope.tenantId),
+            ]);
+            expect(tenantModel.status).toBe(200);
+            expect(otherTenantModel.status).toBe(200);
+            expect(tenantModel.body.data.items).toEqual([
+                { orderNo: "O-1", status: "paid", amount: 12, internalCost: 7 },
+            ]);
+            expect(otherTenantModel.body.data.items).toEqual([
+                { orderNo: "O-2", status: "paid", amount: 99, internalCost: 1 },
+            ]);
 
             const anyAllowed = await testApp.request.get("/permissions/any").set("x-test-auth", "valid");
             expect(anyAllowed.status).toBe(200);

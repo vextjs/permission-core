@@ -101,8 +101,9 @@ async function runMiddleware(
     operation: () => Promise<void> | void,
     resolver?: Parameters<typeof createPermissionRequestMiddleware>[1],
     dataOptions?: ResolvedPermissionVextDataOptions,
+    modelResolver?: Parameters<typeof createPermissionRequestMiddleware>[3],
 ) {
-    const middleware = createPermissionRequestMiddleware(core, resolver, dataOptions);
+    const middleware = createPermissionRequestMiddleware(core, resolver, dataOptions, modelResolver);
     await middleware(req, {} as never, async () => {
         await operation();
     });
@@ -205,6 +206,38 @@ describe("Vext lazy permission request context", () => {
         }, undefined, dataOptions());
     });
 
+    it("installs req.db alias and rejects occupied or stale db aliases", async () => {
+        const req = request({ isAuthenticated: true, userId: "u-1", scope: { tenantId: "t-1" } });
+        const { core, dataCalls } = fakeCore();
+        await runMiddleware(req, core, async () => {
+            const permission = await requirePermissionContext(req);
+            expect(permission.data).toBeDefined();
+            expect((req as never as { db: unknown }).db).toBe(permission.data);
+            await (req as never as { db: NonNullable<typeof permission.data> }).db.collection("orders").find();
+        }, undefined, dataOptions({ exposeAs: "db" }));
+        expect(dataCalls).toEqual([{
+            name: "orders",
+            options: { resource: "db:orders", scopeFields: { tenantId: "tenantId" } },
+        }]);
+
+        const occupied = request({ isAuthenticated: true, userId: "u-1", scope: { tenantId: "t-1" } });
+        Object.defineProperty(occupied, "db", { value: { forged: true }, enumerable: true });
+        await expect(runMiddleware(occupied, fakeCore().core, async () => {
+            await requirePermissionContext(occupied);
+        }, undefined, dataOptions({ exposeAs: "db" })))
+            .rejects.toMatchObject({ status: 500, code: "VEXT_AUTH_EXTENSION_CONFLICT" });
+
+        const stale = request({ isAuthenticated: true, userId: "u-1", scope: { tenantId: "t-1" } });
+        let staleCollection: AuthorizedCollection<Record<string, unknown>> | undefined;
+        await runMiddleware(stale, fakeCore().core, async () => {
+            const permission = await requirePermissionContext(stale);
+            staleCollection = (stale as never as { db: NonNullable<typeof permission.data> }).db.collection("orders");
+            await staleCollection.find();
+        }, undefined, dataOptions({ exposeAs: "db" }));
+        await expect(staleCollection!.find())
+            .rejects.toMatchObject({ status: 500, code: "VEXT_AUTH_EXTENSION_CONFLICT" });
+    });
+
     it("uses configured data collection overrides", async () => {
         const req = request({ isAuthenticated: true, userId: "u-1", scope: { tenantId: "t-1" } });
         const { core, dataCalls } = fakeCore();
@@ -224,6 +257,110 @@ describe("Vext lazy permission request context", () => {
             name: "order_records",
             options: { resource: "db:orders", scopeFields: { tenantId: "tenant_id" } },
         }]);
+    });
+
+    it("maps protected models to authorized collections and fail-closes unsupported model methods", async () => {
+        const req = request({ isAuthenticated: true, userId: "u-1", scope: { tenantId: "t-1" } });
+        const { core, dataCalls, collections } = fakeCore();
+        const rawModel = {
+            collectionName: "order_records",
+            dbName: "tenant-db",
+            poolName: "primary",
+            getNamespace: vi.fn(() => ({ db: "tenant-db", collection: "order_records" })),
+            validate: vi.fn((document: unknown) => ({ ok: true, document })),
+        };
+        const modelResolver = vi.fn(() => rawModel);
+
+        await runMiddleware(req, core, async () => {
+            const permission = await requirePermissionContext(req);
+            const model = permission.data!.model("Order") as unknown as AuthorizedCollection<Record<string, unknown>> & {
+                readonly collectionName: string;
+                readonly dbName?: string;
+                readonly poolName?: string;
+                getNamespace?(): unknown;
+                validate?(document?: unknown): unknown;
+                findOneById(id: string): Promise<unknown>;
+                findById(id: string): Promise<unknown>;
+                findByIds(ids: readonly string[]): Promise<unknown>;
+            };
+            expect(modelResolver).toHaveBeenCalledWith("Order");
+            expect(model.collectionName).toBe("order_records");
+            expect(model.dbName).toBe("tenant-db");
+            expect(model.poolName).toBe("primary");
+            expect(model.getNamespace?.()).toEqual({ db: "tenant-db", collection: "order_records" });
+            expect(model.validate?.({ orderNo: "O-1" })).toEqual({ ok: true, document: { orderNo: "O-1" } });
+
+            await model.find({ status: "paid" }, { projection: ["orderNo"] });
+            await model.findOne({ orderNo: "O-1" });
+            await model.findOneById("id-1");
+            await model.findById("id-2");
+            await model.findByIds(["id-1", "id-2"]);
+            await model.count({});
+            await model.findAndCount({});
+            await model.findPage({ first: 10 });
+            await model.insertOne({ orderNo: "O-2" });
+            await model.updateOne({ orderNo: "O-2" }, { $set: { status: "paid" } }, {});
+            await model.updateMany({ status: "draft" }, { $set: { status: "paid" } }, { maxAffected: 10 });
+            await model.deleteOne({ orderNo: "O-2" }, {});
+            await model.deleteMany({ status: "cancelled" }, { maxAffected: 10 });
+
+            for (const method of [
+                "raw",
+                "insertMany",
+                "replaceOne",
+                "findOneAndUpdate",
+                "findOneAndReplace",
+                "findOneAndDelete",
+                "aggregate",
+                "distinct",
+                "stream",
+                "watch",
+                "createIndex",
+                "createIndexes",
+                "dropIndex",
+                "dropIndexes",
+                "dropCollection",
+            ]) {
+                expect(() => (model as unknown as Record<string, () => unknown>)[method]!(), method)
+                    .toThrowError(expect.objectContaining({ code: "DATA_OPERATION_UNSUPPORTED" }));
+            }
+        }, undefined, dataOptions({
+            collections: Object.freeze({
+                order_records: Object.freeze({
+                    resource: "db:orders",
+                    scopeFields: Object.freeze({ tenantId: "tenant_id" }),
+                }),
+            }),
+        }), modelResolver);
+
+        expect(dataCalls).toEqual([{
+            name: "order_records",
+            options: { resource: "db:orders", scopeFields: { tenantId: "tenant_id" } },
+        }]);
+        expect(collections[0]?.find).toHaveBeenCalledWith({ status: "paid" }, { projection: ["orderNo"] });
+        expect(collections[0]?.findOne).toHaveBeenCalledWith({ _id: "id-1" }, undefined);
+        expect(collections[0]?.find).toHaveBeenCalledWith({ _id: { $in: ["id-1", "id-2"] } }, undefined);
+        expect(collections[0]?.findPage).toHaveBeenCalledWith({ first: 10 });
+        expect(collections[0]?.insertOne).toHaveBeenCalledWith({ orderNo: "O-2" }, undefined);
+    });
+
+    it("fails closed when protected model resolution is missing or unsafe", async () => {
+        const { core } = fakeCore();
+        const withoutResolver = request({ isAuthenticated: true, userId: "u-1", scope: { tenantId: "t-1" } });
+        await runMiddleware(withoutResolver, core, async () => {
+            const permission = await requirePermissionContext(withoutResolver);
+            expect(() => permission.data!.model("Order"))
+                .toThrowError(expect.objectContaining({ status: 400, code: "DATA_OPERATION_UNSUPPORTED" }));
+        }, undefined, dataOptions());
+
+        for (const unsafeModel of [null, new Proxy({}, {})]) {
+            const req = request({ isAuthenticated: true, userId: "u-1", scope: { tenantId: "t-1" } });
+            await runMiddleware(req, core, async () => {
+                const permission = await requirePermissionContext(req);
+                expect(() => permission.data!.model("Order"))
+                    .toThrowError(expect.objectContaining({ status: 400, code: "DATA_OPERATION_UNSUPPORTED" }));
+            }, undefined, dataOptions(), () => unsafeModel);
+        }
     });
 
     it("rejects occupied data aliases and collection reuse outside the owning request", async () => {

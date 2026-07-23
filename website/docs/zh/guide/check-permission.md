@@ -6,7 +6,7 @@
 
 | 你想做什么 | 用哪个方法 | 返回什么 |
 |---|---|---|
-| 页面或业务分支需要一个布尔值 | `subject.can(action, resource, context?)` | `Promise<boolean>` |
+| 页面或业务分支需要一个布尔值 | `subject.can(action, resource)` | `Promise<boolean>` |
 | 只是想把判断写成“不能做某事” | `subject.cannot(...)` | `Promise<boolean>`，等于 `!can(...)` |
 | 后端接口必须无权限就中断 | `subject.assert(...)` | 允许时无返回值，拒绝时抛 `PERMISSION_DENIED` |
 | 想知道为什么被拒绝 | `subject.explain(...)` | 带原因和命中明细的诊断结果 |
@@ -33,11 +33,22 @@ await subject.assert('invoke', 'api:GET:/api/orders');
 | 方法 | 参数 | 原始返回 | 何时使用 |
 |---|---|---|---|
 | [`pc.forSubject(input)`](/zh/api/core-and-contexts#core-for-subject) | `userId` 与可信 `scope` 必填；可选 `claims` | 同步返回 subject facade | 每个请求先绑定可信身份，后续调用复用它 |
-| [`subject.can(action, resource, context?)`](/zh/api/core-and-contexts#core-can) | action/resource 必填；条件规则需要 context | `Promise<boolean>` | 分支显示、路由或业务执行前做布尔检查 |
+| [`subject.can(action, resource)`](/zh/api/core-and-contexts#core-can) | action/resource 必填；subject 已绑定可信身份和策略上下文 | `Promise<boolean>` | 分支显示、路由或业务执行前做布尔检查 |
 | [`subject.cannot(...)`](/zh/api/core-and-contexts#core-cannot) | 与 `can` 完全相同 | `Promise<boolean>`，等于 `!can(...)` | 只为了更自然地表达反向条件 |
 | [`subject.assert(...)`](/zh/api/core-and-contexts#core-assert) | 与 `can` 完全相同 | 允许时 `Promise<void>`，拒绝时抛错 | 后端命令执行前需要强制中止流程时 |
 
 `can` 返回布尔值，`cannot` 返回精确逻辑取反。允许时 `assert` 完成且没有返回值，否则抛出 `PERMISSION_DENIED`。操作被阻止不代表一定存在显式 deny；默认拒绝也会阻止。
+
+如果规则使用 `valueFrom: 'context.xxx'`，不要把 `context` 传给 `subject.can()`。应在创建 subject 时绑定：
+
+```ts
+const subject = pc.forSubject(
+  { userId: 'u-1', scope: { tenantId: 'acme' } },
+  { orderAmount: 1200 },
+);
+```
+
+也可以直接使用 core 级方法：`pc.can(subjectInput, action, resource, context)`。普通 subject facade 的方法签名始终是 `subject.can(action, resource)`、`subject.assert(action, resource)`。
 
 接口检查应使用匹配后的 API 路由模板，例如 `api:GET:/orders/:id`，不要使用带查询参数的具体 URL。授权和检查时必须保持 action 与 resource 命名一致。
 
@@ -71,7 +82,7 @@ const explanation = await subject.explain(
 |---|---|---|
 | `action` | 与真实业务检查相同 | 本例为 `invoke`；不能用 explain 时换成另一个 action。 |
 | `resource` | 与真实业务检查相同 | 本例诊断 DELETE endpoint。 |
-| `context?` | 当前请求的可信策略上下文 | 规则使用动态 `valueFrom` 时必须与 `can/assert` 传入相同上下文。 |
+| 创建 subject 时绑定的 `context` | 当前请求的可信策略上下文 | 规则使用动态 `valueFrom` 时，`explain` 会使用同一个 subject 上下文。 |
 
 常见原因包括 `allow`、`explicit-deny`、`no-allow`、`policy-unknown`、`role-disabled` 和 `context-missing`。解释轨迹是有界响应；在认定全部来源都已返回前，应检查 `detailBudget`。
 
@@ -202,9 +213,9 @@ const invokeResources = await subject.getResources('invoke');
 
 | 方法 | 参数 | 原始返回与用途 |
 |---|---|---|
-| [`subject.getPermissions(options?)`](/zh/api/core-and-contexts#core-get-permissions) | 可选 detail budget；subject 已绑定身份 | 返回角色、规则、冲突的有界诊断快照。 |
-| [`subject.getResources(action?, options?)`](/zh/api/core-and-contexts#core-get-resources) | 可选 action 过滤和 detail budget | 返回有效资源模式；`conditional=true` 表示实际判定仍需要上下文。 |
+| [`subject.getPermissions()`](/zh/api/core-and-contexts#core-get-permissions) | 无参数；subject 已绑定身份 | 返回角色、规则、冲突的有界诊断快照。 |
+| [`subject.getResources(action?)`](/zh/api/core-and-contexts#core-get-resources) | 可选 action 过滤 | 返回有效资源模式；`conditional=true` 表示实际判定仍需要上下文。 |
 
-`getPermissions()` 返回直接角色 ID、有界的有效角色、有效规则和冲突。`getResources(action?)` 返回有效资源模式，并标记带条件的条目。这些方法是诊断快照，不能替代具体操作鉴权；实际请求仍应带策略上下文调用 `can` 或 `assert`。
+`detailBudget` 是这些诊断方法返回值的一部分，不是 subject facade 的入参。`getPermissions()` 返回直接角色 ID、有界的有效角色、有效规则和冲突。`getResources(action?)` 返回有效资源模式，并标记带条件的条目。这些方法是诊断快照，不能替代具体操作鉴权；实际请求仍应使用已经绑定策略上下文的 subject 调用 `can` 或 `assert`。
 
 下一步继续看[数据权限](/zh/guide/data-permissions)。继承行为请继续阅读[角色继承](/zh/guide/role-inheritance)。精确签名见[核心与上下文](/zh/api/core-and-contexts)、[角色 API](/zh/api/roles)和[用户角色 API](/zh/api/user-roles)。

@@ -67,7 +67,7 @@ permissionPlugin({
 });
 ```
 
-`permissionPlugin(options)` 同步返回 Vext plugin；`subject.resolve(req)` 则在受保护请求首次需要权限上下文时调用，可同步或异步返回 `PermissionSubject`。resolver 只能读取可信认证对象和服务端上下文；它的返回值不是 HTTP response。旧 `resolveSubject(auth, req)` 仍兼容，但已废弃，不能和 `subject.resolve(req)` 同时配置。
+`permissionPlugin(options)` 同步返回 Vext plugin；`subject.resolve(req)` 则在受保护请求首次需要权限上下文时调用，可同步或异步返回 `PermissionSubject`。resolver 只能读取可信认证对象和服务端上下文；它的返回值不是 HTTP response。
 
 如果 `req.auth` 同时携带规范化 `permissionSubject` 或 `userId + scope`，resolver 结果必须指向同一用户和完整 scope。不一致时返回 `SCOPE_CONFLICT`，插件不会静默选择其中一个。claims 可以提供策略值，但客户端请求头/请求体中的值不会因为被复制到 `claims` 就自动变可信。
 
@@ -90,6 +90,10 @@ const orders = req.auth.permission.data?.collection('orders');
 | `hasPermissionContext(req)` | 当前 request | 只返回 boolean 类型守卫，不触发惰性解析 |
 
 `can` 返回布尔值。`assert` 成功时返回 `void`，拒绝时映射为 `403`。这个 API 归原请求所有；把它保留给任务、队列或后续请求会 fail closed。
+
+## 历史选项
+
+早期版本暴露过 `resolveSubject(auth, req)`。它仍在类型里保留给历史代码迁移，但新项目不要使用；请统一写 `subject.resolve(req)`。两者不能同时配置，完整兼容规则见[Vext 插件 API](/zh/api/vext-plugin)。
 
 ## 失败边界与下一步
 

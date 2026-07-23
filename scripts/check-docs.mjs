@@ -59,6 +59,7 @@ verifyExecutableTutorialContracts();
 verifyInternalLinks();
 verifyLocaleLinkBoundaries();
 verifyStaleClaims();
+verifyDocumentationExperienceGuardrails();
 
 if (failures.length > 0) {
     for (const failure of failures) {
@@ -1423,6 +1424,76 @@ function verifyStaleClaims() {
             }
         }
     }
+}
+
+function verifyDocumentationExperienceGuardrails() {
+    const genericEnglishPurpose = "perform the documented role, user, menu, API, data, health, or integration operation";
+    for (const page of docsPages.filter((item) => item.section === "api" && supportsLocale(item, "en"))) {
+        const content = read(path.join(docsRoot, page.path));
+        if (content.includes(genericEnglishPurpose)) {
+            failures.push(`EN ${page.path} contains generic API purpose copy instead of method-specific intent`);
+        }
+    }
+
+    for (const [locale, root] of [
+        ["EN", docsRoot],
+        ["ZH", path.join(docsRoot, "zh")],
+    ]) {
+        const checkPermission = read(path.join(root, "guide/check-permission.md"));
+        for (const marker of [
+            "subject.can(action, resource, context?)",
+            "subject.cannot(action, resource, context?)",
+            "subject.assert(action, resource, context?)",
+            "subject.getPermissions(options?)",
+            "subject.getResources(action?, options?)",
+        ]) {
+            if (checkPermission.includes(marker)) {
+                failures.push(`${locale} Check Permissions exposes unsupported subject facade signature: ${marker}`);
+            }
+        }
+        if (/detailBudget\s*[:?=]/u.test(stripMarkdownCommentsAndCode(checkPermission))) {
+            failures.push(`${locale} Check Permissions describes detailBudget as an input option`);
+        }
+
+        const vextGuide = read(path.join(root, "guide/vext-plugin.md"));
+        if (vextGuide.includes("resource: 'api:GET:/orders'") || /[`“”]\/orders[`“”]/u.test(stripMarkdownCommentsAndCode(vextGuide))) {
+            failures.push(`${locale} Vext guide mixes /orders with /api/orders in the main route examples`);
+        }
+
+        const authBoundary = stripMarkdownCommentsAndCode(read(path.join(root, "guide/authentication-boundary.md")));
+        const historicalHeading = locale === "EN" ? "## Historical Option" : "## 历史选项";
+        const historicalIndex = authBoundary.indexOf(historicalHeading);
+        const resolveSubjectIndex = authBoundary.indexOf("resolveSubject");
+        if (resolveSubjectIndex >= 0 && (historicalIndex < 0 || resolveSubjectIndex < historicalIndex)) {
+            failures.push(`${locale} Authentication Boundary mentions resolveSubject before its historical-options section`);
+        }
+        if (authBoundary.includes("This section explains the operation in plain terms")) {
+            failures.push(`${locale} Authentication Boundary still contains generated template filler text`);
+        }
+
+        const menuManagement = stripMarkdownCommentsAndCode(read(path.join(root, "guide/menu-management.md")));
+        const treeReadHeading = locale === "EN"
+            ? "## Open the management page: read the full tree first"
+            : "## 打开管理页：先读取完整菜单树";
+        const menuMainPath = menuManagement.slice(0, Math.max(0, menuManagement.indexOf(treeReadHeading)));
+        for (const marker of ["apiBindings", "owner relationship", "owner 关系", "v2"]) {
+            if (menuMainPath.includes(marker)) {
+                failures.push(`${locale} Menu Management main path exposes historical/internal storage marker: ${marker}`);
+            }
+        }
+
+        const roleMenu = read(path.join(root, "guide/role-menu-authorization.md"));
+        const previewSection = roleMenu.slice(roleMenu.indexOf(locale === "EN" ? "## Preview, Then Commit" : "## 预览再提交"));
+        if (!previewSection.includes("{ operation: 'set', assignments }") || !previewSection.includes("menuPermissions.set(")) {
+            failures.push(`${locale} Role Menu Authorization main example must use set(assignments) for full-tree saves`);
+        }
+    }
+}
+
+function stripMarkdownCommentsAndCode(content) {
+    return content
+        .replace(/<!--[\s\S]*?-->/gu, "")
+        .replace(/```[\s\S]*?```/gu, "");
 }
 
 function verifySourceBackedClaims() {

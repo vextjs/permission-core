@@ -40,7 +40,7 @@ Details discriminators include `validation`, `limit-exceeded`, `data-value-unsup
 ### `PermissionCoreError`
 <!-- docs:method name=PermissionCoreError locale=en -->
 
-- **Purpose**: Use `PermissionCoreError` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Handle permission-core failures with stable error codes, HTTP mapping, and machine-readable details.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.

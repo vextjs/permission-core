@@ -43,7 +43,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `assign(userId, roleId, options?)`
 <!-- docs:method name=userRoles.assign locale=en -->
 
-- **Purpose**: Use `userRoles.assign` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Add one role binding to a user without replacing other direct role bindings.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -52,7 +52,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `revoke(userId, roleId, options?)`
 <!-- docs:method name=userRoles.revoke locale=en -->
 
-- **Purpose**: Use `userRoles.revoke` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Remove one direct role binding from a user while preserving the rest.
 - **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -61,7 +61,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `set(userId, roleIds, options)`
 <!-- docs:method name=userRoles.set locale=en -->
 
-- **Purpose**: Use `userRoles.set` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Replace a user's direct role bindings with the provided complete role list.
 - **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -70,7 +70,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `clear(userId, options)`
 <!-- docs:method name=userRoles.clear locale=en -->
 
-- **Purpose**: Use `userRoles.clear` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Remove all direct roles from a user after checking the expected revision.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -79,7 +79,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `getDirect(userId)`
 <!-- docs:method name=userRoles.getDirect locale=en -->
 
-- **Purpose**: Use `userRoles.getDirect` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Read the roles directly assigned to a user and their binding revision.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -88,7 +88,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `getEffective(userId)`
 <!-- docs:method name=userRoles.getEffective locale=en -->
 
-- **Purpose**: Use `userRoles.getEffective` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Read the user's final effective roles after role inheritance and disabled-role filtering.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -97,7 +97,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `listUsersByRole(roleId, query?)`
 <!-- docs:method name=userRoles.listUsersByRole locale=en -->
 
-- **Purpose**: Use `userRoles.listUsersByRole` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Page through users that directly hold a role, useful for impact review and administration.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `PageResult<T>` or the documented paged business result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.

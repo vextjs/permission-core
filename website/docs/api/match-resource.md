@@ -33,7 +33,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `matchResource(pattern, resource)`
 <!-- docs:method name=matchResource locale=en -->
 
-- **Purpose**: Use `matchResource` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Test whether a resource pattern matches a concrete resource using the same matcher as permission checks.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `boolean` or the documented matcher result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.

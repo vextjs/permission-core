@@ -1,6 +1,6 @@
 # Manage Menus
 
-The recommended menu-management workflow follows the way an admin UI is usually built: create a menu config first, then create menus, views, page load APIs, actions, and response fields. permission-core compiles those operations into internal menu nodes, API permissions, and response-field inventory; you do not need to maintain `nodes`, `apiBindings`, or owner relationships by hand.
+The recommended menu-management workflow follows the way an admin UI is usually built: create a menu config first, then create menus, views, page load APIs, actions, and response fields. permission-core generates the runtime API contracts and response-field inventory when these objects are saved; admin forms only maintain the objects themselves.
 
 The smallest useful mental model is:
 
@@ -30,11 +30,11 @@ Saving menus is not user authorization. It records what the system can expose; r
 
 If you are building a normal admin UI, read the first half first and use the incremental object methods. The later `MenuConfigInput`, `menus.config.save()`, and batch-import sections are mainly for plugins, CI/CD, and config-as-code.
 
-## New Projects and Existing Projects
+## Which API should a normal admin UI use?
 
-For new projects, keep one main line in mind: manage config with `menus.configs/items/views/loadApis/actions/responses`, grant roles with `roles.menuPermissions`, and project runtime state with `subject.menus.*`.
+For a normal admin UI, keep one main line in mind: manage config with `menus.configs/items/views/loadApis/actions/responses`, grant roles with `roles.menuPermissions`, and project runtime state with `subject.menus.*`.
 
-The older `nodes`, `apiBindings`, and owner model still exists internally for v2 manifests, batch import, and migration compatibility. A normal admin UI should not maintain those records by hand. When you see `menus.config.*`, treat it as the advanced full-config entrypoint for import or config-as-code, not the default save method for form screens.
+When you see `menus.config.*`, treat it as the advanced full-config entrypoint for import or config-as-code, not the default save method for form screens. Historical migration internals stay out of this guide's main path so a first integration does not have to learn storage implementation details.
 
 | What you are building | Use this |
 |---|---|
@@ -42,7 +42,6 @@ The older `nodes`, `apiBindings`, and owner model still exists internally for v2
 | Role authorization for menus, views, actions, APIs, and fields | `roles.menuPermissions.*` |
 | Runtime visible menu tree and action state for the current user | `subject.menus.getViewTree()` / `getActionMap()` |
 | Plugin install, CI/CD, or full config import | `MenuConfigInput` + `menus.config.save()` |
-| Historical v2 manifest maintenance or compatibility migration | Migration tooling that handles `nodes` / `apiBindings` / owner records |
 
 ## Open the management page: read the full tree first
 
@@ -202,7 +201,7 @@ const result = await scoped.menus.management.applyChanges('admin', [
 | Add buttons or actions | `menus.actions.previewCreate()` / `create()` |
 | Configure API response fields | `menus.responses.previewSet()` / `set()` |
 
-`menus.configs.create()` can create an empty config so the admin UI can build the tree gradually. `menus.config.save({ menus: [] })` still fails because that legacy batch entrypoint means “replace the full config”; an empty array can accidentally delete the whole menu model.
+`menus.configs.create()` can create an empty config so the admin UI can build the tree gradually. `menus.config.save({ menus: [] })` still fails because the full-config batch entrypoint means “replace the whole config”; an empty array can accidentally delete the whole menu model.
 
 When should you use explicit preview?
 
@@ -225,7 +224,7 @@ Object methods are best for normal admin forms. Every write follows the same pat
 const result = await scoped.menus.items.create('admin', input);
 ```
 
-`create/update/add/set()` returns `MutationResult<MenuManagementResult>` and really writes the config, internal menu nodes, API contracts, and response-field inventory. `preview*()` returns `ImpactPreview<MenuManagementPlan>` and is read-only; use it for deletes, capacity risk, or UIs that need to show impact before committing.
+`create/update/add/set()` returns `MutationResult<MenuManagementResult>` and really writes the config, API contracts, and response-field inventory needed at runtime. `preview*()` returns `ImpactPreview<MenuManagementPlan>` and is read-only; use it for deletes, capacity risk, or UIs that need to show impact before committing.
 
 Prefer binding `actorId/requestId` once with `pc.scope(scope, defaults)`. Per-call `options` are only needed to override defaults, submit explicit preview credentials, or acknowledge capacity risk. `idempotencyKey` is not part of the permission model; it only overrides the default strategy for advanced integrations.
 

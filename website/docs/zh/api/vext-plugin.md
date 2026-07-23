@@ -131,11 +131,11 @@ interface PermissionVextPluginOptions {
 - **状态影响**：创建 facade 本身不访问数据库；每次 `find/insert/update/delete` 调用都会重新校验当前请求 owner、路由 subject、scope、行规则和字段权限。
 - **原始返回**：`AuthorizedCollection<TDocument, TCreate>`；它不是完整 MonSQLize collection，也不暴露 `raw()`。
 
-`data.exposeAs: 'monsqlize'` 时，`req.monsqlize.collection(name)` 是同一个请求数据门面的别名。该别名只是为了降低 Vext handler 心智成本，不能跨请求缓存。
+`data.exposeAs: 'monsqlize'` 时，`req.monsqlize.collection(name)` 是同一个请求数据门面的可选别名，不能跨请求缓存。
 
-`data.exposeAs: 'db'` 时，`req.db.collection(name)` 是同一个门面的另一个兼容别名。
+`data.exposeAs: 'db'` 时，`req.db.collection(name)` 是同一个请求数据门面的可选别名。
 
-`req.monsqlize` 和 `req.db` 在公开类型里都是可选字段，因为只有配置对应 `data.exposeAs` 时才会安装别名。TypeScript handler 里如果需要稳定拿到权限对象，可以先调用 `requirePermissionContext(req)`，再用 `req.monsqlize ?? req.db ?? permission.data` 兼容别名入口和 canonical data 入口。
+`req.monsqlize` 和 `req.db` 在公开类型里都是可选字段，因为只有配置对应 `data.exposeAs` 时才会安装别名。TypeScript handler 里如果需要稳定拿到权限对象，可以先调用 `requirePermissionContext(req)`，再从返回值读取 `permission.data`。
 
 <span id="vext-request-data-model"></span>
 ### `req.auth.permission.data.model(name)`

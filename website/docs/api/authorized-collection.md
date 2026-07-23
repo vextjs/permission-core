@@ -53,7 +53,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `subject.data.collection(name, options)`
 <!-- docs:method name=subject.data.collection locale=en -->
 
-- **Purpose**: Use `subject.data.collection` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Create an `AuthorizedCollection` bound to the subject, collection name, scope mapping, and optional field policy.
 - **Parameters**: Pass trusted host state only: normalized scope, authenticated user ID, claims/context, and collection options that map every active scope field.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -62,7 +62,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `find(filter?, options?)`
 <!-- docs:method name=authorizedCollection.find locale=en -->
 
-- **Purpose**: Use `authorizedCollection.find` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Run a scoped find query after permission-core merges tenant scope, row filters, and field projection.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -71,7 +71,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `findOne(filter?, options?)`
 <!-- docs:method name=authorizedCollection.findOne locale=en -->
 
-- **Purpose**: Use `authorizedCollection.findOne` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Read the first authorized document that matches the caller's filter after scope and row rules are applied.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -80,7 +80,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `count(filter?, options?)`
 <!-- docs:method name=authorizedCollection.count locale=en -->
 
-- **Purpose**: Use `authorizedCollection.count` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Count only the documents visible to the subject after scope and row filters are merged.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -89,7 +89,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `findAndCount(filter?, options?)`
 <!-- docs:method name=authorizedCollection.findAndCount locale=en -->
 
-- **Purpose**: Use `authorizedCollection.findAndCount` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Fetch authorized rows and the matching authorized count in one helper for offset-style pages.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -98,7 +98,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `findPage(query?)`
 <!-- docs:method name=authorizedCollection.findPage locale=en -->
 
-- **Purpose**: Use `authorizedCollection.findPage` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Fetch a signed-cursor page while preserving the same permission scope and filter constraints across page turns.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `PageResult<T>` or the documented paged business result. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -107,7 +107,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `insertOne(document, options?)`
 <!-- docs:method name=authorizedCollection.insertOne locale=en -->
 
-- **Purpose**: Use `authorizedCollection.insertOne` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Insert one document only when the subject has write permission and the payload satisfies scope and field rules.
 - **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -116,7 +116,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `updateOne(filter, update, options?)`
 <!-- docs:method name=authorizedCollection.updateOne locale=en -->
 
-- **Purpose**: Use `authorizedCollection.updateOne` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Update one authorized document after merging scope filters and checking writeable fields.
 - **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -125,7 +125,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `updateMany(filter, update, options)`
 <!-- docs:method name=authorizedCollection.updateMany locale=en -->
 
-- **Purpose**: Use `authorizedCollection.updateMany` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Update many authorized documents while applying the same scope, row, and field checks to the bulk operation.
 - **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -134,7 +134,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `deleteOne(filter, options?)`
 <!-- docs:method name=authorizedCollection.deleteOne locale=en -->
 
-- **Purpose**: Use `authorizedCollection.deleteOne` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Delete one document only if it is visible to the subject and the subject has delete permission.
 - **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -143,7 +143,7 @@ This section narrows the public contract for this method family. Read it before 
 ### `deleteMany(filter, options)`
 <!-- docs:method name=authorizedCollection.deleteMany locale=en -->
 
-- **Purpose**: Use `authorizedCollection.deleteMany` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Delete multiple authorized documents while fail-closed scope and row filters prevent cross-tenant deletion.
 - **Parameters**: Use the ID, input object, revision or preview options shown in the signature. Values must come from the current scope and from a fresh read or preview when revision protection is required.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.

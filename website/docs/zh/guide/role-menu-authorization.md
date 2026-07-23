@@ -17,7 +17,7 @@
 | 5 | 把角色分给用户 | `userRoles.assign()` 或 `userRoles.set()` |
 | 6 | 用户请求时投影结果 | `subject.menus.getViewTree()` / `getActionMap()` / `filterResponse()` |
 
-普通后台页面最常见的是“保存整棵授权树”，也就是读取 `getAuthorizationTree()`，用户勾选后调用 `preview({ operation: 'set', assignments })`，确认后再调用 `set()`。下面用 `grant()` 演示，是为了让例子更短；如果你做的是完整角色授权表单，优先用 `set()`。
+普通后台页面最常见的是“保存整棵授权树”，也就是读取 `getAuthorizationTree()`，用户勾选后组装 `assignments`，调用 `preview({ operation: 'set', assignments })`，确认后再调用 `set()`。
 
 ## 对象怎样连在一起
 
@@ -80,6 +80,10 @@ const selection = {
     responseFields: 'none',
   },
 };
+
+const assignments = [
+  { effect: 'allow', selection },
+];
 ```
 
 | 字段 | 本例值 | 作用 |
@@ -93,6 +97,7 @@ const selection = {
 | `include.loads` | `true` | 自动包含所选页面的 `load.resource`。 |
 | `include.actions` | `true` | 自动包含所选页面的 `actions[].resource`。 |
 | `include.responseFields` | `'none'` | 不自动全选字段，只使用显式 `responseFields`。 |
+| `assignments` | `[{ effect: 'allow', selection }]` | 保存整棵授权树时使用；每一项表示一组 allow 或 deny。 |
 
 默认值是：`descendants: false`、`loads: true`、`actions: false`、`responseFields: 'none'`。也就是说，勾选一个页面时会默认给页面加载接口，但不会默认给按钮，也不会默认给响应字段。如果你希望“选中页面时默认拥有所有已声明响应字段”，可以把 `include.responseFields` 设为 `'all'`。后台管理系统一般更建议显式选择字段，避免页面后来新增敏感字段时自动泄漏给旧角色。
 
@@ -107,12 +112,12 @@ const selection = {
 ```ts
 const scoped = pc.scope(
   { tenantId: 'acme', appId: 'admin' },
-  { actorId: 'admin', requestId: 'req-grant-order-operator-menu' },
+  { actorId: 'admin', requestId: 'req-set-order-operator-menu' },
 );
 
 const preview = await scoped.roles.menuPermissions.preview(
   'order-operator',
-  { operation: 'grant', selection },
+  { operation: 'set', assignments },
 );
 
 if (!preview.executable) {
@@ -134,12 +139,12 @@ if (!preview.executable) {
 }
 ```
 
-确认保存时，把同一个 `selection` 和 preview 返回的凭证传给写入方法：
+确认保存时，把同一个 `assignments` 和 preview 返回的凭证传给写入方法：
 
 ```ts
-const granted = await scoped.roles.menuPermissions.grant(
+const saved = await scoped.roles.menuPermissions.set(
   'order-operator',
-  selection,
+  assignments,
   {
     ...preview.expected,
     previewToken: preview.previewToken,
@@ -151,18 +156,22 @@ const granted = await scoped.roles.menuPermissions.grant(
 {
   "changed": true,
   "data": {
-    "roleId": "order-operator",
-    "grantIds": { "total": 1, "items": ["grant_..."] },
-    "generatedSources": 3,
-    "generatedResponseFields": 2,
-    "removedSources": 0
+    "inserted": 1,
+    "updated": 0,
+    "unchanged": 0,
+    "deleted": 0,
+    "conflicted": 0,
+    "samples": {
+      "total": 1,
+      "items": [{ "id": "grant_...", "outcome": "inserted" }]
+    }
   }
 }
 ```
 
-`menuPermissions.preview(roleId, change)` 不写数据库，只计算这次授权会生成多少来源、影响哪些用户、是否有冲突。`menuPermissions.grant(roleId, selection, options)` 才写入 allow 授权。执行时必须传入预览返回的 `expected` 和 `previewToken`。
+`menuPermissions.preview(roleId, change)` 不写数据库，只计算这次授权会生成多少来源、影响哪些用户、是否有冲突。`menuPermissions.set(roleId, assignments, options)` 才把后台当前勾选结果写成该角色的完整直接菜单授权。执行时必须传入预览返回的 `expected` 和 `previewToken`。
 
-`generatedSources` 表示生成了多少条可追踪规则来源，例如视图、加载接口、按钮接口。`generatedResponseFields` 表示这次授权了多少个响应字段。它们是审计和排查用的计数，不是权限判断 API。
+`inserted/updated/deleted/unchanged/conflicted` 是本次保存的批量写入摘要；`samples.items` 只给排查用的少量样例，不是授权判断 API。想看更细的授权来源、响应字段和影响用户，应优先看 preview 的 `summary`。
 
 ## 授权、拒绝、撤销和替换
 

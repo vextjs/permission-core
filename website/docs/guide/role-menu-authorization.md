@@ -18,7 +18,7 @@ If you are building a role authorization page, think in this order:
 | 5 | Give the role to users | `userRoles.assign()` or `userRoles.set()` |
 | 6 | Project the result at request time | `subject.menus.getViewTree()` / `getActionMap()` / `filterResponse()` |
 
-The most common admin page saves the whole authorization tree: read `getAuthorizationTree()`, let the user select items, call `preview({ operation: 'set', assignments })`, then call `set()` after confirmation. The example below uses `grant()` only to keep the snippet short; for a full role authorization form, prefer `set()`.
+The most common admin page saves the whole authorization tree: read `getAuthorizationTree()`, let the user select items, build `assignments`, call `preview({ operation: 'set', assignments })`, then call `set()` after confirmation.
 
 ## How the Objects Connect
 
@@ -81,6 +81,10 @@ const selection = {
     responseFields: 'none',
   },
 };
+
+const assignments = [
+  { effect: 'allow', selection },
+];
 ```
 
 | Field | Example | Meaning |
@@ -94,6 +98,7 @@ const selection = {
 | `include.loads` | `true` | Includes `load.resource` from selected views. |
 | `include.actions` | `true` | Includes `actions[].resource` from selected views. |
 | `include.responseFields` | `'none'` | Uses only explicit `responseFields`; does not auto-grant all fields. |
+| `assignments` | `[{ effect: 'allow', selection }]` | Used when saving the full authorization tree; each item is one allow or deny assignment. |
 
 Defaults are `descendants: false`, `loads: true`, `actions: false`, and `responseFields: 'none'`. Selecting a view therefore grants page load APIs by default, but does not automatically grant actions or response fields. Use `include.responseFields: 'all'` when selecting a view should grant every declared response field. Admin systems often prefer explicit fields so newly added sensitive fields are not automatically exposed to old roles.
 
@@ -108,12 +113,12 @@ Preview first:
 ```ts
 const scoped = pc.scope(
   { tenantId: 'acme', appId: 'admin' },
-  { actorId: 'admin', requestId: 'req-grant-order-operator-menu' },
+  { actorId: 'admin', requestId: 'req-set-order-operator-menu' },
 );
 
 const preview = await scoped.roles.menuPermissions.preview(
   'order-operator',
-  { operation: 'grant', selection },
+  { operation: 'set', assignments },
 );
 
 if (!preview.executable) {
@@ -135,12 +140,12 @@ When there are no conflicts, the admin UI mainly cares about `executable: true`,
 }
 ```
 
-After confirmation, pass the same `selection` and the preview credentials to the write method:
+After confirmation, pass the same `assignments` and the preview credentials to the write method:
 
 ```ts
-const granted = await scoped.roles.menuPermissions.grant(
+const saved = await scoped.roles.menuPermissions.set(
   'order-operator',
-  selection,
+  assignments,
   {
     ...preview.expected,
     previewToken: preview.previewToken,
@@ -152,16 +157,22 @@ const granted = await scoped.roles.menuPermissions.grant(
 {
   "changed": true,
   "data": {
-    "roleId": "order-operator",
-    "grantIds": { "total": 1, "items": ["grant_..."] },
-    "generatedSources": 3,
-    "generatedResponseFields": 2,
-    "removedSources": 0
+    "inserted": 1,
+    "updated": 0,
+    "unchanged": 0,
+    "deleted": 0,
+    "conflicted": 0,
+    "samples": {
+      "total": 1,
+      "items": [{ "id": "grant_...", "outcome": "inserted" }]
+    }
   }
 }
 ```
 
-`menuPermissions.preview(roleId, change)` reads only and computes sources, affected users, and conflicts. `menuPermissions.grant(roleId, selection, options)` writes the allow grant. Execution must include the preview's `expected` vector and `previewToken`. The result exposes `generatedSources`, `generatedResponseFields`, and each `grantId` for the committed `operation`.
+`menuPermissions.preview(roleId, change)` reads only and computes sources, affected users, and conflicts. `menuPermissions.set(roleId, assignments, options)` writes the current admin selection as the role's complete direct menu authorization. Execution must include the preview's `expected` vector and `previewToken`.
+
+`inserted/updated/deleted/unchanged/conflicted` is the batch-write summary for this save. `samples.items` is only a small troubleshooting sample, not the permission-checking API. For detailed generated sources, response fields, and affected users, read the preview `summary` first.
 
 ## Grant, Deny, Revoke, or Replace
 
@@ -174,7 +185,7 @@ These four methods are not equal in day-to-day admin UI work. A normal role auth
 | `deny(roleId, selection, options)` | Explicitly forbid menu capabilities | Appends a deny grant. |
 | `revoke(roleId, { grantIds }, options)` | Remove specific grant records | Removes only the named grants. |
 
-`set()` replaces menu grants only. It does not replace manual `roles.allow()` or `roles.deny()` rules, and it does not change user-role bindings. Every write method requires a matching preview operation.
+`set()` replaces menu grants only. It does not replace manual `roles.allow()` or `roles.deny()` rules, and it does not change user-role bindings. Every write method requires a matching preview `operation`; `revoke()` removes grants by `grantId`.
 
 ## Read Role Authorization
 

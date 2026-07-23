@@ -131,11 +131,11 @@ interface PermissionVextPluginOptions {
 - **State impact**: Creating the facade does not access the database; every `find/insert/update/delete` call re-checks the current request owner, subject, scope, row rules, and field permissions.
 - **Raw return**: `AuthorizedCollection<TDocument, TCreate>`; it is not a full MonSQLize collection and does not expose `raw()`.
 
-When `data.exposeAs: 'monsqlize'` is configured, `req.monsqlize.collection(name)` is the same request data facade as a friendly alias. Do not cache it across requests.
+When `data.exposeAs: 'monsqlize'` is configured, `req.monsqlize.collection(name)` is an optional alias for the same request data facade. Do not cache it across requests.
 
-When `data.exposeAs: 'db'` is configured, `req.db.collection(name)` is the same facade under a different compatibility alias.
+When `data.exposeAs: 'db'` is configured, `req.db.collection(name)` is an optional alias for the same request data facade.
 
-`req.monsqlize` and `req.db` are optional in the public type because aliases only exist when configured. In TypeScript handlers, call `requirePermissionContext(req)` when you want a narrowed permission object and use `req.monsqlize ?? req.db ?? permission.data` to support aliases and the canonical data entry.
+`req.monsqlize` and `req.db` are optional in the public type because aliases only exist when configured. In TypeScript handlers, call `requirePermissionContext(req)` when you want a narrowed permission object, then read `permission.data` from the returned value.
 
 <span id="vext-request-data-model"></span>
 ### `req.auth.permission.data.model(name)`

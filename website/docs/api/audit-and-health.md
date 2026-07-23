@@ -46,7 +46,7 @@ The methods below are the public health and audit surface. They are intentionall
 ### `pc.init()`
 <!-- docs:method name=init locale=en -->
 
-- **Purpose**: Use `init` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Initialize persistence contracts, indexes, health state, and runtime readiness before serving permission checks.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: the public type shown in the signature section. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
@@ -55,7 +55,7 @@ The methods below are the public health and audit surface. They are intentionall
 ### `pc.health()`
 <!-- docs:method name=health locale=en -->
 
-- **Purpose**: Use `health` from the current trusted context to perform the documented role, user, menu, API, data, health, or integration operation.
+- **Purpose**: Read current readiness plus database, schema, cache, token, and audit health for operators or health checks.
 - **Parameters**: Pass the documented identifier, filter, action, resource, query, or options object. Optional detail budgets are bounded and should be handled as possibly truncated diagnostics.
 - **State impact**: Read methods are side-effect free. Mutation or execute methods validate scope, revision, preview token, ownership, and capacity before committing state and audit evidence.
 - **Raw return**: `VersionedResult<T>` or `SubjectRuntimeResult<T>` depending on the context. Read the documented envelope directly; tutorial summary JSON is only a selected display shape.
